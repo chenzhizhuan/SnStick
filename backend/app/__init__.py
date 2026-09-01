@@ -1,4 +1,4 @@
-"""Tick Stock Panel backend."""
+"""SnStick backend."""
 
 import sys
 
