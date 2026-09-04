@@ -15,7 +15,6 @@ import { useMutation } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Logo } from '@/components/Logo'
 import { cn } from '@/lib/cn'
 
 export function Auth() {
@@ -88,8 +87,9 @@ export function Auth() {
       >
         {/* Logo */}
         <div className="mb-6 flex flex-col items-center gap-2">
-          <Logo className="h-10 w-10" />
-          <h1 className="text-lg font-semibold text-foreground">SnStick</h1>
+          {/* <img src="/logo.svg" alt="SnStick" className="h-10 w-10 object-contain" />
+          <h1 className="text-lg font-semibold text-foreground">SnStick</h1> */}
+          <img src="/logo.png" alt="SnStick" className="h-20 w-50 object-contain" />
         </div>
 
         <div className="rounded-card border border-border bg-surface/90 p-6 shadow-2xl backdrop-blur">

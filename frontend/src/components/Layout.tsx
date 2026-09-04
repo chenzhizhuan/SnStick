@@ -681,17 +681,18 @@ export function Layout() {
         <div className={cn('border-b border-border shrink-0', railMode ? 'px-2 pt-3 pb-2' : 'px-4 pt-4 pb-3')}>
           {/* Brand block — 收起时只显 logo 居中 */}
           <div className={cn('flex', railMode ? 'flex-col items-center gap-2' : 'items-center gap-2')}>
-            <Logo
+            {/* <Logo
               size={railMode ? 24 : 26}
               className="shrink-0 drop-shadow-[0_0_8px_rgba(139,92,246,0.4)]"
               style={{ color: BRAND }}
-            />
+            /> */}
+            <img src="/min_logo.png" className="h-10 w-10 object-contain" alt="" />
             {!railMode && (
               <div
                 className="font-bold text-[11px] uppercase tracking-[0.14em] text-foreground whitespace-nowrap"
-                style={{ textShadow: `0 0 10px ${BRAND}44` }}
+                style={{ textShadow: `0 0 10px ${BRAND}44`, fontSize: '18px' , fontFamily: 'cursive' }}
               >
-                SnStick
+                赢在子午线
               </div>
             )}
             {/* 收起/展开 按钮 (桌面三态循环) / 移动端抽屉关闭按钮 */}
