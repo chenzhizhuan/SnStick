@@ -56,6 +56,7 @@ import {
   PanelLeftOpen,
 } from 'lucide-react'
 // import { Logo } from './Logo'
+import minLogoImg from '@/assets/min_logo.png'
 import { api, type CapabilityMatrix, type IndexQuote } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useIsDesktop } from '@/lib/useMediaQuery'
@@ -686,7 +687,7 @@ export function Layout() {
               className="shrink-0 drop-shadow-[0_0_8px_rgba(139,92,246,0.4)]"
               style={{ color: BRAND }}
             /> */}
-            <img src="/min_logo.png" className="h-10 w-10 object-contain" alt="" />
+            <img src={minLogoImg} className="h-10 w-10 object-contain" alt="" />
             {!railMode && (
               <div
                 className="font-bold text-[11px] uppercase tracking-[0.14em] text-foreground whitespace-nowrap"

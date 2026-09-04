@@ -16,6 +16,7 @@ import { motion } from 'framer-motion'
 import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
+import logoImg from '@/assets/logo.png'
 
 export function Auth() {
   const navigate = useNavigate()
@@ -86,10 +87,8 @@ export function Auth() {
         className="relative w-full max-w-sm"
       >
         {/* Logo */}
-        <div className="mb-6 flex flex-col items-center gap-2">
-          {/* <img src="/logo.svg" alt="SnStick" className="h-10 w-10 object-contain" />
-          <h1 className="text-lg font-semibold text-foreground">SnStick</h1> */}
-          <img src="/logo.png" alt="SnStick" className="h-20 w-50 object-contain" />
+        <div className="mb-6 flex items-center justify-center">
+          <img src={logoImg} alt="SnStick" className="h-20 w-auto object-contain" />
         </div>
 
         <div className="rounded-card border border-border bg-surface/90 p-6 shadow-2xl backdrop-blur">
