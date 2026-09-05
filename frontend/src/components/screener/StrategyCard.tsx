@@ -94,20 +94,22 @@ interface StrategyCardProps {
   onToggleMonitor?: () => void
   /** 周期徽章 (如 '分钟'); 日线策略不传 */
   timeframeBadge?: string
+  /** 扇形层级（coverflow 视觉）；mini/hidden 密度不传 */
+  fanTier?: string
 }
 
 export function StrategyCard({
   name, description, source, active, count, expiredCount,
-  loading, cardSize,
+  loading, cardSize, fanTier,
   onRun, disabled, onSettings, monitored, onToggleMonitor, timeframeBadge,
 }: StrategyCardProps) {
   const cs = CARD_STYLES[cardSize]
   const activeCls = active
-    ? 'border-accent/50 bg-accent/10 shadow-[0_0_10px_rgba(59,130,246,0.1)]'
+    ? 'sn-strategy-card--active border-accent/50 bg-accent/10'
     : 'border-border bg-surface hover:border-accent/40 hover:bg-accent/[0.03]'
   const countCls = count === 0
     ? 'text-muted'
-    : 'bg-gradient-to-r from-amber-400 to-orange-500 bg-clip-text text-transparent'
+    : 'text-foreground'
   const srcLabel = cardSize === 'mini' ? (SRC_MAP[source ?? ''] ?? '内') : (SRC_MAP[source ?? ''] ?? '内置')
   const badgeCls = BADGE_CLS_MAP[source ?? 'builtin'] ?? BADGE_CLS_MAP.builtin
 
@@ -119,7 +121,9 @@ export function StrategyCard({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-      className={`${cs.card} border transition-all duration-150 text-left group ${activeCls}`}
+      className={`sn-strategy-card ${cs.card} border transition-all duration-150 text-left group ${activeCls}`}
+      data-density={cardSize}
+      data-fan={fanTier}
     >
       {cardSize === 'large' ? (
         <>
