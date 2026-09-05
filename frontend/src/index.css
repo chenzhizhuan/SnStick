@@ -2,78 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
-/* === §6.0 设计语言 CSS variables ===
- * 暗色为默认(html.dark) / 亮色用 :root 反转
- * HSL 形式以兼容 Tailwind alpha-value 语法
- */
+/* SnStick · Blue/Cyan Frost. HSL tokens remain compatible with existing utilities. */
 :root {
-  /* 亮色(可切换) */
-  --base: 0 0% 98%;          /* #FAFAFA */
-  --surface: 0 0% 100%;      /* #FFFFFF */
-  --elevated: 240 5% 96%;    /* #F4F4F5 */
-  --border: 240 6% 90%;      /* #E4E4E7 */
-  --fg-primary: 240 6% 10%;  /* #18181B */
-  --fg-secondary: 240 4% 35%;/* #52525B */
-  --fg-muted: 240 5% 65%;    /* #A1A1AA */
-  --accent: 217 91% 60%;     /* #3B82F6 电光蓝 */
-  --bull: 4 87% 60%;         /* #F04438 红涨 */
-  --bear: 152 67% 45%;       /* #12B76A 绿跌 */
-  --warning: 32 95% 50%;     /* #F79009 */
-  --danger: 4 87% 60%;       /* #F04438 */
-}
-
-html.dark {
-  --base: 240 5% 5%;         /* #0A0A0B */
-  --surface: 240 7% 10%;     /* #18181B 略亮一点,与 base 对比清晰 */
-  --elevated: 240 9% 14%;    /* #212126 */
-  --border: 240 5% 22%;      /* #353539 边框加亮,易识别 */
-  --fg-primary: 0 0% 98%;    /* #FAFAFA */
-  --fg-secondary: 240 5% 78%;/* #C4C4CB 大幅提亮 — 子标题/导航非激活态 */
-  --fg-muted: 240 5% 58%;    /* #8E8E96 muted 提亮 — 辅助提示 */
-  --accent: 217 91% 60%;
+  color-scheme: light;
+  --base: 210 20% 97%;
+  --surface: 0 0% 100%;
+  --elevated: 210 18% 94%;
+  --border: 213 14% 84%;
+  --fg-primary: 216 20% 14%;
+  --fg-secondary: 215 14% 34%;
+  --fg-muted: 215 10% 44%;
+  --accent: 221 83% 44%;
+  /* Financial meanings and values are unchanged. */
   --bull: 4 87% 60%;
   --bear: 152 67% 45%;
   --warning: 32 95% 50%;
   --danger: 4 87% 60%;
+
+  --brand-blue: 40 123 255;
+  --brand-cyan: 0 191 239;
+  --brand-mint: 16 185 129;
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-input: 6px;
+  --radius-dialog: 18px;
+  --glass-sheen: linear-gradient(145deg, rgb(255 255 255 / .72), rgb(255 255 255 / .12) 42%, transparent 70%);
+  --glass-body: hsl(var(--surface) / .94);
+  --glass-selected: linear-gradient(115deg, rgb(var(--brand-blue) / .15), rgb(var(--brand-cyan) / .07) 52%, rgb(var(--brand-mint) / .12));
+  --glow-brand: 0 0 18px rgb(var(--brand-blue) / .18), 0 0 6px rgb(var(--brand-cyan) / .14);
+  --glass-line: rgb(255 255 255 / .88);
+  --shadow-panel: inset 0 1px 0 var(--glass-line), 0 4px 16px rgb(30 48 66 / .04);
+  --shadow-float: inset 0 1px 0 var(--glass-line), 0 16px 48px rgb(30 48 66 / .15);
+  --focus-color: #245ddd;
+  --control-primary: linear-gradient(115deg, #1859dc, #156993);
 }
 
-/* 价格 / 数字一律等宽 */
+html.dark {
+  color-scheme: dark;
+  --base: 0 0% 0%;
+  --surface: 220 14% 7%;
+  --elevated: 220 12% 11%;
+  --border: 213 9% 25%;
+  --fg-primary: 210 17% 94%;
+  --fg-secondary: 212 12% 77%;
+  --fg-muted: 213 10% 63%;
+  --accent: 211 100% 73%;
+  --glass-sheen: linear-gradient(145deg, rgb(255 255 255 / .075), rgb(255 255 255 / .012) 42%, transparent 70%);
+  --glass-body: hsl(var(--surface) / .95);
+  --glass-selected: linear-gradient(160deg, rgb(var(--brand-blue) / .55), rgb(var(--brand-cyan) / .28) 52%, rgb(var(--brand-mint) / .38));
+  --glass-line: rgb(255 255 255 / .17);
+  --shadow-panel: inset 0 1px 0 var(--glass-line), 0 4px 18px rgb(0 0 0 / .10);
+  --shadow-float: inset 0 1px 0 var(--glass-line), 0 18px 52px rgb(0 0 0 / .34);
+  --focus-color: #83c1ff;
+  --glow-brand: 0 0 24px rgb(var(--brand-blue) / .30), 0 0 8px rgb(var(--brand-cyan) / .25);
+  --control-primary: linear-gradient(115deg, #1754c7, #126184);
+}
+
 .scrollbar-gutter-stable { scrollbar-gutter: stable; }
-
-/* 全局滚动条 */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) transparent;
-}
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-*::-webkit-scrollbar-thumb {
-  background: hsl(var(--border) / 0.72);
-  border: 2px solid transparent;
-  border-radius: 999px;
-  background-clip: content-box;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--accent) / 0.75);
-  background-clip: content-box;
-}
+* { border-color: hsl(var(--border)); scrollbar-width: thin; scrollbar-color: hsl(var(--border)) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: hsl(var(--border) / .72); border: 2px solid transparent; background-clip: padding-box; border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background-color: hsl(var(--accent) / .6); }
 .tabular { font-variant-numeric: tabular-nums; }
 .num { font-family: theme('fontFamily.mono'); font-variant-numeric: tabular-nums; }
-
-/* 默认 1px 细分隔线(暗色用边框区分层次,不用 shadow) */
-* { border-color: hsl(var(--border)); }
-
 body {
   background: hsl(var(--base));
   color: hsl(var(--fg-primary));
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
-  /* 暗色模式不用 antialiased — 让字形保持饱满,不发虚 */
-  -webkit-font-smoothing: subpixel-antialiased;
-  -moz-osx-font-smoothing: auto;
+  -webkit-font-smoothing: auto;
   text-rendering: optimizeLegibility;
+}
+::selection { background: rgb(var(--brand-blue) / .25); }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-color);
+  outline-offset: 3px;
+}
+:where(input, select, textarea) { accent-color: hsl(var(--accent)); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
