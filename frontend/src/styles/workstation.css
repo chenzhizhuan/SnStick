@@ -1,0 +1,107 @@
+/* Visual layer only: no ordering, visibility, pointer, scroll or data changes.
+   Component markers keep glass off canvases and virtualized table rows. */
+.sn-workstation { background-image: radial-gradient(ellipse at 0 0, rgb(var(--brand-blue) / .025), transparent 38%); }
+.sn-navigation {
+  background-color: var(--glass-body);
+  background-image: var(--glass-sheen), radial-gradient(ellipse at 0 0, rgb(var(--brand-blue) / .065), transparent 54%);
+  box-shadow: inset -1px 0 0 var(--glass-line);
+}
+.sn-brand-name { letter-spacing: -.035em; }
+.sn-navigation :where(nav a[aria-current='page'], nav button.bg-elevated) {
+  background-color: hsl(var(--elevated));
+  background-image: var(--glass-selected), var(--glass-sheen);
+  box-shadow: inset 0 1px 0 var(--glass-line), inset 0 0 0 1px rgb(var(--brand-blue) / .22), var(--glow-brand);
+}
+.sn-navigation :where(nav a, nav button) { transition-property: background-color, color, box-shadow; }
+.sn-navigation :where(.bg-accent.absolute) {
+  background: linear-gradient(180deg, rgb(var(--brand-blue)), rgb(var(--brand-cyan)) 65%, rgb(var(--brand-mint)));
+  box-shadow: none;
+}
+.sn-content { min-width: 0; }
+.sn-page-header {
+  background-color: hsl(var(--base));
+  background-image: var(--glass-sheen);
+  box-shadow: inset 0 1px 0 var(--glass-line);
+}
+.sn-page-header h1 { letter-spacing: -.035em; }
+
+/* Solid content substrates: reflections are a flat gradient, never backdrop blur. */
+.sn-content :where(.rounded-card.bg-surface, .rounded-card[class~='bg-surface/80'], .rounded-card[class~='bg-surface/60'], .rounded-card[class~='bg-surface/50']) {
+  background-color: hsl(var(--surface));
+  background-image: var(--glass-sheen);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: none;
+}
+.sn-content :where(section.rounded-card) { box-shadow: var(--shadow-panel); }
+.sn-content :where(.rounded-card) :where(.rounded-card.bg-surface) { box-shadow: inset 0 1px 0 var(--glass-line); }
+
+.sn-strategy-card {
+  background-color: hsl(var(--surface));
+  background-image: var(--glass-sheen);
+  box-shadow: var(--shadow-panel);
+  transition-property: background-color, border-color, box-shadow, opacity;
+}
+.sn-strategy-card:hover { border-color: hsl(var(--fg-muted) / .60); }
+.sn-strategy-card--active {
+  background-color: hsl(var(--surface));
+  background-image: var(--glass-selected), var(--glass-sheen);
+  border-color: hsl(var(--accent) / .48);
+  box-shadow: var(--glow-brand), inset 0 1px 0 rgb(255 255 255 / .23), inset 0 -1px 0 rgb(var(--brand-cyan) / .14);
+}
+.sn-strategy-card--active:hover { border-color: hsl(var(--accent) / .70); }
+/* Preserve source hues while keeping small labels legible on light surfaces. */
+html:not(.dark) .sn-strategy-card .text-amber-400 { color: #8a5300; }
+html:not(.dark) .sn-strategy-card .text-purple-400 { color: #7540aa; }
+html:not(.dark) .sn-strategy-card .text-teal-400 { color: #0b756c; }
+
+/* These selectors only enhance existing button surfaces, never switches or badges. */
+:where(button.rounded-btn.border-border) {
+  background-image: var(--glass-sheen);
+  box-shadow: inset 0 1px 0 var(--glass-line);
+}
+button.bg-accent, a.bg-accent, button[class~='bg-accent/90'] {
+  background-color: #1754c7;
+  background-image: var(--control-primary);
+  color: white;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 2px 5px rgb(0 0 0 / .1);
+}
+button.bg-accent:disabled, a.bg-accent:disabled, button[class~='bg-accent/90']:disabled { box-shadow: none; }
+/* Solid selected checkmarks also need a dark substrate for white foreground. */
+.bg-accent.text-white, .bg-accent.text-base, .bg-accent.text-foreground {
+  background-color: #1754c7;
+  color: white;
+}
+:where(input.rounded-input, select.rounded-input, textarea.rounded-input) {
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / .035);
+}
+
+.sn-stock-table {
+  background-color: hsl(var(--surface));
+  font-variant-numeric: tabular-nums;
+}
+.sn-stock-table thead { background-color: hsl(var(--elevated)); }
+.sn-stock-table th { color: hsl(var(--fg-secondary)); }
+/* Keep caller-controlled row height and virtualizer estimates unchanged. */
+.sn-stock-table tbody tr { transition-property: background-color; }
+
+.sn-dialog {
+  background-color: hsl(var(--surface));
+  background-image: var(--glass-sheen);
+  box-shadow: var(--shadow-float);
+}
+.sn-dialog:focus-visible { outline: 2px solid var(--focus-color); outline-offset: 2px; }
+
+/* No backdrop-filter on navigation: its fixed capability popover must escape
+   the aside's overflow clipping. The flat reflection provides the material. */
+@media (prefers-reduced-transparency: reduce) {
+  .sn-navigation { backdrop-filter: none; background-color: hsl(var(--surface)); }
+  .sn-strategy-card--active,
+  .sn-navigation :where(nav a[aria-current='page'], nav button.bg-elevated) { box-shadow: none; }
+}
+@media (forced-colors: active) {
+  .sn-strategy-card--active, .sn-navigation nav a[aria-current='page'] { outline: 2px solid Highlight; }
+  :where(button, a, input, select, textarea, [tabindex]):focus-visible { outline-color: Highlight; }
+}
+.sn-auth-reflection {
+  background-image: radial-gradient(ellipse at 30% 20%, rgb(var(--brand-blue) / .08), transparent 42%), radial-gradient(ellipse at 70% 80%, rgb(var(--brand-mint) / .045), transparent 42%);
+}
