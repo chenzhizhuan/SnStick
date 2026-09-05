@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { ScanSearch, Clock, TrendingUp, Star, Filter, Layers, Network, Sparkles, RefreshCw, Settings2, Store, RotateCcw, X } from 'lucide-react'
+import { ScanSearch, Clock, TrendingUp, Star, Filter, Layers, Network, Sparkles, RefreshCw, Settings2, Store, RotateCcw, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { api, genRuleId, type ScreenerStrategy, type ScreenerResult } from '@/lib/api'
 import { fetchMinuteBatchIncremental } from '@/lib/minuteBatchIncremental'
 import { DEFAULT_STRATEGY_NOTIFY_EVENTS } from '@/lib/strategyMonitorEvents'
@@ -230,6 +230,30 @@ export function Screener() {
     const isMinute = strategyMap.get(id)?.timeframes?.includes('1m') ?? false
     return tfFilter === '1m' ? isMinute : !isMinute
   }), [visiblePool, strategyMap, tfFilter])
+
+  // ===== 扇形卡组（coverflow）：tier 计算 + 邻居选中 + 居中滚动 =====
+  // 仅复用既有 activeStrategy 状态，不新增任何数据请求
+  const fanActiveIndex = activeStrategy ? displayPool.indexOf(activeStrategy) : -1
+  const fanTierOf = (offset: number): string => {
+    const side = offset < 0 ? 'left' : 'right'
+    const d = Math.abs(offset)
+    if (d === 0) return 'center'
+    if (d === 1) return `near-${side}`
+    if (d === 2) return `mid-${side}`
+    return `far-${side}`
+  }
+  const selectFanNeighbor = useCallback((delta: number) => {
+    const base = fanActiveIndex >= 0 ? fanActiveIndex : (delta > 0 ? -1 : 1)
+    const next = displayPool[base + delta]
+    if (next) setActiveStrategy(next)
+  }, [fanActiveIndex, displayPool])
+  const fanEnabled = cardSize === 'normal' || cardSize === 'large'
+  const galleryRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!fanEnabled) return
+    const center = galleryRef.current?.querySelector<HTMLElement>(".sn-strategy-card[data-fan='center']")
+    center?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+  }, [activeStrategy, cardSize, fanEnabled, displayPool.length])
 
   // runAll/盘后缓存只覆盖日线策略; 池中分钟策略由手动单跑实时计算
   const dailyPoolIds = useMemo(
@@ -651,12 +675,12 @@ export function Screener() {
 
 
   return (
-    <>
+    <div className="sn-screener">
       <PageHeader
         title="策略"
         subtitle="基于本地 enriched 表 · 毫秒级 SQL"
         right={
-          <div className="flex items-center gap-2">
+          <div className="sn-screener-tools flex items-center gap-2">
             {/* 资产类型切换: 股票 / ETF (分钟策略 asset_types 仅股票, ETF 列表自然不含) */}
             <div className="flex items-center h-7 rounded-btn border border-border overflow-hidden">
               {(['stock', 'etf'] as const).map(t => (
@@ -791,10 +815,10 @@ export function Screener() {
         }
       />
 
-      <div className="px-8 py-4 space-y-3">
+      <div className="sn-screener-body px-8 py-4 space-y-3">
         {/* 策略卡片 */}
         {cardSize !== 'hidden' && (
-        <section>
+        <section className="sn-strategy-stage" aria-label="策略选择">
           {strategies.isLoading && <div className="text-sm text-muted">加载中…</div>}
           {!strategies.isLoading && displayPool.length === 0 && (
             <div className="text-sm text-muted py-4 text-center border border-dashed border-border rounded-btn">
@@ -803,8 +827,19 @@ export function Screener() {
                 : '当前周期筛选下无策略，切换周期筛选或编辑策略池'}
             </div>
           )}
-          <div className={cardWrapCls(cardSize)}>
-            {displayPool.map(id => {
+          <div
+            ref={galleryRef}
+            className={`sn-strategy-gallery ${cardWrapCls(cardSize)}`}
+            data-density={cardSize}
+            tabIndex={fanEnabled ? 0 : undefined}
+            role={fanEnabled ? 'group' : undefined}
+            aria-label={fanEnabled ? '策略卡组，左右方向键切换策略' : undefined}
+            onKeyDown={fanEnabled ? (e) => {
+              if (e.key === 'ArrowRight') { e.preventDefault(); selectFanNeighbor(1) }
+              if (e.key === 'ArrowLeft') { e.preventDefault(); selectFanNeighbor(-1) }
+            } : undefined}
+          >
+            {displayPool.map((id, index) => {
               const s = strategyMap.get(id)
               if (!s) return null
               return (
@@ -818,6 +853,7 @@ export function Screener() {
                   expiredCount={expiredCounts[id]}
                   loading={runAll.isPending}
                   cardSize={cardSize}
+                  fanTier={fanEnabled ? fanTierOf(index - fanActiveIndex) : undefined}
                   onRun={() => handleRun(s)}
                   disabled={run.isPending && activeStrategy === s.id}
                   onSettings={() => setSettingsStrategyId(s.id)}
@@ -828,11 +864,41 @@ export function Screener() {
               )
             })}
           </div>
+          {fanEnabled && displayPool.length > 1 && (
+            <>
+              <button type="button" className="sn-fan-arrow sn-fan-arrow--prev"
+                onClick={() => selectFanNeighbor(-1)} disabled={fanActiveIndex <= 0} aria-label="上一个策略">
+                <ChevronLeft size={18} />
+              </button>
+              <button type="button" className="sn-fan-arrow sn-fan-arrow--next"
+                onClick={() => selectFanNeighbor(1)} disabled={fanActiveIndex >= displayPool.length - 1} aria-label="下一个策略">
+                <ChevronRight size={18} />
+              </button>
+            </>
+          )}
         </section>
         )}
 
+        {activeStrategy && strategyMap.get(activeStrategy) && (
+          <section className="sn-strategy-focus" aria-label="当前策略">
+            <div className="sn-strategy-focus-copy">
+              <span className="sn-strategy-focus-eyebrow">当前策略 · {activeStrategyTimeframe === '1m' ? '分钟' : '日线'}</span>
+              <h2>{strategyMap.get(activeStrategy)!.name}</h2>
+              <p>{strategyMap.get(activeStrategy)!.description}</p>
+            </div>
+            <div className="sn-strategy-focus-actions">
+              <button type="button" onClick={() => setSettingsStrategyId(activeStrategy)}>
+                <Settings2 size={16} />参数设置
+              </button>
+              <button type="button" onClick={() => handleRun(strategyMap.get(activeStrategy)!)} disabled={run.isPending}>
+                <ScanSearch size={16} />{run.isPending ? '运行中…' : '运行选股'}
+              </button>
+            </div>
+          </section>
+        )}
+
         {/* 结果 */}
-        <section>
+        <section className="sn-screener-results">
           {run.isError && (
             <div className="text-sm text-danger bg-danger/10 border border-danger/30 rounded-btn px-3 py-2">
               {String((run.error as any).message)}
@@ -1122,6 +1188,6 @@ export function Screener() {
         open={showStore}
         onClose={() => setShowStore(false)}
       />
-    </>
+    </div>
   )
 }
