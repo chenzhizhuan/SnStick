@@ -671,11 +671,8 @@ export function Layout() {
             <Menu className="h-4 w-4 shrink-0" />
           </button>
         )}
-        {/* v3.2.2: 顶栏使用完整官方 logo (assets/logo.png, 1550x546 横向), 替代原 SVG 视口裁剪 */}
-        <img src={logoUrl} height={26} width={74} className="shrink-0 object-contain" alt="天玑实验室" draggable={false} />
-        <span className="sn-brand-name whitespace-nowrap text-[15px] font-semibold tracking-tight text-foreground">
-          赢在子午线
-        </span>
+        {/* v3.2.2: 顶栏使用完整官方 logo (assets/logo.png)，130x30 用户指定；原图比例 2.84:1，object-contain 保比例贴左 */}
+        <img src={logoUrl} className="h-[30px] w-[130px] shrink-0 object-contain object-left" alt="天玑实验室" draggable={false} />
         {version && (
           <span className="shrink-0 select-none rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted">
             {version}
@@ -856,9 +853,10 @@ export function Layout() {
                       to="/watchlist"
                       className={({ isActive }) => cn(
                         'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
+                        // v3.2.2: 二级子项不给背景色（用户指定），选中只靠文字色区分
                         isActive && watchlistUrlGroup == null
-                          ? 'bg-elevated/70 text-accent font-medium'
-                          : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
+                          ? 'text-accent font-medium'
+                          : 'text-foreground/60 hover:text-foreground',
                       )}
                     >
                       {/* v3.2.2: 非选中圆点半透明降噪 — 分组色圆点(如蓝色分组)不再与选中态混淆 */}
@@ -884,9 +882,10 @@ export function Layout() {
                           to={groupPath}
                           className={cn(
                             'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
+                            // v3.2.2: 二级子项不给背景色（用户指定），选中只靠文字色区分
                             isGroupActive
-                              ? 'bg-elevated/70 text-accent font-medium'
-                              : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
+                              ? 'text-accent font-medium'
+                              : 'text-foreground/60 hover:text-foreground',
                           )}
                         >
                           <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full transition-opacity', isGroupActive ? cn(color.dot, 'opacity-100') : cn(color.dot, 'opacity-40'))} />
