@@ -846,20 +846,21 @@ export function Layout() {
                   </NavLink>
                 )}
 
-                {/* 自选分组二级子菜单 — 展开时显示 */}
+                {/* 自选分组二级子菜单 — 展开时显示。
+                    v3.2.2 双高亮真因: NavLink 对 /watchlist 前缀路径全部 isActive → 自动 aria-current='page' →
+                    workstation.css 的 nav a[aria-current='page'] 给所有二级项强制上选中背景。
+                    故改用 button + navigate, 不产生 aria-current, 背景完全由本组件 className 控制（当前：无背景，仅文字色）。 */}
                 {isWatchlistExpandable && watchlistNavExpanded && (
                   <div className="mt-0.5 space-y-0.5">
-                    <NavLink
-                      to="/watchlist"
-                      className={({ isActive }) => cn(
-                        'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
-                        // v3.2.2: 二级子项不给背景色（用户指定），选中只靠文字色区分
-                        isActive && watchlistUrlGroup == null
+                    <button
+                      onClick={() => navigate('/watchlist')}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-left text-[12px] transition-colors duration-150 ease-smooth',
+                        watchlistUrlGroup == null
                           ? 'text-accent font-medium'
                           : 'text-foreground/60 hover:text-foreground',
                       )}
                     >
-                      {/* v3.2.2: 非选中圆点半透明降噪 — 分组色圆点(如蓝色分组)不再与选中态混淆 */}
                       <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full transition-opacity', watchlistUrlGroup == null ? 'bg-accent opacity-100' : 'bg-muted opacity-40')} />
                       <span>全部</span>
                       {(() => {
@@ -870,19 +871,17 @@ export function Layout() {
                           </span>
                         ) : null
                       })()}
-                    </NavLink>
+                    </button>
                     {watchlistGroups.map(group => {
                       const color = resolveWatchlistGroupColor(group.color)
-                      const groupPath = `/watchlist?group=${group.id}`
                       const isGroupActive = location.pathname === '/watchlist' && watchlistUrlGroup === group.id
                       const pctInfo = navGroupPcts[group.id]
                       return (
-                        <NavLink
+                        <button
                           key={group.id}
-                          to={groupPath}
+                          onClick={() => navigate(`/watchlist?group=${group.id}`)}
                           className={cn(
-                            'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
-                            // v3.2.2: 二级子项不给背景色（用户指定），选中只靠文字色区分
+                            'flex w-full items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-left text-[12px] transition-colors duration-150 ease-smooth',
                             isGroupActive
                               ? 'text-accent font-medium'
                               : 'text-foreground/60 hover:text-foreground',
@@ -895,7 +894,7 @@ export function Layout() {
                               {fmtPct(pctInfo.pct)}
                             </span>
                           )}
-                        </NavLink>
+                        </button>
                       )
                     })}
                   </div>
