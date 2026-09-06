@@ -55,8 +55,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react'
-import { Logo } from './Logo'
 import { api, type CapabilityMatrix, type IndexQuote } from '@/lib/api'
+import logoUrl from '@/assets/logo.png'
 import { cn } from '@/lib/cn'
 import { useIsDesktop } from '@/lib/useMediaQuery'
 import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
@@ -671,7 +671,8 @@ export function Layout() {
             <Menu className="h-4 w-4 shrink-0" />
           </button>
         )}
-        <Logo size={26} className="shrink-0" />
+        {/* v3.2.2: 顶栏使用完整官方 logo (assets/logo.png, 1550x546 横向), 替代原 SVG 视口裁剪 */}
+        <img src={logoUrl} height={26} width={74} className="shrink-0 object-contain" alt="天玑实验室" draggable={false} />
         <span className="sn-brand-name whitespace-nowrap text-[15px] font-semibold tracking-tight text-foreground">
           赢在子午线
         </span>
@@ -775,6 +776,8 @@ export function Layout() {
             {items.map(({ to, label, icon: Icon, badge }) => {
             // 「自选」项 — 开启分组侧栏且未整体收起时, 渲染为可展开父项 + 二级分组
             const isWatchlistExpandable = to === '/watchlist' && groupsInNav && !railMode && watchlistGroups.length > 0
+            // v3.2.2: 父子互斥 — 二级展开时父项降级为普通态, 选中高亮由二级子项承担; 收起时父项才高亮
+            const watchlistParentActive = location.pathname === '/watchlist' && !watchlistNavExpanded
             return (
               <div key={to}>
                 {isWatchlistExpandable ? (
@@ -783,7 +786,7 @@ export function Layout() {
                     onClick={() => setWatchlistNavExpanded(v => !v)}
                     className={cn(
                       'group relative flex w-full items-center gap-3 rounded-btn px-3 py-2 text-sm transition-all duration-150 ease-smooth',
-                      location.pathname === '/watchlist'
+                      watchlistParentActive
                         ? 'bg-elevated text-foreground font-medium'
                         : 'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
                     )}
@@ -791,10 +794,10 @@ export function Layout() {
                     <span
                       className={cn(
                         'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                        location.pathname === '/watchlist' ? 'opacity-100' : 'opacity-0',
+                        watchlistParentActive ? 'opacity-100' : 'opacity-0',
                       )}
                     />
-                    <Icon className={cn('h-4 w-4 shrink-0 transition-colors', location.pathname === '/watchlist' ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
+                    <Icon className={cn('h-4 w-4 shrink-0 transition-colors', watchlistParentActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
                     <span className="flex-1 text-left">{label}</span>
                     {watchlistNavExpanded
                       ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" />
