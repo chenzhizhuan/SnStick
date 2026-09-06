@@ -684,6 +684,17 @@ export function Watchlist() {
     const g = (searchParams.get('group') as WatchlistGroupFilter | null) ?? 'all'
     setSelectedGroup(g)
   }, [searchParams])
+  // v3.2.2: 反向兜底 — 任何来源的分组 state 变化(含分组失效回 all 等内部入口)都强制同步到 URL,
+  // 保证侧栏二级菜单选中态永远与页面实际分组一致; URL 已表达当前 state 时守卫跳过, 无循环
+  useEffect(() => {
+    const g = (searchParams.get('group') as WatchlistGroupFilter | null) ?? 'all'
+    if (g === selectedGroup) return
+    const next = new URLSearchParams(searchParams)
+    if (selectedGroup === 'all') next.delete('group')
+    else next.set('group', selectedGroup)
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGroup])
   const columnsLoaded = useRef(false)
 
   useEffect(() => {
@@ -1055,12 +1066,7 @@ export function Watchlist() {
   const handleGroupSelect = useCallback((group: WatchlistGroupFilter) => {
     setSelectedGroup(group)
     setGroupCardsOpen(false)
-    // v3.2.2: 同步 URL (?group=) — 页内分组条/统计条与侧栏二级菜单共用一套选中状态, replace 不污染历史
-    const next = new URLSearchParams(searchParams)
-    if (group === 'all') next.delete('group')
-    else next.set('group', group)
-    setSearchParams(next, { replace: true })
-  }, [searchParams, setSearchParams])
+  }, [])
 
   const listEntries = list.data?.symbols ?? []
   const allSymbols = listEntries.map(s => s.symbol)

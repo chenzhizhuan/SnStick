@@ -7,10 +7,10 @@
   box-shadow: inset -1px 0 0 hsl(var(--border));
 }
 .sn-brand-name { letter-spacing: -.035em; }
-/* 当前导航项: L3 选中底 + 克制发光; 左侧指示条由组件内 .bg-accent.absolute 承担 */
+/* 当前导航项: L3 选中底, 无发光 (v3.2.2 用户要求高亮项不用 box-shadow); 左侧指示条由组件内 .bg-accent.absolute 承担 */
 .sn-navigation :where(nav a[aria-current='page'], nav button.bg-elevated) {
   background-color: hsl(var(--selected-bg));
-  box-shadow: var(--glow-brand);
+  box-shadow: none;
 }
 .sn-navigation :where(nav a, nav button) { transition-property: background-color, color, box-shadow; }
 .sn-navigation :where(.bg-accent.absolute) {

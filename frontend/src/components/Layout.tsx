@@ -791,7 +791,7 @@ export function Layout() {
                     <span
                       className={cn(
                         'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                        location.pathname === '/watchlist' ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
+                        location.pathname === '/watchlist' ? 'opacity-100' : 'opacity-0',
                       )}
                     />
                     <Icon className={cn('h-4 w-4 shrink-0 transition-colors', location.pathname === '/watchlist' ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
@@ -822,7 +822,7 @@ export function Layout() {
                         <span
                           className={cn(
                             'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                            isActive ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
+                            isActive ? 'opacity-100' : 'opacity-0',
                           )}
                         />
                         <Icon className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
@@ -858,7 +858,8 @@ export function Layout() {
                           : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
                       )}
                     >
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted" />
+                      {/* v3.2.2: 非选中圆点半透明降噪 — 分组色圆点(如蓝色分组)不再与选中态混淆 */}
+                      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full transition-opacity', watchlistUrlGroup == null ? 'bg-accent opacity-100' : 'bg-muted opacity-40')} />
                       <span>全部</span>
                       {(() => {
                         const info = navGroupPcts['all']
@@ -885,7 +886,7 @@ export function Layout() {
                               : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
                           )}
                         >
-                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${color.dot}`} />
+                          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full transition-opacity', isGroupActive ? cn(color.dot, 'opacity-100') : cn(color.dot, 'opacity-40'))} />
                           <span className="truncate">{group.name}</span>
                           {pctInfo && pctInfo.pct != null && (
                             <span className={`ml-auto font-mono text-[10px] tabular-nums ${groupPctColor(pctInfo.pct)}`} title={groupPctTitle(pctInfo)}>
@@ -1044,7 +1045,7 @@ export function Layout() {
                   <span
                     className={cn(
                       'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                      isActive ? 'opacity-100 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'opacity-0',
+                      isActive ? 'opacity-100' : 'opacity-0',
                     )}
                   />
                   <Settings className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
