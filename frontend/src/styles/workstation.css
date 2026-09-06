@@ -43,12 +43,12 @@
 }
 .sn-strategy-card:hover { border-color: hsl(var(--fg-muted) / .50); }
 .sn-strategy-card--active {
-  background-color: rgb(var(--brand-blue) / .10);
+  background-color: rgb(var(--brand-blue) / .14);
   background-image: none;
-  border-color: hsl(var(--accent) / .60);
+  border-color: hsl(var(--accent) / .70);
   box-shadow: var(--glow-brand);
 }
-.sn-strategy-card--active:hover { border-color: hsl(var(--accent) / .80); }
+.sn-strategy-card--active:hover { border-color: hsl(var(--accent) / .90); }
 /* Preserve source hues while keeping small labels legible on light surfaces. */
 html:not(.dark) .sn-strategy-card .text-amber-400 { color: #8a5300; }
 html:not(.dark) .sn-strategy-card .text-purple-400 { color: #7540aa; }

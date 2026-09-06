@@ -755,22 +755,22 @@ export function Screener() {
                 {visiblePool.length}/{strategyPresets.length}
               </span>
             </button>
-            {/* 创建叠加策略 */}
+            {/* 创建叠加策略 — v3.0 中性次按钮 */}
             <button
               onClick={() => setShowComposite(true)}
               className="inline-flex items-center gap-1.5 h-7 px-3 rounded-btn
-                text-xs font-medium text-teal-400 border border-teal-500/20 bg-teal-500/5
-                hover:bg-teal-500/15 transition-colors cursor-pointer"
+                border border-border bg-surface text-xs font-medium text-secondary
+                hover:text-accent hover:border-accent/50 transition-colors cursor-pointer"
             >
               <Layers className="h-3.5 w-3.5" />
               叠加策略
             </button>
-            {/* 创建策略 */}
+            {/* 创建策略 · AI — v3.0 §3.3 AI→紫色系 */}
             <button
               onClick={() => { setBuilderMode('create'); setShowBuilder(true) }}
               className="inline-flex items-center gap-1.5 h-7 px-3 rounded-btn
-                text-xs font-medium text-amber-400 border border-amber-400/20 bg-amber-400/5
-                hover:bg-amber-400/15 transition-colors cursor-pointer"
+                text-xs font-medium text-violet-400 border border-violet-500/25 bg-violet-500/10
+                hover:bg-violet-500/20 transition-colors cursor-pointer"
             >
               <Sparkles className="h-3.5 w-3.5" />
               创建策略 · AI

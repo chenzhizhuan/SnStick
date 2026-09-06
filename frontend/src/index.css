@@ -41,15 +41,15 @@
 
 html.dark {
   color-scheme: dark;
-  --base: 229 27% 8%;          /* L0 #0F111A */
-  --surface: 229 25% 13%;      /* L2 #191C2A */
-  --elevated: 229 26% 16%;     /* L2.5 #1E2233 */
-  --border: 228 24% 19%;       /* #252A3D */
+  --base: 236 26% 8%;          /* L0 深蓝紫黑 */
+  --surface: 236 24% 13%;      /* L2 */
+  --elevated: 236 23% 16%;     /* L2.5 */
+  --border: 236 22% 19%;
   --fg-primary: 214 32% 91%;   /* #E2E8F0 */
   --fg-secondary: 215 20% 65%; /* #94A3B8 */
   --fg-muted: 215 16% 47%;     /* #64748B */
   --accent: 239 84% 67%;       /* #6366F1 */
-  --selected-bg: 232 32% 22%;  /* L3 #262B4A */
+  --selected-bg: 240 30% 22%;  /* L3 选中底 */
   --glass-sheen: none;
   --glass-body: hsl(var(--surface));
   --glass-selected: linear-gradient(0deg, rgb(var(--brand-blue) / .12), rgb(var(--brand-blue) / .12));
