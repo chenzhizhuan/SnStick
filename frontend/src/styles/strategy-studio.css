@@ -1,205 +1,135 @@
-/* Strategy page material study: real cards and callbacks, no illustrative charts. */
+/* Strategy page v3.0 — Indigo Deep Console.
+   规整网格策略卡（ref-06 范式）、实色面板、靛蓝选中态；无玻璃/渐变/扇形。
+   规范: docs/SnStick-UI-UX-Design-Spec.md §3 §5 §6 §7 */
 .sn-screener {
   min-height: 100%;
-  background: radial-gradient(ellipse at 65% 42%, rgb(var(--brand-cyan) / .035), transparent 44%), hsl(var(--base));
+  background: hsl(var(--base));
 }
 .sn-screener > .sn-page-header {
   align-items: flex-start;
   flex-wrap: wrap;
-  gap: 22px;
-  padding: 30px 32px 22px;
+  gap: 20px;
+  padding: 24px 28px 18px;
   background: transparent;
   border: 0;
   box-shadow: none;
 }
-.sn-screener > .sn-page-header h1 { font-size: 26px; font-weight: 500; }
+.sn-screener > .sn-page-header h1 { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
 .sn-screener > .sn-page-header > :first-child { flex-wrap: wrap; }
 .sn-screener-tools { flex-wrap: wrap; row-gap: 10px; }
 .sn-screener-tools > button, .sn-screener-tools > div { min-height: 34px; }
-.sn-screener-body { padding-bottom: 36px; }
+.sn-screener-body { padding-bottom: 32px; }
 .sn-strategy-stage { position: relative; }
-/* 卡组集群容器：宽度收缩到卡片实际宽度并居中，箭头紧贴两侧；仅扇形密度生效，紧凑模式保持原布局 */
-.sn-fan-cluster:not([data-density='mini']) {
-  position: relative;
-  width: -moz-fit-content;
-  width: fit-content;
-  max-width: 100%;
-  margin: 0 auto;
-}
+
+/* ===== 策略卡网格（normal/large）；mini 保持既有换行、hidden 不渲染 ===== */
 .sn-strategy-gallery:not([data-density='mini']) {
-  display: flex;
-  flex-wrap: nowrap;
-  justify-content: safe center;   /* 溢出时可滚到最左，不裁切 */
-  gap: 0;
-  overflow-x: auto;
-  padding: 48px 72px 52px;
-  scroll-snap-type: x proximity;
-  scrollbar-gutter: stable;
-  align-items: center;
-  perspective: 1400px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(216px, 1fr));
+  gap: 16px;
+  padding: 8px 0 20px;
 }
+.sn-strategy-gallery[data-density='large'] {
+  grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
+}
+
+/* 单卡: 实色面板 + 8px 圆角; 选中态由 workstation.css 的 --active 规则承担 */
 .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card {
-  /* 细长竖卡（宽高比 ≈ 1:2.34，对齐目标图）+ 负 margin 重叠扇面 */
-  flex: 0 0 128px;
-  min-width: 0;
-  height: 300px;
-  margin: 0 -28px;
-  padding: 42px 14px 20px;
-  border-radius: 14px;
-  display: flex;
-  align-items: stretch;
-  scroll-snap-align: center;
-  background-color: rgb(255 255 255 / .05);
-  background-image: linear-gradient(165deg, rgb(255 255 255 / .09), rgb(255 255 255 / .02) 40%, transparent 68%);
-  border: 1px solid rgb(255 255 255 / .14);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / .12), 8px 15px 26px rgb(0 0 0 / .40);
-  opacity: .55;
-  z-index: 1;
-  rotate: y 0deg;
-  transition: rotate 220ms ease, translate 220ms ease, scale 220ms ease, opacity 220ms ease, border-color 180ms ease, box-shadow 220ms ease;
-}
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card::before {
-  content: '';
-  position: absolute;
-  inset: 8px;
-  border-radius: 7px;
-  background: linear-gradient(128deg, transparent 15%, rgb(255 255 255 / .17) 16%, transparent 38%, rgb(255 255 255 / .055) 39%, transparent 65%);
-  border: 1px solid rgb(255 255 255 / .12);
-  pointer-events: none;
-}
-/* Coverflow tiers: tier 由 Screener 按与选中策略的距离计算，data-fan 仅为视觉属性。
-   梯度对齐目标图：near ±20° / mid ±34° / far ±46°，远端 scale 递减到 .68，递减节奏均匀 */
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='near-left'] { rotate: y -20deg; scale: .94; opacity: .94; z-index: 10; margin-right: -20px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='near-right'] { rotate: y 20deg; scale: .94; opacity: .94; z-index: 10; margin-left: -20px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='mid-left'] { rotate: y -34deg; scale: .80; opacity: .78; z-index: 5; margin-right: -14px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='mid-right'] { rotate: y 34deg; scale: .80; opacity: .78; z-index: 5; margin-left: -14px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='far-left'] { rotate: y -46deg; scale: .68; opacity: .60; margin-right: -8px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='far-right'] { rotate: y 46deg; scale: .68; opacity: .60; margin-left: -8px; }
-/* 远端卡去文字保干净：只留卡面质感，消除重叠区文字透叠 */
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan^='far-'] { color: transparent; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan^='far-'] * { visibility: hidden; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan^='far-']:hover,
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan^='far-']:focus-within { color: inherit; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan^='far-']:hover *,
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan^='far-']:focus-within * { visibility: visible; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='center'] {
-  rotate: y 0deg;
-  scale: 1.15;
-  translate: 0 -14px;
-  opacity: 1;
-  z-index: 20;
-  margin: 0 -20px;
-  background-color: #0d1b2e;
-  background-image: linear-gradient(168deg, rgb(40 123 255 / .92), rgb(0 191 239 / .52) 52%, rgb(16 185 129 / .70));
-  border-color: rgb(0 191 239 / .60);
-  box-shadow: var(--glow-brand), inset 0 1px 0 rgb(255 255 255 / .30), 12px 22px 38px rgb(0 0 0 / .48);
-}
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='center'] .text-muted { color: rgb(255 255 255 / .92); }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card:hover,
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card:focus-within { rotate: y 0deg; translate: 0 -8px; border-color: rgb(0 191 239 / .45); }
-/* 文字跟随卡片透视：3D 变换应用于卡体，内部继承同一变换上下文 */
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:first-child { transform-style: preserve-3d; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:first-child {
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
-  align-items: stretch;
+  gap: 10px;
+  min-height: 148px;
+  padding: 14px 16px 12px;
+  border-radius: var(--radius-card);
+}
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:first-child {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
   width: 100%;
   height: 100%;
-  gap: 16px;
-  color: #f2f6f9;
+  min-height: 0;
+  text-align: left;
 }
 .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:first-child > div:first-child { flex-wrap: wrap; gap: 8px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .text-foreground { color: #f2f6f9; font-size: 16px; white-space: normal; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .text-muted { color: #d5e0e7; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .font-mono { font-size: 22px; font-weight: 500; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .line-clamp-1 { -webkit-line-clamp: 3; max-width: none; font-size: 11.5px; line-height: 1.6; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .truncate { overflow: visible; flex: 1 0 100%; order: 2; font-weight: 500; font-size: 19px; line-height: 1.25; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:not(:first-child) { top: 13px; padding: 4px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button[title='策略设置'] { right: 9px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button[title$='策略监控'] { right: 36px; }
-.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:not(:first-child) svg { width: 15px; height: 15px; color: #f1f7fb; }
-.sn-strategy-gallery[data-density='large'] .sn-strategy-card { flex-basis: 148px; height: 340px; }
-.sn-strategy-gallery[data-density='mini'] { padding: 16px 0 24px; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .text-foreground { font-size: 14px; font-weight: 500; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .font-mono { font-size: 20px; font-weight: 600; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .text-muted { font-size: 12px; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .line-clamp-1 { -webkit-line-clamp: 2; max-width: none; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .truncate { max-width: none; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:not(:first-child) { top: 10px; padding: 4px; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button[title='策略设置'] { right: 8px; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button[title$='策略监控'] { right: 34px; }
+.sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:not(:first-child) svg { width: 14px; height: 14px; }
+.sn-strategy-gallery[data-density='mini'] { padding: 8px 0 16px; }
+
+/* ===== 当前策略面板: 实色面板; 参数设置=次按钮 / 运行选股=靖蓝主按钮 ===== */
 .sn-strategy-focus {
   position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 30px;
-  margin: 22px 0 30px !important;
-  padding: 30px 34px;
-  color: #eff8ff;
-  border-radius: 8px 24px 24px 24px;
-  border: 1px solid rgb(0 191 239 / .50);
-  background: linear-gradient(115deg, rgb(40 123 255 / .78), rgb(0 191 239 / .38) 52%, rgb(16 185 129 / .58)), hsl(var(--surface));
-  box-shadow: var(--glow-brand), inset 0 1px 0 rgb(255 255 255 / .34), 0 14px 28px rgb(0 0 0 / .22);
+  gap: 24px;
+  margin: 16px 0 20px !important;
+  padding: 20px 24px;
+  border-radius: var(--radius-card);
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--surface));
+  box-shadow: var(--shadow-panel);
 }
-.sn-strategy-focus::before {
-  content: '';
-  position: absolute;
-  height: 13px;
-  width: 38%;
-  top: -14px;
-  left: -1px;
-  border-radius: 14px 22px 0 0;
-  border: 1px solid #83bdd7;
-  border-bottom: 0;
-  background: #3c6482;
-}
-.sn-strategy-focus-copy { max-width: 680px; min-width: 0; }
-.sn-strategy-focus-eyebrow { font-size: 11px; color: #c1d8e8; letter-spacing: .06em; }
-.sn-strategy-focus h2 { font-size: 25px; font-weight: 500; margin: 9px 0; }
-.sn-strategy-focus p { color: #cfdee7; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
-.sn-strategy-focus-actions { display: grid; gap: 10px; flex: 0 0 180px; }
-.sn-strategy-focus-actions button { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border: 1px solid #88a7b8; border-radius: 12px; background: linear-gradient(140deg, rgb(255 255 255 / .16), rgb(255 255 255 / .025)); font-size: 13px; box-shadow: inset 0 1px 0 rgb(255 255 255 / .26); }
-.sn-strategy-focus-actions button:hover { background-color: rgb(255 255 255 / .12); }
-.sn-strategy-focus-actions button:disabled { opacity: .5; cursor: wait; }
-/* Coverflow 箭头：仅 normal/large 密度渲染，窄屏隐藏；相对卡组集群定位，紧贴两侧并垂直居中 */
-.sn-fan-arrow {
-  position: absolute;
-  top: 50%;
-  translate: 0 -50%;
+.sn-strategy-focus-copy { max-width: 720px; min-width: 0; }
+.sn-strategy-focus-eyebrow { font-size: 12px; color: hsl(var(--fg-secondary)); letter-spacing: .02em; }
+.sn-strategy-focus h2 { font-size: 18px; font-weight: 600; margin: 6px 0; color: hsl(var(--fg-primary)); }
+.sn-strategy-focus p { color: hsl(var(--fg-secondary)); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.sn-strategy-focus-actions { display: flex; gap: 10px; flex: 0 0 auto; }
+.sn-strategy-focus-actions button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  color: #dff3ff;
-  border: 1px solid rgb(255 255 255 / .18);
-  background: rgb(255 255 255 / .07);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / .18), 0 6px 16px rgb(0 0 0 / .35);
-  z-index: 30;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--surface));
+  color: hsl(var(--fg-primary));
+  transition: border-color 160ms ease, background-color 160ms ease;
   cursor: pointer;
-  transition: background-color 160ms ease, border-color 160ms ease;
 }
-.sn-fan-arrow:hover:not(:disabled) { background: rgb(255 255 255 / .14); border-color: rgb(0 191 239 / .5); }
-.sn-fan-arrow:disabled { opacity: .35; cursor: default; }
-.sn-fan-arrow--prev { left: 18px; }
-.sn-fan-arrow--next { right: 18px; }
-html:not(.dark) .sn-fan-arrow { color: #24435c; border-color: rgb(0 0 0 / .10); background: rgb(255 255 255 / .72); }
-.sn-screener-results { padding: 22px; border: 1px solid hsl(var(--border)); border-radius: 20px; background: hsl(var(--surface) / .68); }
+.sn-strategy-focus-actions button:hover { border-color: hsl(var(--accent) / .60); }
+.sn-strategy-focus-actions button:disabled { opacity: .5; cursor: wait; }
+.sn-strategy-focus-actions button:last-child {
+  background-color: #6366f1;
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 2px 8px rgb(99 102 241 / .30);
+}
+.sn-strategy-focus-actions button:last-child:hover { background-color: #818cf8; border-color: transparent; }
+.sn-strategy-focus-actions button:last-child:disabled { background-color: hsl(var(--elevated)); color: hsl(var(--fg-muted)); box-shadow: none; }
+html:not(.dark) .sn-strategy-focus-actions button:last-child { background-color: #4f46e5; }
+html:not(.dark) .sn-strategy-focus-actions button:last-child:hover { background-color: #4338ca; }
+
+/* ===== 结果区: 实色面板 ===== */
+.sn-screener-results {
+  padding: 16px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-card);
+  background: hsl(var(--surface));
+}
 .sn-screener-results:empty { display: none; }
 .sn-screener-results > div > div:first-child { flex-wrap: wrap; gap: 14px; }
 .sn-screener-results > div > div:first-child > div { flex-wrap: wrap; }
-html:not(.dark) .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card { background-image: linear-gradient(140deg, #edf3f7, #c6d2dc 46%, #93a8b8); border-color: #fff; }
-html:not(.dark) .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card--active { background-image: linear-gradient(125deg, #9dc7ff, #bed5e1 55%, #8adacc); }
-html:not(.dark) .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .text-foreground { color: #142b3c; }
-html:not(.dark) .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card .text-muted,
-html:not(.dark) .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card > button:not(:first-child) svg { color: #30495b; }
-html:not(.dark) .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card[data-fan='center'] { background-color: #eef4fa; box-shadow: var(--glow-brand), 8px 15px 26px rgb(30 48 66 / .18); }
-html:not(.dark) .sn-strategy-focus { background: linear-gradient(115deg, rgb(40 123 255 / .16), rgb(0 191 239 / .10) 52%, rgb(16 185 129 / .14)), hsl(var(--surface)); border-color: hsl(var(--border)); box-shadow: var(--shadow-panel); }
+
 @media (max-width: 720px) {
-  .sn-screener > .sn-page-header { padding: 20px 16px 10px; }
+  .sn-screener > .sn-page-header { padding: 18px 16px 10px; }
   .sn-screener-body { padding-left: 16px; padding-right: 16px; }
-  .sn-strategy-gallery:not([data-density='mini']) { padding-top: 20px; }
-  .sn-fan-arrow { display: none; }
-  .sn-strategy-focus { flex-direction: column; align-items: stretch; padding: 24px; }
-  .sn-strategy-focus-actions { flex-basis: auto; grid-template-columns: 1fr 1fr; }
-  .sn-screener-results { padding: 14px; }
+  .sn-strategy-gallery:not([data-density='mini']) { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .sn-strategy-focus { flex-direction: column; align-items: stretch; padding: 16px; }
+  .sn-strategy-focus-actions { flex-direction: column; }
+  .sn-screener-results { padding: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card { rotate: none; translate: none; scale: none; transition: none; }
+  .sn-strategy-gallery:not([data-density='mini']) .sn-strategy-card { transition: none; }
+  .sn-strategy-focus-actions button { transition: none; }
 }

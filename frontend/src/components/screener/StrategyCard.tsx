@@ -94,13 +94,11 @@ interface StrategyCardProps {
   onToggleMonitor?: () => void
   /** 周期徽章 (如 '分钟'); 日线策略不传 */
   timeframeBadge?: string
-  /** 扇形层级（coverflow 视觉）；mini/hidden 密度不传 */
-  fanTier?: string
 }
 
 export function StrategyCard({
   name, description, source, active, count, expiredCount,
-  loading, cardSize, fanTier,
+  loading, cardSize,
   onRun, disabled, onSettings, monitored, onToggleMonitor, timeframeBadge,
 }: StrategyCardProps) {
   const cs = CARD_STYLES[cardSize]
@@ -123,7 +121,6 @@ export function StrategyCard({
       transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
       className={`sn-strategy-card ${cs.card} border transition-all duration-150 text-left group ${activeCls}`}
       data-density={cardSize}
-      data-fan={fanTier}
     >
       {cardSize === 'large' ? (
         <>
