@@ -827,6 +827,7 @@ export function Screener() {
                 : '当前周期筛选下无策略，切换周期筛选或编辑策略池'}
             </div>
           )}
+          <div className="sn-fan-cluster" data-density={cardSize}>
           <div
             ref={galleryRef}
             className={`sn-strategy-gallery ${cardWrapCls(cardSize)}`}
@@ -876,6 +877,7 @@ export function Screener() {
               </button>
             </>
           )}
+          </div>
         </section>
         )}
 
