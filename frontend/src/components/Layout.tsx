@@ -174,7 +174,7 @@ function SidebarIndexQuotes({ rows, items }: { rows: IndexQuote[] | undefined; i
               <span className="text-[10px] text-secondary">{item.name}</span>
               <span className={`text-[10px] font-mono ${indexPctClass(pct)}`}>{fmtIndexPct(pct)}</span>
             </div>
-            <div className={`mt-0.5 truncate font-mono text-[10px] ${indexPctClass(pct)}`}>
+            <div className={`mt-0.5 truncate font-mono text-[10px] text-muted`}>
               {fmtIndexValue(value)}
             </div>
           </NavLink>
@@ -514,16 +514,22 @@ export function Layout() {
         : realtimeEnabled
           ? (isTrading ? '正在连接' : '等待交易时段')
           : '已关闭'
+  // v3.2.2 状态语义四态: 运行=品牌蓝脉冲 / 待机(已启用未交易)=半亮蓝 / 同步暂停=琥珀(真异常) / 已关闭=灰
+  // (修正: 旧版把「等待交易时段」常态误用警示琥珀, 违反警示色语义)
   const realtimeStatusClass = realtimeActive
     ? 'text-accent'
-    : realtimeEnabled || isPaused
+    : isPaused
       ? 'text-warning/80'
-      : 'text-muted'
+      : realtimeEnabled
+        ? 'text-accent/70'
+        : 'text-muted'
   const realtimeIndicatorClass = realtimeActive
     ? 'bg-accent animate-pulse'
-    : realtimeEnabled || isPaused
+    : isPaused
       ? 'bg-warning/70'
-      : 'bg-muted'
+      : realtimeEnabled
+        ? 'bg-accent/40'
+        : 'bg-muted'
   const realtimeToggleTitle = isPaused
     ? '数据同步运行中，实时行情已临时暂停'
     : toggleQuote.isPending
@@ -971,7 +977,7 @@ export function Layout() {
                   className={cn(
                     'relative inline-flex h-5 w-9 items-center rounded-full border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1 focus-visible:ring-offset-surface',
                     realtimeEnabled
-                      ? 'border-accent/50 bg-accent shadow-[0_0_6px_rgba(59,130,246,0.25)]'
+                      ? 'border-accent/50 bg-accent'
                       : 'border-border bg-elevated hover:border-muted',
                     realtimeToggleDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
                   )}
@@ -1015,7 +1021,7 @@ export function Layout() {
         )}
 
         <div className={cn('border-t border-border py-3 shrink-0', railMode ? 'px-2 flex flex-col items-center gap-1' : 'px-2')}>
-          <div className={railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1'}>
+          <div className={railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5'}>
             <ThemeToggle />
             <NavLink
               to="/settings"
@@ -1041,7 +1047,7 @@ export function Layout() {
                   <Settings className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
                   {!railMode && <span>设置</span>}
                   {!railMode && version && (
-                    <span className="ml-auto font-mono text-[10px] text-muted/50 select-none shrink-0">
+                    <span className="ml-auto font-mono text-[10px] text-muted/70 select-none shrink-0">
                       {version}
                     </span>
                   )}

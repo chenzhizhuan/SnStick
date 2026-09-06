@@ -58,13 +58,13 @@ html:not(.dark) .sn-strategy-card .text-teal-400 { color: #0b756c; }
 :where(button.rounded-btn.border-border) {
   background-color: hsl(var(--surface));
 }
-button.bg-accent, a.bg-accent, button[class~='bg-accent/90'] {
+button.bg-accent:not([role='switch']), a.bg-accent, button[class~='bg-accent/90'] {
   background-color: #2563eb;
   background-image: none;
   color: white;
   box-shadow: 0 2px 8px rgb(37 99 235 / .30);
 }
-button.bg-accent:hover, a.bg-accent:hover, button[class~='bg-accent/90']:hover { background-color: #3b82f6; }
+button.bg-accent:not([role='switch']):hover, a.bg-accent:hover, button[class~='bg-accent/90']:hover { background-color: #3b82f6; }
 button.bg-accent:disabled, a.bg-accent:disabled, button[class~='bg-accent/90']:disabled { box-shadow: none; }
 /* Solid selected checkmarks also need a dark substrate for white foreground. */
 .bg-accent.text-white, .bg-accent.text-base, .bg-accent.text-foreground {
