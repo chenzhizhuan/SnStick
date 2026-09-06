@@ -13,14 +13,17 @@ export function PageHeader({ title, subtitle, titleExtra, right, className }: Pr
   return (
     <header
       className={cn(
-        'px-5 pt-3 pb-2 border-b border-border flex items-center justify-between gap-4',
+        'sn-page-header px-7 pt-5 pb-3.5 border-b border-border flex items-center justify-between gap-4',
         className,
       )}
     >
-      <div className="flex items-center gap-2">
-        <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-        {titleExtra}
-        {subtitle && <span className="text-xs text-muted">{subtitle}</span>}
+      <div className="min-w-0">
+        {/* v3.2: 标题行 — 标题 18px/600 + titleExtra；subtitle 下移独立成行（参考系页头模式） */}
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
+          {titleExtra}
+        </div>
+        {subtitle && <div className="mt-1 text-[13px] leading-snug text-muted">{subtitle}</div>}
       </div>
       {right}
     </header>
