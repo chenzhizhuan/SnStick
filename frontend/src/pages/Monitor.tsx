@@ -193,7 +193,7 @@ export function Monitor() {
       <PageHeader title="监控中心" subtitle="实时信号与规则管理" />
       {realtimeUnavailable && (
         <div className="px-5 pb-1">
-          <div className="mx-auto flex max-w-7xl items-center gap-2.5 rounded-xl border border-warning/30 bg-warning/[0.06] px-4 py-2.5">
+          <div className="flex items-center gap-2.5 rounded-xl border border-warning/30 bg-warning/[0.06] px-4 py-2.5">
             <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
             <span className="text-xs leading-relaxed text-secondary">
               实时行情当前不可用 — 监控与预警收不到最新价。可接入提供实时行情的数据源。
@@ -208,7 +208,7 @@ export function Monitor() {
         </div>
       )}
       <div className="flex-1 min-h-0 px-5 py-4">
-        <div className="mx-auto flex h-full max-w-7xl flex-col gap-4 lg:flex-row">
+        <div className="flex h-full flex-col gap-4 lg:flex-row">
           {/* 左栏: 触发记录 */}
           <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5">
             <div className="flex items-center gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5">

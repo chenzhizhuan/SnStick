@@ -113,7 +113,7 @@ export function Lots() {
     <div className="flex flex-col h-full">
       <PageHeader title="持仓提醒" subtitle="记录个股 / ETF 买入批次, 自动生成止盈止损 / 到期监控规则" />
       <div className="flex-1 min-h-0 px-5 py-4">
-        <div className="mx-auto max-w-5xl space-y-4">
+        <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="text-xs text-secondary">{lots.length} 个批次</div>
             <button

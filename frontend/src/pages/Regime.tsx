@@ -655,7 +655,7 @@ export function Regime() {
     : '自定义'
 
   return (
-    <div className="mx-auto max-w-[1440px] px-4 py-5 space-y-4">
+    <div className="px-4 py-5 space-y-4">
       {/* ── 头部 (Dashboard 渐变条卡片) ── */}
       <div className={cn(cardCls, 'relative overflow-hidden rounded-card bg-gradient-to-r from-surface/90 to-surface/70 px-4 py-3')}>
         <div className="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-accent to-accent/20" />

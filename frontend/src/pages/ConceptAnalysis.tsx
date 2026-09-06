@@ -391,7 +391,7 @@ export function ConceptAnalysis() {
       />
 
       <div className="min-h-full bg-[radial-gradient(circle_at_12%_0%,rgba(59,130,246,0.12),transparent_28%),radial-gradient(circle_at_85%_8%,rgba(244,63,94,0.08),transparent_28%)] px-6 py-5">
-        <div className="mx-auto max-w-[1440px] space-y-5">
+        <div className="space-y-5">
           <HeroPanel leading={leading[0]} falling={falling[0]} activeConcept={activeConcept} conceptBreadth={conceptBreadth} />
 
           <MarketPulse

@@ -285,7 +285,7 @@ export function SettingsMenuSettingsPanel() {
   }
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="space-y-6">
       <section className="rounded-2xl border border-border bg-surface p-6 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_38%)]">
         <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">菜单设置</div>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">调整左侧菜单顺序</h2>

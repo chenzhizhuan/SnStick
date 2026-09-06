@@ -713,7 +713,7 @@ export function SettingsDataSourcesPanel({ highlight }: { highlight?: string } =
   const pluginMap = new Map(pluginList.map(p => [p.name, p]))
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="space-y-5">
       {/* ===== 上区: 能力路由 (能力为主视图, 点标签切换提供方) ===== */}
       <CapabilityRoutingSection />
 

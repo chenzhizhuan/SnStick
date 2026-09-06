@@ -87,7 +87,7 @@ export function SettingsCustomSignalsPanel({ highlight }: { highlight?: string }
   }
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="space-y-6">
       <AnchorWrap highlight={highlight} anchor="signals">
       <section className="rounded-2xl border border-border bg-surface p-6 bg-[radial-gradient(circle_at_top_right,rgba(234,179,8,0.12),transparent_38%)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
