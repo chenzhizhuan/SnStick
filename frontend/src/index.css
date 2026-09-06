@@ -2,60 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
-/* SnStick · Blue/Cyan Frost. HSL tokens remain compatible with existing utilities. */
+/* SnStick · Indigo Deep Console (v3.0). HSL tokens remain compatible with existing utilities.
+   四层实色深底 + 单一靖蓝品牌色，见 docs/SnStick-UI-UX-Design-Spec.md §3。 */
 :root {
   color-scheme: light;
-  --base: 210 20% 97%;
+  --base: 220 20% 97%;
   --surface: 0 0% 100%;
-  --elevated: 210 18% 94%;
-  --border: 213 14% 84%;
-  --fg-primary: 216 20% 14%;
-  --fg-secondary: 215 14% 34%;
-  --fg-muted: 215 10% 44%;
-  --accent: 221 83% 44%;
+  --elevated: 220 14% 95%;
+  --border: 227 15% 88%;
+  --fg-primary: 228 20% 16%;
+  --fg-secondary: 227 12% 40%;
+  --fg-muted: 227 10% 50%;
+  --accent: 245 58% 51%;
   /* Financial meanings and values are unchanged. */
   --bull: 4 87% 60%;
   --bear: 152 67% 45%;
   --warning: 32 95% 50%;
   --danger: 4 87% 60%;
 
-  --brand-blue: 40 123 255;
-  --brand-cyan: 0 191 239;
-  --brand-mint: 16 185 129;
-  --radius-card: 12px;
-  --radius-control: 8px;
+  --brand-blue: 99 102 241;   /* #6366F1 靖蓝 */
+  --brand-cyan: 129 140 248;  /* #818CF8 hover */
+  --brand-mint: 79 70 229;    /* #4F46E5 激活深 */
+  --selected-bg: 240 60% 95%;
+  --radius-card: 8px;
+  --radius-control: 6px;
   --radius-input: 6px;
-  --radius-dialog: 18px;
-  --glass-sheen: linear-gradient(145deg, rgb(255 255 255 / .72), rgb(255 255 255 / .12) 42%, transparent 70%);
-  --glass-body: hsl(var(--surface) / .94);
-  --glass-selected: linear-gradient(115deg, rgb(var(--brand-blue) / .15), rgb(var(--brand-cyan) / .07) 52%, rgb(var(--brand-mint) / .12));
-  --glow-brand: 0 0 18px rgb(var(--brand-blue) / .18), 0 0 6px rgb(var(--brand-cyan) / .14);
+  --radius-dialog: 16px;
+  --glass-sheen: none;
+  --glass-body: hsl(var(--surface));
+  --glass-selected: linear-gradient(0deg, rgb(var(--brand-blue) / .08), rgb(var(--brand-blue) / .08));
+  --glow-brand: 0 0 8px rgb(var(--brand-blue) / .15);
   --glass-line: rgb(255 255 255 / .88);
-  --shadow-panel: inset 0 1px 0 var(--glass-line), 0 4px 16px rgb(30 48 66 / .04);
-  --shadow-float: inset 0 1px 0 var(--glass-line), 0 16px 48px rgb(30 48 66 / .15);
-  --focus-color: #245ddd;
-  --control-primary: linear-gradient(115deg, #1859dc, #156993);
+  --shadow-panel: 0 2px 8px rgb(30 38 60 / .06);
+  --shadow-float: 0 12px 32px rgb(30 38 60 / .14);
+  --focus-color: #4338ca;
+  --control-primary: none;
 }
 
 html.dark {
   color-scheme: dark;
-  --base: 0 0% 0%;
-  --surface: 220 14% 7%;
-  --elevated: 220 12% 11%;
-  --border: 213 9% 25%;
-  --fg-primary: 210 17% 94%;
-  --fg-secondary: 212 12% 77%;
-  --fg-muted: 213 10% 63%;
-  --accent: 211 100% 73%;
-  --glass-sheen: linear-gradient(145deg, rgb(255 255 255 / .075), rgb(255 255 255 / .012) 42%, transparent 70%);
-  --glass-body: hsl(var(--surface) / .95);
-  --glass-selected: linear-gradient(160deg, rgb(var(--brand-blue) / .55), rgb(var(--brand-cyan) / .28) 52%, rgb(var(--brand-mint) / .38));
-  --glass-line: rgb(255 255 255 / .17);
-  --shadow-panel: inset 0 1px 0 var(--glass-line), 0 4px 18px rgb(0 0 0 / .10);
-  --shadow-float: inset 0 1px 0 var(--glass-line), 0 18px 52px rgb(0 0 0 / .34);
-  --focus-color: #83c1ff;
-  --glow-brand: 0 0 24px rgb(var(--brand-blue) / .30), 0 0 8px rgb(var(--brand-cyan) / .25);
-  --control-primary: linear-gradient(115deg, #1754c7, #126184);
+  --base: 229 27% 8%;          /* L0 #0F111A */
+  --surface: 229 25% 13%;      /* L2 #191C2A */
+  --elevated: 229 26% 16%;     /* L2.5 #1E2233 */
+  --border: 228 24% 19%;       /* #252A3D */
+  --fg-primary: 214 32% 91%;   /* #E2E8F0 */
+  --fg-secondary: 215 20% 65%; /* #94A3B8 */
+  --fg-muted: 215 16% 47%;     /* #64748B */
+  --accent: 239 84% 67%;       /* #6366F1 */
+  --selected-bg: 232 32% 22%;  /* L3 #262B4A */
+  --glass-sheen: none;
+  --glass-body: hsl(var(--surface));
+  --glass-selected: linear-gradient(0deg, rgb(var(--brand-blue) / .12), rgb(var(--brand-blue) / .12));
+  --glass-line: rgb(255 255 255 / .08);
+  --shadow-panel: 0 2px 8px rgb(0 0 0 / .20);
+  --shadow-float: 0 12px 32px rgb(0 0 0 / .45);
+  --focus-color: #818cf8;
+  --glow-brand: 0 0 8px rgb(var(--brand-blue) / .30);
+  --control-primary: none;
 }
 
 .scrollbar-gutter-stable { scrollbar-gutter: stable; }
