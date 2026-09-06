@@ -620,6 +620,12 @@ export function Dashboard() {
     queryFn: api.dataSources,
     staleTime: 60_000,
   })
+  // v3.2: 统计条用 — 复用 Layout 常驻的 ['alerts-total'] 查询(相同 key 合并缓存, 不产生新请求)
+  const alertsStats = useQuery({
+    queryKey: ['alerts-total'],
+    queryFn: () => api.alertsList({ days: 7, limit: 1 }),
+    refetchInterval: 15000,
+  })
   const activeProvider = prefs.data?.daily_data_provider || 'tickflow'
   const isTickflowProvider = activeProvider === 'tickflow'
   const providerLabel = [
@@ -724,6 +730,7 @@ export function Dashboard() {
   const strongUp = data.breadth.strong_up ?? 0
   const strongDown = data.breadth.strong_down ?? 0
   const latestDate = dataStatus.data?.enriched?.latest_date ?? null
+  const tradingDays = dataStatus.data?.enriched?.trading_days ?? dataStatus.data?.daily?.trading_days ?? null
   const currentDate = selectedDate ?? data.as_of ?? ''
   const quoteRunning = (!selectedDate || selectedDate === latestDate) && data.quote_status?.running
   // 实时模式: none / watchlist / full_market。
@@ -802,6 +809,17 @@ export function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* v3.2: 运行状态统计条 (ref-04 范式) — 数据日期/本地覆盖/预警/行情状态/数据源, 全部复用已有查询 */}
+      {!hasNoData && (
+        <div className="mb-1.5 grid grid-cols-5 gap-1">
+          <KpiCell label="数据日期" value={currentDate || '—'} sub={selectedDate ? '历史回看' : '最新数据'} />
+          <KpiCell label="本地数据" value={tradingDays != null ? `${tradingDays} 天` : '—'} sub={`覆盖至 ${latestDate ?? '—'}`} />
+          <KpiCell label="近 7 日预警" value={alertsStats.data?.total ?? '—'} sub="监控触发记录" />
+          <KpiCell label="行情状态" value={quoteRunning ? '实时' : '非实时'} sub={quoteMode === 'full_market' ? '全市场' : quoteMode === 'watchlist' ? '自选实时' : quoteAge(data.quote_status?.quote_age_ms)} tone={quoteRunning ? 'accent' : 'neutral'} />
+          <KpiCell label="数据源" value={providerLabel} sub={activeProvider} />
+        </div>
+      )}
 
       {/* 自选实时模式提示: 大盘看板为盘后数据, 仅自选股实时。避免用户误读为全市场实时。 */}
       {quoteMode === 'watchlist' && (
