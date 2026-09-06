@@ -2279,14 +2279,14 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
                   </div>
                 ))}
                 {Number(selectionStats?.entry_trigger_filtered ?? 0) > 0 && (
-                  <span className="ml-auto text-amber-400">入场触发器过滤 {Number(selectionStats?.entry_trigger_filtered)} 个</span>
+                  <span className="ml-auto text-warning">入场触发器过滤 {Number(selectionStats?.entry_trigger_filtered)} 个</span>
                 )}
               </div>
             )}
 
             {executionSummary.length > 0 && (
-              <div className="rounded-card border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-[11px] leading-5 text-secondary">
-                <span className="font-medium text-amber-300">成交约束：</span>
+              <div className="rounded-card border border-warning/25 bg-warning/5 px-3 py-2 text-[11px] leading-5 text-secondary">
+                <span className="font-medium text-warning">成交约束：</span>
                 {executionSummary.map((item, index) => (
                   <span key={item.key} className="ml-2">
                     {index > 0 ? '· ' : ''}{item.label} <span className="font-mono text-foreground">{item.value}</span> 次
@@ -2476,7 +2476,7 @@ export function StrategyBacktest({ loadCandidate, onLoadConsumed }: {
                             </td>
                             <td className="px-4 py-2.5 text-right num text-secondary">
                               <div>{t.duration} 天</div>
-                              {!!t.blocked_exit_days && <div className="mt-0.5 text-[11px] text-amber-400">阻塞 {t.blocked_exit_days} 天</div>}
+                              {!!t.blocked_exit_days && <div className="mt-0.5 text-[11px] text-warning">阻塞 {t.blocked_exit_days} 天</div>}
                             </td>
                             <td className="px-4 py-2.5"><ExitReasonBadge reason={t.exit_reason} signalId={t.exit_signal_id} signalNames={signalNames} /></td>
                           </tr>

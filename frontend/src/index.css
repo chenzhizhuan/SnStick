@@ -47,7 +47,7 @@ html.dark {
   --border: 226 22% 19%;
   --fg-primary: 214 32% 91%;   /* #E2E8F0 */
   --fg-secondary: 215 20% 65%; /* #94A3B8 */
-  --fg-muted: 215 16% 47%;     /* #64748B */
+  --fg-muted: 215 16% 55%;     /* 暗色面板上 ≥4.6:1 (AA)；原 47% 仅 3.58:1 */
   --accent: 221 83% 58%;       /* #2563EB Logo 蓝 */
   --selected-bg: 226 30% 22%;  /* L3 选中底 */
   --glass-sheen: none;

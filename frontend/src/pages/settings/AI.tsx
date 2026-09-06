@@ -479,9 +479,9 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
         </div>
       </Card>
 
-      <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
-        <Shield className="h-4 w-4 text-amber-400/70 mt-0.5 shrink-0" />
-        <div className="text-[11px] text-amber-400/70 leading-relaxed">
+      <div className="rounded-card border border-warning/25 bg-warning/[0.05] px-4 py-3 flex items-start gap-3">
+        <Shield className="h-4 w-4 text-warning/80 mt-0.5 shrink-0" />
+        <div className="text-[11px] text-warning/80 leading-relaxed">
           {isCodexProvider
             ? 'Codex CLI 模式会复用本机已登录的 Codex 账户, 个股、财务、复盘等分析上下文会发送给 OpenAI/Codex。保存即表示确认仅在本机或可信内网使用。'
             : 'API Key 仅保存在本机项目文件中, 不会上传到任何服务器。请妥善保管。'}

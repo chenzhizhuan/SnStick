@@ -84,6 +84,14 @@ button.bg-accent:disabled, a.bg-accent:disabled, button[class~='bg-accent/90']:d
 /* Keep caller-controlled row height and virtualizer estimates unchanged. */
 .sn-stock-table tbody tr { transition-property: background-color; }
 
+/* ===== 标签系统形态规范（规范 §7.3）=====
+   颜色由各组件的分类色 Tailwind 类承担（色彩即信息），此处仅做可读性兜底：
+   - 9px 小字提升至 10px（低分屏可读性）；属性选择器特异性 0-1-0，
+     靠样式表加载顺序覆盖 Tailwind 任意值字号类。
+   - 标签圆角（语义标签 4px / 胶囊仅用于数字计数徽章）由规范约束新代码，
+     不对存量胶囊徽章全局强改，避免误伤合法设计。 */
+[class*='text-[9px]'] { font-size: 10px; }
+
 .sn-dialog {
   background-color: hsl(var(--surface));
   border: 1px solid hsl(var(--border));
