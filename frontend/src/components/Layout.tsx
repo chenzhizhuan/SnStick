@@ -773,8 +773,8 @@ export function Layout() {
             {items.map(({ to, label, icon: Icon, badge }) => {
             // 「自选」项 — 开启分组侧栏且未整体收起时, 渲染为可展开父项 + 二级分组
             const isWatchlistExpandable = to === '/watchlist' && groupsInNav && !railMode && watchlistGroups.length > 0
-            // v3.2.2: 父子互斥 — 二级展开时父项降级为普通态, 选中高亮由二级子项承担; 收起时父项才高亮
-            const watchlistParentActive = location.pathname === '/watchlist' && !watchlistNavExpanded
+            // v3.2.2: 父项在自选页时常亮高亮（二级子项已无背景，仅文字色区分，不会与父项混淆）
+            const watchlistParentActive = location.pathname === '/watchlist'
             return (
               <div key={to}>
                 {isWatchlistExpandable ? (
