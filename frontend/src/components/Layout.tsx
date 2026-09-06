@@ -671,8 +671,8 @@ export function Layout() {
             <Menu className="h-4 w-4 shrink-0" />
           </button>
         )}
-        {/* v3.2.2: 顶栏使用完整官方 logo (assets/logo.png)，130x30 用户指定；原图比例 2.84:1，object-contain 保比例贴左 */}
-        <img src={logoUrl} className="h-[30px] w-[130px] shrink-0 object-contain object-left" alt="天玑实验室" draggable={false} />
+        {/* v3.2.2: 顶栏使用完整官方 logo (assets/logo.png)，130x45 用户指定；≈原图比例 2.84:1，object-contain 铺满不变形 */}
+        <img src={logoUrl} className="h-[45px] w-[130px] shrink-0 object-contain object-left" alt="天玑实验室" draggable={false} />
         {version && (
           <span className="shrink-0 select-none rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted">
             {version}
