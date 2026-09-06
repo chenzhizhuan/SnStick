@@ -1,78 +1,78 @@
 /* Visual layer only: no ordering, visibility, pointer, scroll or data changes.
-   Component markers keep glass off canvases and virtualized table rows. */
-.sn-workstation { background-image: radial-gradient(ellipse at 0 0, rgb(var(--brand-blue) / .025), transparent 38%); }
+   v3.0 Indigo Deep Console: matte layered surfaces, single indigo accent.
+   规范: docs/SnStick-UI-UX-Design-Spec.md §3 §6 §7 */
+.sn-workstation { background: hsl(var(--base)); }
 .sn-navigation {
-  background-color: var(--glass-body);
-  background-image: var(--glass-sheen), radial-gradient(ellipse at 0 0, rgb(var(--brand-blue) / .065), transparent 54%);
-  box-shadow: inset -1px 0 0 var(--glass-line);
+  background-color: hsl(var(--surface));
+  box-shadow: inset -1px 0 0 hsl(var(--border));
 }
 .sn-brand-name { letter-spacing: -.035em; }
+/* 当前导航项: L3 选中底 + 克制发光; 左侧指示条由组件内 .bg-accent.absolute 承担 */
 .sn-navigation :where(nav a[aria-current='page'], nav button.bg-elevated) {
-  background-color: hsl(var(--elevated));
-  background-image: var(--glass-selected), var(--glass-sheen);
-  box-shadow: inset 0 1px 0 var(--glass-line), inset 0 0 0 1px rgb(var(--brand-blue) / .22), var(--glow-brand);
+  background-color: hsl(var(--selected-bg));
+  box-shadow: var(--glow-brand);
 }
 .sn-navigation :where(nav a, nav button) { transition-property: background-color, color, box-shadow; }
 .sn-navigation :where(.bg-accent.absolute) {
-  background: linear-gradient(180deg, rgb(var(--brand-blue)), rgb(var(--brand-cyan)) 65%, rgb(var(--brand-mint)));
+  background: hsl(var(--accent));
   box-shadow: none;
 }
 .sn-content { min-width: 0; }
 .sn-page-header {
   background-color: hsl(var(--base));
-  background-image: var(--glass-sheen);
-  box-shadow: inset 0 1px 0 var(--glass-line);
+  box-shadow: inset 0 -1px 0 hsl(var(--border));
 }
-.sn-page-header h1 { letter-spacing: -.035em; }
+.sn-page-header h1 { letter-spacing: -.01em; }
 
-/* Solid content substrates: reflections are a flat gradient, never backdrop blur. */
+/* 面板: 分层实色 + 1px 边框 + 轻阴影, 无玻璃高光 */
 .sn-content :where(.rounded-card.bg-surface, .rounded-card[class~='bg-surface/80'], .rounded-card[class~='bg-surface/60'], .rounded-card[class~='bg-surface/50']) {
   background-color: hsl(var(--surface));
-  background-image: var(--glass-sheen);
+  border: 1px solid hsl(var(--border));
   box-shadow: var(--shadow-panel);
   backdrop-filter: none;
 }
 .sn-content :where(section.rounded-card) { box-shadow: var(--shadow-panel); }
-.sn-content :where(.rounded-card) :where(.rounded-card.bg-surface) { box-shadow: inset 0 1px 0 var(--glass-line); }
+.sn-content :where(.rounded-card) :where(.rounded-card.bg-surface) { border: 1px solid hsl(var(--border)); }
 
+/* 策略卡: 实色面板; 选中 = 靛蓝描边 + 淡发光 + 品牌薄底 */
 .sn-strategy-card {
   background-color: hsl(var(--surface));
-  background-image: var(--glass-sheen);
+  border: 1px solid hsl(var(--border));
   box-shadow: var(--shadow-panel);
-  transition-property: background-color, border-color, box-shadow, opacity;
+  transition-property: background-color, border-color, box-shadow;
 }
-.sn-strategy-card:hover { border-color: hsl(var(--fg-muted) / .60); }
+.sn-strategy-card:hover { border-color: hsl(var(--fg-muted) / .50); }
 .sn-strategy-card--active {
-  background-color: hsl(var(--surface));
-  background-image: var(--glass-selected), var(--glass-sheen);
-  border-color: hsl(var(--accent) / .48);
-  box-shadow: var(--glow-brand), inset 0 1px 0 rgb(255 255 255 / .23), inset 0 -1px 0 rgb(var(--brand-cyan) / .14);
+  background-color: rgb(var(--brand-blue) / .10);
+  background-image: none;
+  border-color: hsl(var(--accent) / .60);
+  box-shadow: var(--glow-brand);
 }
-.sn-strategy-card--active:hover { border-color: hsl(var(--accent) / .70); }
+.sn-strategy-card--active:hover { border-color: hsl(var(--accent) / .80); }
 /* Preserve source hues while keeping small labels legible on light surfaces. */
 html:not(.dark) .sn-strategy-card .text-amber-400 { color: #8a5300; }
 html:not(.dark) .sn-strategy-card .text-purple-400 { color: #7540aa; }
 html:not(.dark) .sn-strategy-card .text-teal-400 { color: #0b756c; }
 
-/* These selectors only enhance existing button surfaces, never switches or badges. */
+/* 按钮: 主按钮靛蓝实底; 次按钮 surface + 边框 */
 :where(button.rounded-btn.border-border) {
-  background-image: var(--glass-sheen);
-  box-shadow: inset 0 1px 0 var(--glass-line);
+  background-color: hsl(var(--surface));
 }
 button.bg-accent, a.bg-accent, button[class~='bg-accent/90'] {
-  background-color: #1754c7;
-  background-image: var(--control-primary);
+  background-color: #6366f1;
+  background-image: none;
   color: white;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 2px 5px rgb(0 0 0 / .1);
+  box-shadow: 0 2px 8px rgb(99 102 241 / .30);
 }
+button.bg-accent:hover, a.bg-accent:hover, button[class~='bg-accent/90']:hover { background-color: #818cf8; }
 button.bg-accent:disabled, a.bg-accent:disabled, button[class~='bg-accent/90']:disabled { box-shadow: none; }
 /* Solid selected checkmarks also need a dark substrate for white foreground. */
 .bg-accent.text-white, .bg-accent.text-base, .bg-accent.text-foreground {
-  background-color: #1754c7;
+  background-color: #6366f1;
   color: white;
 }
 :where(input.rounded-input, select.rounded-input, textarea.rounded-input) {
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / .035);
+  background-color: hsl(var(--surface));
 }
 
 .sn-stock-table {
@@ -80,28 +80,23 @@ button.bg-accent:disabled, a.bg-accent:disabled, button[class~='bg-accent/90']:d
   font-variant-numeric: tabular-nums;
 }
 .sn-stock-table thead { background-color: hsl(var(--elevated)); }
-.sn-stock-table th { color: hsl(var(--fg-secondary)); }
+.sn-stock-table th { color: hsl(var(--fg-secondary)); font-weight: 500; }
 /* Keep caller-controlled row height and virtualizer estimates unchanged. */
 .sn-stock-table tbody tr { transition-property: background-color; }
 
 .sn-dialog {
   background-color: hsl(var(--surface));
-  background-image: var(--glass-sheen);
+  border: 1px solid hsl(var(--border));
   box-shadow: var(--shadow-float);
 }
 .sn-dialog:focus-visible { outline: 2px solid var(--focus-color); outline-offset: 2px; }
 
-/* No backdrop-filter on navigation: its fixed capability popover must escape
-   the aside's overflow clipping. The flat reflection provides the material. */
 @media (prefers-reduced-transparency: reduce) {
-  .sn-navigation { backdrop-filter: none; background-color: hsl(var(--surface)); }
+  .sn-navigation { background-color: hsl(var(--surface)); }
   .sn-strategy-card--active,
   .sn-navigation :where(nav a[aria-current='page'], nav button.bg-elevated) { box-shadow: none; }
 }
 @media (forced-colors: active) {
   .sn-strategy-card--active, .sn-navigation nav a[aria-current='page'] { outline: 2px solid Highlight; }
   :where(button, a, input, select, textarea, [tabindex]):focus-visible { outline-color: Highlight; }
-}
-.sn-auth-reflection {
-  background-image: radial-gradient(ellipse at 30% 20%, rgb(var(--brand-blue) / .08), transparent 42%), radial-gradient(ellipse at 70% 80%, rgb(var(--brand-mint) / .045), transparent 42%);
 }
