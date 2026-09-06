@@ -55,8 +55,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react'
-// import { Logo } from './Logo'
-import minLogoImg from '@/assets/min_logo.png'
+import { Logo } from './Logo'
 import { api, type CapabilityMatrix, type IndexQuote } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useIsDesktop } from '@/lib/useMediaQuery'
@@ -69,9 +68,6 @@ import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitor
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
 
-// 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
-const BRAND = '#8B5CF6'
-
 const CORE_INDEXES = [
   { symbol: '000001.SH', name: '上证指数' },
   { symbol: '399001.SZ', name: '深证成指' },
@@ -81,24 +77,34 @@ const CORE_INDEXES = [
 
 type CoreIndex = (typeof CORE_INDEXES)[number]
 
+// v3.2: 按业务域分 5 组（视觉重组，路由/功能不变）；group 仅用于侧栏渲染分组
+const NAV_GROUPS = [
+  { key: 'overview', label: '总览' },
+  { key: 'strategy', label: '策略与回测' },
+  { key: 'market', label: '市场分析' },
+  { key: 'monitor', label: '监控预警' },
+  { key: 'data', label: '数据与复盘' },
+] as const
+type NavGroupKey = (typeof NAV_GROUPS)[number]['key']
+
 const nav = [
-  { to: '/',                label: '看板',     icon: LayoutDashboard },
-  { to: '/watchlist',  label: '自选',   icon: Star },
-  { to: '/screener',   label: '策略',   icon: ScanSearch },
-  { to: '/backtest',   label: '回测', icon: History },
-  { to: '/mining',     label: '挖掘', icon: Pickaxe },
-  { to: '/lots',       label: '持仓提醒', icon: Layers2 },
-  { to: '/stock-analysis',    label: '个股分析', icon: TrendingUp },
-  { to: '/limit-ladder', label: '连板梯队', icon: Flame },
-  { to: '/concept-analysis', label: '概念分析', icon: Layers3 },
-  { to: '/industry-analysis', label: '行业分析', icon: Landmark },
-  { to: '/financials', label: '财务分析', icon: FileText },
-  { to: '/monitor', label: '监控中心', icon: RadioTower },
-  { to: '/regime', label: '市场环境', icon: Gauge },
-  { to: '/abnormal', label: '异动监控', icon: Siren },
-  { to: '/review',      label: '复盘',   icon: BookOpenCheck },
-  { to: '/indices', label: '指数', icon: BarChart3 },
-  { to: '/data',       label: '数据',   icon: Database },
+  { to: '/',                label: '看板',     icon: LayoutDashboard, group: 'overview' },
+  { to: '/watchlist',  label: '自选',   icon: Star,           group: 'overview' },
+  { to: '/screener',   label: '策略', icon: ScanSearch,      group: 'strategy' },
+  { to: '/backtest',   label: '回测', icon: History,         group: 'strategy' },
+  { to: '/mining',     label: '挖掘', icon: Pickaxe,         group: 'strategy' },
+  { to: '/lots',       label: '持仓提醒', icon: Layers2,     group: 'strategy' },
+  { to: '/stock-analysis',    label: '个股分析', icon: TrendingUp, group: 'market' },
+  { to: '/limit-ladder', label: '连板梯队', icon: Flame,       group: 'market' },
+  { to: '/concept-analysis', label: '概念分析', icon: Layers3,   group: 'market' },
+  { to: '/industry-analysis', label: '行业分析', icon: Landmark, group: 'market' },
+  { to: '/financials', label: '财务分析', icon: FileText,       group: 'market' },
+  { to: '/monitor', label: '监控中心', icon: RadioTower,        group: 'monitor' },
+  { to: '/regime', label: '市场环境', icon: Gauge,             group: 'monitor' },
+  { to: '/abnormal', label: '异动监控', icon: Siren,           group: 'monitor' },
+  { to: '/review',      label: '复盘',   icon: BookOpenCheck,  group: 'data' },
+  { to: '/indices', label: '指数', icon: BarChart3,             group: 'data' },
+  { to: '/data',       label: '数据',     icon: Database,       group: 'data' },
 ] as const
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
@@ -540,15 +546,17 @@ export function Layout() {
   }, [alertsTotal])
 
   // 合并内置页面 + 可见的扩展分析菜单
-  type NavItem = { to: string; label: string; icon: typeof Gauge; badge?: string }
+  // v3.2: group 用于侧栏分组渲染; 分析菜单归「市场分析」, 扩展菜单兑底「数据与复盘」
+  type NavItem = { to: string; label: string; icon: typeof Gauge; badge?: string; group?: NavGroupKey }
   const analysisNav: NavItem[] = (analysisMenus?.items ?? [])
     .filter(m => m.visible)
-    .map(m => ({ to: `/analysis/${m.id}`, label: m.label, icon: m.icon === 'tags' ? Tags : BarChart3 }))
+    .map(m => ({ to: `/analysis/${m.id}`, label: m.label, icon: m.icon === 'tags' ? Tags : BarChart3, group: 'market' as const }))
   const extensionNav: NavItem[] = getFrontendExtensionNavigation().map(item => ({
     to: item.route.path,
     label: item.label,
     icon: item.icon,
     badge: item.badge,
+    group: 'data' as const,
   }))
 
   const allNav: NavItem[] = [...nav, ...analysisNav, ...extensionNav]
@@ -583,6 +591,16 @@ export function Layout() {
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
+
+  // v3.2: 按业务域分组渲染; 无 group 的项(异常情况)兑底到「数据与复盘」组尾
+  const navItemsByGroup = useMemo(() => {
+    const map = new Map<NavGroupKey, NavItem[]>(NAV_GROUPS.map(g => [g.key, []]))
+    for (const item of visibleNavItems) {
+      const key = (item.group ?? 'data') as NavGroupKey
+      map.get(key)?.push(item)
+    }
+    return map
+  }, [visibleNavItems])
 
   const doEnableRealtime = async () => {
     await toggleQuote.mutateAsync(true)
@@ -627,9 +645,54 @@ export function Layout() {
 
   return (
     <div
-      className="h-screen grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
-      style={{ gridTemplateColumns: isDesktop && !overlayPreview ? (navState === 'expanded' ? '14rem 1fr' : navState === 'rail' ? '3.5rem 1fr' : '0 1fr') : '1fr' }}
+      className="sn-workstation h-screen grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
+      style={{
+        gridTemplateColumns: isDesktop && !overlayPreview ? (navState === 'expanded' ? '14rem 1fr' : navState === 'rail' ? '3.5rem 1fr' : '0 1fr') : '1fr',
+        gridTemplateRows: '48px minmax(0, 1fr)',
+      }}
     >
+      {/* ===== v3.2 顶部品牌栏：Logo + 产品名 + 版本 | 状态徽标 + 主题 + 折叠 ===== */}
+      <header className="sn-topbar col-span-full z-20 flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
+        {!isDesktop && (
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="flex items-center rounded-btn p-1.5 text-muted transition-colors duration-150 hover:bg-elevated hover:text-foreground"
+            title="打开菜单"
+          >
+            <Menu className="h-4 w-4 shrink-0" />
+          </button>
+        )}
+        <Logo size={26} className="shrink-0" />
+        <span className="sn-brand-name whitespace-nowrap text-[15px] font-semibold tracking-tight text-foreground">
+          赢在子午线
+        </span>
+        {version && (
+          <span className="shrink-0 select-none rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted">
+            {version}
+          </span>
+        )}
+        <div className="ml-auto flex min-w-0 items-center gap-1.5">
+          <DataSourceHealthBadge matrix={matrix} />
+          <AIConfigBadge
+            configured={settingsState?.ai_configured ?? settingsState?.has_ai_key}
+            model={settingsState?.ai_model}
+          />
+          <ThemeToggle />
+          {isDesktop && (
+            <button
+              onClick={toggleNavCollapsed}
+              className="flex items-center rounded-btn p-2 text-foreground/80 transition-colors duration-150 hover:bg-elevated hover:text-foreground"
+              title={navState === 'expanded' ? '收起菜单' : navState === 'rail' ? '隐藏菜单' : '展开菜单'}
+            >
+              {navState === 'expanded'
+                ? <PanelLeftClose className="h-4 w-4 shrink-0" />
+                : <PanelLeft className="h-4 w-4 shrink-0" />
+              }
+            </button>
+          )}
+        </div>
+      </header>
+
       {/* 移动端抽屉遮罩 */}
       {!isDesktop && drawerOpen && (
         <div
@@ -638,17 +701,15 @@ export function Layout() {
           aria-hidden="true"
         />
       )}
-      {/* 移动端汉堡按钮 / 桌面 hidden 态左缘悬浮按钮 (hover 1s overlay 预览, 点击固定展开) */}
-      {(!isDesktop || navState === 'hidden') && !overlayPreview && (
+      {/* v3.2: 桌面 hidden 态左缘悬浮按钮 (hover 1s overlay 预览, 点击固定展开)；移动端入口统一为顶栏菜单按钮 */}
+      {isDesktop && navState === 'hidden' && !overlayPreview && (
         <button
           onClick={() => {
             window.clearTimeout(overlayTimer.current)
             setOverlayPreview(false)
-            if (isDesktop) setNavStatePersist('expanded')
-            else setDrawerOpen(true)
+            setNavStatePersist('expanded')
           }}
           onMouseEnter={() => {
-            if (!isDesktop) return
             window.clearTimeout(overlayTimer.current)
             overlayTimer.current = window.setTimeout(() => setOverlayPreview(true), 1000)
           }}
@@ -656,19 +717,17 @@ export function Layout() {
           className={cn(
             'fixed z-30 rounded-btn border border-border bg-surface/90 text-muted shadow-lg backdrop-blur-sm',
             'hover:text-foreground hover:bg-elevated transition-colors duration-150 ease-smooth',
-            isDesktop ? 'left-1.5 top-1/2 -translate-y-1/2 p-2' : 'left-3 top-3 p-2',
+            'left-1.5 top-1/2 -translate-y-1/2 p-2',
           )}
-          title={isDesktop ? '展开菜单' : '打开菜单'}
+          title="展开菜单"
         >
-          {isDesktop
-            ? <PanelLeftOpen className="h-4 w-4 shrink-0" />
-            : <Menu className="h-4 w-4 shrink-0" />}
+          <PanelLeftOpen className="h-4 w-4 shrink-0" />
         </button>
       )}
       <aside
         onMouseLeave={() => { if (overlayPreview) setOverlayPreview(false) }}
         className={cn(
-          'bg-surface flex flex-col min-h-0 overflow-hidden',
+          'sn-navigation bg-surface flex flex-col min-h-0 overflow-hidden',
           isDesktop
             ? cn('h-full', navState === 'hidden' && !overlayPreview ? 'border-r-0' : 'border-r border-border')
             : cn(
@@ -679,64 +738,32 @@ export function Layout() {
           overlayPreview && 'fixed inset-y-0 left-0 z-50 w-56 shadow-2xl border-r border-border',
         )}
       >
-        <div className={cn('border-b border-border shrink-0', railMode ? 'px-2 pt-3 pb-2' : 'px-4 pt-4 pb-3')}>
-          {/* Brand block — 收起时只显 logo 居中 */}
-          <div className={cn('flex', railMode ? 'flex-col items-center gap-2' : 'items-center gap-2')}>
-            {/* <Logo
-              size={railMode ? 24 : 26}
-              className="shrink-0 drop-shadow-[0_0_8px_rgba(139,92,246,0.4)]"
-              style={{ color: BRAND }}
-            /> */}
-            <img src={minLogoImg} className="h-10 w-10 object-contain" alt="" />
-            {!railMode && (
-              <div
-                className="font-bold text-[11px] uppercase tracking-[0.14em] text-foreground whitespace-nowrap"
-                style={{ textShadow: `0 0 10px ${BRAND}44`, fontSize: '18px' , fontFamily: 'cursive' }}
-              >
-                赢在子午线
-              </div>
-            )}
-            {/* 收起/展开 按钮 (桌面三态循环) / 移动端抽屉关闭按钮 */}
-            {isDesktop ? (
-              <button
-                onClick={toggleNavCollapsed}
-                className={cn(
-                  'flex items-center rounded-btn text-muted hover:text-foreground hover:bg-elevated/60 transition-colors duration-150 ease-smooth',
-                  railMode ? 'justify-center p-1.5' : 'ml-auto p-1.5',
-                )}
-                title={railMode ? '隐藏菜单 (再点击左缘按钮可唤出)' : '收起菜单'}
-              >
-                {railMode
-                  ? <PanelLeft className="h-3.5 w-3.5 shrink-0" />
-                  : <PanelLeftClose className="h-3.5 w-3.5 shrink-0" />
-                }
-              </button>
-            ) : (
-              <button
-                onClick={() => setDrawerOpen(false)}
-                className="ml-auto flex items-center rounded-btn p-1.5 text-muted hover:text-foreground hover:bg-elevated/60 transition-colors duration-150 ease-smooth"
-                title="关闭菜单"
-              >
-                <X className="h-4 w-4 shrink-0" />
-              </button>
-            )}
+        {/* v3.2: 品牌块已上移顶栏；aside 顶部仅移动端抽屉需要关闭按钮 */}
+        {!isDesktop && (
+          <div className="flex shrink-0 items-center justify-end border-b border-border px-3 py-2.5">
+            <button
+              onClick={() => setDrawerOpen(false)}
+              className="flex items-center rounded-btn p-1.5 text-muted hover:text-foreground hover:bg-elevated/60 transition-colors duration-150 ease-smooth"
+              title="关闭菜单"
+            >
+              <X className="h-4 w-4 shrink-0" />
+            </button>
           </div>
+        )}
 
-            {/* 状态卡 — 收起时隐藏 */}
-            {!railMode && (
-              <div className="mt-2.5 border-t border-border/60 pt-1">
-                <DataSourceHealthBadge matrix={matrix} />
-              <div className="mx-2 border-t border-border/45" aria-hidden="true" />
-              <AIConfigBadge
-                configured={settingsState?.ai_configured ?? settingsState?.has_ai_key}
-                model={settingsState?.ai_model}
-              />
-            </div>
-          )}
-        </div>
-
-        <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-0.5">
-          {visibleNavItems.map(({ to, label, icon: Icon, badge }) => {
+        <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
+          {NAV_GROUPS.map(({ key, label: groupLabel }, gi) => {
+            const items = navItemsByGroup.get(key) ?? []
+            if (items.length === 0) return null
+            return (
+              <div key={key} className={cn('space-y-0.5', gi > 0 && (railMode ? 'mt-2' : 'mt-3'))}>
+                {/* v3.2: 组标题 — rail 态隐藏，只留图标 */}
+                {!railMode && (
+                  <div className={cn('px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted/70 select-none', gi === 0 ? 'pt-1' : 'pt-4')}>
+                    {groupLabel}
+                  </div>
+                )}
+            {items.map(({ to, label, icon: Icon, badge }) => {
             // 「自选」项 — 开启分组侧栏且未整体收起时, 渲染为可展开父项 + 二级分组
             const isWatchlistExpandable = to === '/watchlist' && groupsInNav && !railMode && watchlistGroups.length > 0
             return (
@@ -861,6 +888,9 @@ export function Layout() {
                     })}
                   </div>
                 )}
+              </div>
+            )
+            })}
               </div>
             )
           })}
@@ -1026,7 +1056,7 @@ export function Layout() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        className="h-full overflow-auto scrollbar-gutter-stable"
+        className="sn-content h-full overflow-auto scrollbar-gutter-stable"
       >
         {streamStatus === 'reconnecting' && (
           <div
