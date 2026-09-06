@@ -608,6 +608,9 @@ export function Layout() {
     return map
   }, [visibleNavItems])
 
+  // v3.2.2: 自选二级菜单选中态用 URLSearchParams 解析 (中文分组 id 经 URL 编码后字符串比较会失效)
+  const watchlistUrlGroup = new URLSearchParams(location.search).get('group')
+
   const doEnableRealtime = async () => {
     await toggleQuote.mutateAsync(true)
     // 仅在交易时段立即获取一次行情
@@ -850,8 +853,8 @@ export function Layout() {
                       to="/watchlist"
                       className={({ isActive }) => cn(
                         'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
-                        isActive && !location.search
-                          ? 'text-accent font-medium'
+                        isActive && watchlistUrlGroup == null
+                          ? 'bg-elevated/70 text-accent font-medium'
                           : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
                       )}
                     >
@@ -869,7 +872,7 @@ export function Layout() {
                     {watchlistGroups.map(group => {
                       const color = resolveWatchlistGroupColor(group.color)
                       const groupPath = `/watchlist?group=${group.id}`
-                      const isGroupActive = location.pathname === '/watchlist' && location.search === `?group=${group.id}`
+                      const isGroupActive = location.pathname === '/watchlist' && watchlistUrlGroup === group.id
                       const pctInfo = navGroupPcts[group.id]
                       return (
                         <NavLink
@@ -878,7 +881,7 @@ export function Layout() {
                           className={cn(
                             'flex items-center gap-2 rounded-btn py-1.5 pl-9 pr-3 text-[12px] transition-colors duration-150 ease-smooth',
                             isGroupActive
-                              ? 'text-accent font-medium'
+                              ? 'bg-elevated/70 text-accent font-medium'
                               : 'text-foreground/60 hover:text-foreground hover:bg-elevated/50',
                           )}
                         >

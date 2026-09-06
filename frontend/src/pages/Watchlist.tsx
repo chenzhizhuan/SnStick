@@ -676,7 +676,7 @@ export function Watchlist() {
   const [columns, setColumns] = useState<ColumnConfig[]>([...BUILTIN_COLUMNS])
   const [customizerOpen, setCustomizerOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const initialGroup = (searchParams.get('group') as WatchlistGroupFilter | null) ?? 'all'
   const [selectedGroup, setSelectedGroup] = useState<WatchlistGroupFilter>(initialGroup)
   // URL ?group= 变化时同步选中分组 (侧边栏二级菜单切换分组时触发)
@@ -1055,7 +1055,12 @@ export function Watchlist() {
   const handleGroupSelect = useCallback((group: WatchlistGroupFilter) => {
     setSelectedGroup(group)
     setGroupCardsOpen(false)
-  }, [])
+    // v3.2.2: 同步 URL (?group=) — 页内分组条/统计条与侧栏二级菜单共用一套选中状态, replace 不污染历史
+    const next = new URLSearchParams(searchParams)
+    if (group === 'all') next.delete('group')
+    else next.set('group', group)
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const listEntries = list.data?.symbols ?? []
   const allSymbols = listEntries.map(s => s.symbol)
