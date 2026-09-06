@@ -100,15 +100,15 @@
 .sn-strategy-focus-actions button:hover { border-color: hsl(var(--accent) / .60); }
 .sn-strategy-focus-actions button:disabled { opacity: .5; cursor: wait; }
 .sn-strategy-focus-actions button:last-child {
-  background-color: #6366f1;
+  background-color: #2563eb;
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 2px 8px rgb(99 102 241 / .30);
+  box-shadow: 0 2px 8px rgb(37 99 235 / .30);
 }
-.sn-strategy-focus-actions button:last-child:hover { background-color: #818cf8; border-color: transparent; }
+.sn-strategy-focus-actions button:last-child:hover { background-color: #3b82f6; border-color: transparent; }
 .sn-strategy-focus-actions button:last-child:disabled { background-color: hsl(var(--elevated)); color: hsl(var(--fg-muted)); box-shadow: none; }
-html:not(.dark) .sn-strategy-focus-actions button:last-child { background-color: #4f46e5; }
-html:not(.dark) .sn-strategy-focus-actions button:last-child:hover { background-color: #4338ca; }
+html:not(.dark) .sn-strategy-focus-actions button:last-child { background-color: #1d4ed8; }
+html:not(.dark) .sn-strategy-focus-actions button:last-child:hover { background-color: #1e40af; }
 
 /* ===== 结果区: 实色面板 ===== */
 .sn-screener-results {

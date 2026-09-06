@@ -13,17 +13,17 @@
   --fg-primary: 228 20% 16%;
   --fg-secondary: 227 12% 40%;
   --fg-muted: 227 10% 50%;
-  --accent: 245 58% 51%;
+  --accent: 221 83% 46%;
   /* Financial meanings and values are unchanged. */
   --bull: 4 87% 60%;
   --bear: 152 67% 45%;
   --warning: 32 95% 50%;
   --danger: 4 87% 60%;
 
-  --brand-blue: 99 102 241;   /* #6366F1 靖蓝 */
-  --brand-cyan: 129 140 248;  /* #818CF8 hover */
-  --brand-mint: 79 70 229;    /* #4F46E5 激活深 */
-  --selected-bg: 240 60% 95%;
+  --brand-blue: 37 99 235;    /* #2563EB Logo 蓝（品牌色系与天纤 Logo 对齐） */
+  --brand-cyan: 59 130 246;   /* #3B82F6 hover */
+  --brand-mint: 29 78 216;    /* #1D4ED8 激活深 */
+  --selected-bg: 221 60% 93%;
   --radius-card: 8px;
   --radius-control: 6px;
   --radius-input: 6px;
@@ -35,28 +35,28 @@
   --glass-line: rgb(255 255 255 / .88);
   --shadow-panel: 0 2px 8px rgb(30 38 60 / .06);
   --shadow-float: 0 12px 32px rgb(30 38 60 / .14);
-  --focus-color: #4338ca;
+  --focus-color: #1d4ed8;
   --control-primary: none;
 }
 
 html.dark {
   color-scheme: dark;
-  --base: 236 26% 8%;          /* L0 深蓝紫黑 */
-  --surface: 236 24% 13%;      /* L2 */
-  --elevated: 236 23% 16%;     /* L2.5 */
-  --border: 236 22% 19%;
+  --base: 226 26% 8%;          /* L0 深蓝黑，色系对齐 Logo 宝蓝 */
+  --surface: 226 24% 13%;      /* L2 */
+  --elevated: 226 23% 16%;     /* L2.5 */
+  --border: 226 22% 19%;
   --fg-primary: 214 32% 91%;   /* #E2E8F0 */
   --fg-secondary: 215 20% 65%; /* #94A3B8 */
   --fg-muted: 215 16% 47%;     /* #64748B */
-  --accent: 239 84% 67%;       /* #6366F1 */
-  --selected-bg: 240 30% 22%;  /* L3 选中底 */
+  --accent: 221 83% 58%;       /* #2563EB Logo 蓝 */
+  --selected-bg: 226 30% 22%;  /* L3 选中底 */
   --glass-sheen: none;
   --glass-body: hsl(var(--surface));
   --glass-selected: linear-gradient(0deg, rgb(var(--brand-blue) / .12), rgb(var(--brand-blue) / .12));
   --glass-line: rgb(255 255 255 / .08);
   --shadow-panel: 0 2px 8px rgb(0 0 0 / .20);
   --shadow-float: 0 12px 32px rgb(0 0 0 / .45);
-  --focus-color: #818cf8;
+  --focus-color: #60a5fa;
   --glow-brand: 0 0 8px rgb(var(--brand-blue) / .30);
   --control-primary: none;
 }

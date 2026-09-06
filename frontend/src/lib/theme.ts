@@ -87,12 +87,12 @@ const DARK: ChartTheme = {
   grid: 'rgba(148,163,184,0.10)',
   border: '#2E3348',
   crosshair: 'rgba(148,163,184,0.35)',
-  crosshairLabelBg: '#262B4A',
+  crosshairLabelBg: '#1E3A8A',
   tooltipBg: 'rgba(30,34,51,0.98)',
   tooltipBorder: 'rgba(148,163,184,0.15)',
   tooltipText: '#E2E8F0',
   infoBarBg: 'rgba(25,28,42,0.92)',
-  zoomFill: 'rgba(99,102,241,0.15)',
+  zoomFill: 'rgba(37,99,235,0.15)',
   fillSubtle: 'rgba(148,163,184,0.05)',
 }
 
@@ -102,12 +102,12 @@ const LIGHT: ChartTheme = {
   grid: 'rgba(20,25,40,0.06)',
   border: '#D4D9E4',
   crosshair: 'rgba(20,25,40,0.3)',
-  crosshairLabelBg: '#4338CA',
+  crosshairLabelBg: '#1D4ED8',
   tooltipBg: 'rgba(255,255,255,0.97)',
   tooltipBorder: 'rgba(20,25,40,0.1)',
   tooltipText: '#1A1F2E',
   infoBarBg: 'rgba(244,245,250,0.95)',
-  zoomFill: 'rgba(79,70,229,0.10)',
+  zoomFill: 'rgba(37,99,235,0.10)',
   fillSubtle: 'rgba(20,25,40,0.04)',
 }
 
