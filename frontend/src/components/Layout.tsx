@@ -673,13 +673,9 @@ export function Layout() {
             <Menu className="h-4 w-4 shrink-0" />
           </button>
         )}
-        {/* v3.2.2: 顶栏使用完整官方 logo (assets/logo.png)，130x45 用户指定；≈原图比例 2.84:1，object-contain 铺满不变形 */}
+        {/* v3.2.2: 顶栏使用完整官方 logo (assets/logo.png)，130x45 用户指定 */}
         <img src={logoUrl} className="h-[45px] w-[130px] shrink-0 object-contain object-left" alt="天玑实验室" draggable={false} />
-        {version && (
-          <span className="shrink-0 select-none rounded bg-elevated px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted">
-            {version}
-          </span>
-        )}
+        {/* v3.2.3: 版本号移除（侧栏设置项已有，避免重复） */}
         {isDesktop && (
           <button
             onClick={toggleNavCollapsed}
@@ -1028,8 +1024,8 @@ export function Layout() {
         )}
 
         <div className={cn('border-t border-border py-3 shrink-0', railMode ? 'px-2 flex flex-col items-center gap-1' : 'px-2')}>
+          {/* v3.2.3: 主题切换移至顶栏（全局偏好，顶栏始终可达）；侧栏底部仅保留设置入口 + 版本号 */}
           <div className={railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5'}>
-            <ThemeToggle />
             <NavLink
               to="/settings"
               title={railMode ? '设置' : undefined}
