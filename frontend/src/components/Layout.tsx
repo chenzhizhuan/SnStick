@@ -680,6 +680,18 @@ export function Layout() {
             {version}
           </span>
         )}
+        {isDesktop && (
+          <button
+            onClick={toggleNavCollapsed}
+            className="flex items-center rounded-btn p-2 text-foreground/80 transition-colors duration-150 hover:bg-elevated hover:text-foreground"
+            title={navState === 'expanded' ? '收起菜单' : navState === 'rail' ? '隐藏菜单' : '展开菜单'}
+          >
+            {navState === 'expanded'
+              ? <PanelLeftClose className="h-4 w-4 shrink-0" />
+              : <PanelLeft className="h-4 w-4 shrink-0" />
+            }
+          </button>
+        )}
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
           <DataSourceHealthBadge matrix={matrix} />
           <AIConfigBadge
@@ -687,18 +699,6 @@ export function Layout() {
             model={settingsState?.ai_model}
           />
           <ThemeToggle />
-          {isDesktop && (
-            <button
-              onClick={toggleNavCollapsed}
-              className="flex items-center rounded-btn p-2 text-foreground/80 transition-colors duration-150 hover:bg-elevated hover:text-foreground"
-              title={navState === 'expanded' ? '收起菜单' : navState === 'rail' ? '隐藏菜单' : '展开菜单'}
-            >
-              {navState === 'expanded'
-                ? <PanelLeftClose className="h-4 w-4 shrink-0" />
-                : <PanelLeft className="h-4 w-4 shrink-0" />
-              }
-            </button>
-          )}
         </div>
       </header>
 
