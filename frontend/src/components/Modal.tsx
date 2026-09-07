@@ -138,7 +138,7 @@ export function Modal({
         aria-labelledby={labelledBy}
         aria-label={labelledBy ? undefined : ariaLabel}
         tabIndex={-1}
-        className={`outline-none ${panelClassName}`}
+        className={`sn-dialog outline-none ${panelClassName}`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

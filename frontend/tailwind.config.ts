@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss'
 import animate from 'tailwindcss-animate'
 
-// 设计语言 §6.0:暗色为主 + 电光蓝强调 + 等宽数字
+// 蓝青磨砂玻璃主题，见 docs/SnStick-UI-UX-Design-Spec.md。
 export default {
   darkMode: ['class'],
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -25,14 +25,14 @@ export default {
         danger:     'hsl(var(--danger) / <alpha-value>)',
       },
       fontFamily: {
-        sans: ['Inter', '"HarmonyOS Sans SC"', '"PingFang SC"', 'system-ui', 'sans-serif'],
+        sans: ['Inter', '"HarmonyOS Sans SC"', '"PingFang SC"', '"Microsoft YaHei UI"', '"Microsoft YaHei"', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
-        card: '8px',
-        btn: '6px',
-        input: '4px',
-        dialog: '12px',
+        card: 'var(--radius-card)',
+        btn: 'var(--radius-control)',
+        input: 'var(--radius-input)',
+        dialog: 'var(--radius-dialog)',
       },
       transitionTimingFunction: {
         // §6.0.4 Linear/Vercel 同款缓动

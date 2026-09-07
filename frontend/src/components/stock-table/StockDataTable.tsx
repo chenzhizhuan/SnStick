@@ -117,7 +117,7 @@ export function StockDataTable({
 
   return (
     <div ref={containerRef} className={className}>
-      <table className="w-full text-sm" style={{ minWidth: computedMinWidth }}>
+      <table className="sn-stock-table w-full text-sm" style={{ minWidth: computedMinWidth }}>
         <thead className={theadClass}>
           <tr className="text-left text-secondary">
             {visibleColumns.map(col => {

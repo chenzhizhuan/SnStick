@@ -1,9 +1,12 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { MotionConfig } from 'framer-motion'
 import { RouterProvider } from 'react-router-dom'
 import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-query'
 import { initializeFrontendExtensions } from './extensions/bootstrap'
 import './index.css'
+import './styles/workstation.css'
+import './styles/strategy-studio.css'
 
 // 全局认证拦截: 任何 query/mutation 收到 401 (未登录/会话过期) → 跳登录页。
 // api.ts 的 request() 已对 401 静默 (不弹 toast), 这里统一负责跳转。
@@ -47,9 +50,11 @@ async function bootstrap() {
   const { router } = await import('./router')
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
-      </QueryClientProvider>
+      <MotionConfig reducedMotion="user">
+        <QueryClientProvider client={queryClient}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </MotionConfig>
     </React.StrictMode>,
   )
 }

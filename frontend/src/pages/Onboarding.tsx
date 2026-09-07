@@ -33,7 +33,7 @@ import { Logo } from '@/components/Logo'
 
 const STEPS = ['声明', '欢迎', '数据源', '能力路由', '完成'] as const
 
-const BRAND = '#8B5CF6'
+const BRAND = '#1260FF'
 
 const HIGHLIGHTS = [
   { icon: LineChart,   title: '看板与自选', desc: '市场全景看板、涨跌分布、情绪雷达,自定义自选列表', tint: 'text-accent' },
@@ -78,12 +78,12 @@ export function Onboarding() {
       {/* 背景光晕 —— 品牌 + 主色渐变 */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div
-          className="absolute -top-40 -left-40 h-[28rem] w-[28rem] rounded-full blur-[120px] opacity-20"
+          className="absolute -top-40 -left-40 h-[28rem] w-[28rem] rounded-full blur-[120px] opacity-[0.08]"
           style={{ background: `radial-gradient(circle, ${BRAND}, transparent 70%)` }}
         />
         <div
-          className="absolute -bottom-40 -right-32 h-[26rem] w-[26rem] rounded-full blur-[120px] opacity-15"
-          style={{ background: 'radial-gradient(circle, hsl(var(--accent)), transparent 70%)' }}
+          className="absolute -bottom-40 -right-32 h-[26rem] w-[26rem] rounded-full blur-[120px] opacity-[0.045]"
+          style={{ background: 'radial-gradient(circle, rgb(var(--brand-mint)), transparent 70%)' }}
         />
         {/* 极淡网格底纹 */}
         <div
@@ -102,7 +102,6 @@ export function Onboarding() {
           <Logo
             size={24}
             className="shrink-0"
-            style={{ color: BRAND, filter: `drop-shadow(0 0 8px ${BRAND}55)` }}
           />
           <span className="text-sm font-semibold tracking-tight">SnStick</span>
         </div>

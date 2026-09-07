@@ -16,7 +16,7 @@ import { motion } from 'framer-motion'
 import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import logoImg from '@/assets/logo.png'
+import { Logo } from '@/components/Logo'
 
 export function Auth() {
   const navigate = useNavigate()
@@ -77,8 +77,7 @@ export function Auth() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-base px-4">
-      {/* 背景辉光(与 Onboarding 风格一致) */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(139,92,246,0.15),transparent_40%),radial-gradient(circle_at_70%_80%,rgba(59,130,246,0.12),transparent_40%)]" />
+      <div className="sn-auth-reflection pointer-events-none absolute inset-0" />
 
       <motion.div
         initial={{ opacity: 0, y: 16 }}
@@ -88,15 +87,15 @@ export function Auth() {
       >
         {/* Logo */}
         <div className="mb-6 flex items-center justify-center">
-          <img src={logoImg} alt="SnStick" className="h-20 w-auto object-contain" />
+          <Logo size={96} className="shrink-0" />
         </div>
 
-        <div className="rounded-card border border-border bg-surface/90 p-6 shadow-2xl backdrop-blur">
+        <div className="sn-dialog rounded-card border border-border bg-surface/90 p-6 shadow-2xl">
           {/* 标题区: 图标 + 文案随模式切换 */}
           <div className="mb-5 flex items-center gap-2.5">
             <div className={cn(
               'grid h-9 w-9 place-items-center rounded-lg',
-              isSetup ? 'bg-accent/15 text-accent' : 'bg-purple-500/15 text-purple-400',
+              'bg-accent/15 text-accent',
             )}>
               {isSetup ? <ShieldCheck className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
             </div>
