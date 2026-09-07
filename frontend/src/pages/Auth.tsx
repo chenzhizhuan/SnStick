@@ -16,7 +16,8 @@ import { motion } from 'framer-motion'
 import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, Sparkles } from 'lucide-react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
-import { Logo } from '@/components/Logo'
+import logoUrl from '@/assets/logo.png'
+// import { Logo } from '@/components/Logo'
 
 export function Auth() {
   const navigate = useNavigate()
@@ -87,7 +88,8 @@ export function Auth() {
       >
         {/* Logo */}
         <div className="mb-6 flex items-center justify-center">
-          <Logo size={96} className="shrink-0" />
+          {/* <Logo size={96} className="shrink-0" /> */}
+          <img src={logoUrl} className="h-[60px] w-[180px] shrink-0 object-contain object-left" alt="天玑实验室" draggable={false} />
         </div>
 
         <div className="sn-dialog rounded-card border border-border bg-surface/90 p-6 shadow-2xl">
