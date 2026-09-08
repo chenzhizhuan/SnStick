@@ -30,6 +30,7 @@ node_modules/
 # ===== Vite =====
 frontend/dist/
 frontend/.vite/
+frontend/package-lock.json
 backend/static/
 backend/app/static/
 
@@ -109,3 +110,6 @@ TickFlowStockPanel.app/
 TickFlowStockPanel-macos*.dmg
 TickFlowStockPanel-macos*.zip
 reports/cursor_tickflow_pro_rate_limit_p0.bundle
+
+# ===== 临时文件 =====
+.temp/

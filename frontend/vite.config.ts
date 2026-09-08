@@ -5,8 +5,8 @@ import path from 'node:path'
 const backendHost = process.env.BACKEND_HOST || '127.0.0.1'
 const proxyHost = ['0.0.0.0', '::'].includes(backendHost) ? '127.0.0.1' : backendHost
 const backendPort = process.env.BACKEND_PORT || '3018'
-// const backendTarget = `http://${proxyHost}:${backendPort}`
-const backendTarget = `http://221.237.179.2:13483`
+const backendTarget = `http://${proxyHost}:${backendPort}`
+// const backendTarget = `http://221.237.179.2:13483`
 
 export default defineConfig({
   plugins: [react()],
