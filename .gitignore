@@ -30,7 +30,6 @@ node_modules/
 # ===== Vite =====
 frontend/dist/
 frontend/.vite/
-frontend/package-lock.json
 backend/static/
 backend/app/static/
 
