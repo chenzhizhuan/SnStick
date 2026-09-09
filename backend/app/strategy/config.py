@@ -11,6 +11,8 @@ import json
 import logging
 from pathlib import Path
 
+from app.identity.user_context import user_subdir
+
 logger = logging.getLogger(__name__)
 
 # 进程内缓存: 监控引擎每轮对每条策略规则调用 load_override, 每次读盘+parse 纯重复;
@@ -27,7 +29,8 @@ def _invalidate_override_cache(path: Path) -> None:
 
 
 def _overrides_dir(data_dir: Path) -> Path:
-    d = data_dir / "user_data" / "strategy_overrides"
+    # v2.3 数据命名空间 (M3-3c): 生产/桌面形态切用户根 (user_subdir 兼容层)
+    d = user_subdir(data_dir, "strategy_overrides")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -38,7 +41,7 @@ def _path(data_dir: Path, strategy_id: str, *, ensure_dir: bool = True) -> Path:
     if ensure_dir:
         d = _overrides_dir(data_dir)
     else:
-        d = data_dir / "user_data" / "strategy_overrides"
+        d = user_subdir(data_dir, "strategy_overrides")
     return d / f"{strategy_id}.json"
 
 

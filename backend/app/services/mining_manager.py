@@ -62,6 +62,11 @@ class MiningJobManager:
         source: str = "manual",
         run_id: str | None = None,
     ) -> dict[str, Any]:
+        # v2.3 数据命名空间: 在调用线程 (请求线程) 捕获用户根 —— 新线程不继承
+        # contextvar, 必须在这里先算好; worker 子进程经 task["user_root"] 穿透。
+        from app.identity.user_context import identity_enabled, user_root
+
+        task_user_root = user_root() if identity_enabled() else None
         signature = compute_run_signature(request, data_fingerprint)
         with self._lock:
             if self._shutdown:
@@ -99,7 +104,7 @@ class MiningJobManager:
                 "queued",
                 {"status": "queued", "source": source},
             )
-            self._start_thread_locked(run_id, source)
+            self._start_thread_locked(run_id, source, task_user_root)
             return manifest
 
     def cancel(self, run_id: str) -> dict[str, Any]:
@@ -144,13 +149,18 @@ class MiningJobManager:
     def recover_interrupted(self) -> int:
         return self._store.recover_interrupted()
 
-    def _start_thread_locked(self, run_id: str, source: str) -> None:
+    def _start_thread_locked(
+        self,
+        run_id: str,
+        source: str,
+        task_user_root: Path | None = None,
+    ) -> None:
         if run_id in self._threads:
             return
         cancel_event = threading.Event()
         thread = threading.Thread(
             target=self._run_job,
-            args=(run_id, source, cancel_event),
+            args=(run_id, source, cancel_event, task_user_root),
             name=f"mining-{run_id}",
             daemon=True,
         )
@@ -163,6 +173,7 @@ class MiningJobManager:
         run_id: str,
         source: str,
         cancel_event: threading.Event,
+        task_user_root: Path | None = None,
     ) -> None:
         try:
             with shared_heavy_job_limiter.slot("mining", cancel_event=cancel_event):
@@ -178,6 +189,8 @@ class MiningJobManager:
                     "source": source,
                 }
                 task = self._task_factory("mining", self._data_dir, payload)
+                if task_user_root is not None:
+                    task["user_root"] = str(task_user_root)
                 result = self._worker_runner(
                     task,
                     lambda progress: self._record_progress(run_id, progress, cancel_event),

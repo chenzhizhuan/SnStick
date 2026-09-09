@@ -22,7 +22,10 @@ from pathlib import Path
 
 import polars as pl
 
+from app.identity.user_context import user_subdir
+
 logger = logging.getLogger(__name__)
+
 
 # ── 常量 ────────────────────────────────────────────────
 PREFIX = "csg_"                       # 自定义信号列名前缀
@@ -129,7 +132,9 @@ def materialize_factor_columns(
 
 # ── 持久化（镜像 strategy/config.py 的写法）──────────────
 def _dir(data_dir: Path) -> Path:
-    d = data_dir / "user_data" / "custom_signals"
+    # v2.3 数据命名空间 (M3-3c): 生产/桌面形态切用户根 (user_subdir 兼容层,
+    # 测试传隔离 data_dir 时保持原拼接零改动); 桌面版与历史路径一致。
+    d = user_subdir(data_dir, "custom_signals")
     d.mkdir(parents=True, exist_ok=True)
     return d
 

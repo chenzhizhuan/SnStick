@@ -12,7 +12,9 @@ from app.services import preferences
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
     path = tmp_path / "preferences.json"
-    monkeypatch.setattr(preferences, "_path", lambda: path)
+    # v2.3 数据命名空间: 用户层/全局层路径分别可 patch (桌面版两层同路径)
+    monkeypatch.setattr(preferences, "_user_path", lambda: path)
+    monkeypatch.setattr(preferences, "_global_path", lambda: path)
     preferences._invalidate_cache()
     yield path
     preferences._invalidate_cache()

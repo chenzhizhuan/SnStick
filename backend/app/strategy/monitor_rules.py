@@ -22,6 +22,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from app.services.fs_utils import atomic_write_text
+from app.identity.user_context import user_subdir
 from app.strategy.custom_signals import ALLOWED_FIELDS
 from app.strategy.intraday_signals import uses_intraday_signals
 
@@ -66,7 +67,8 @@ _SIGNAL_PREFIXES = ("signal_", "csg_")
 
 # ── 持久化 (镜像 custom_signals.py) ─────────────────────
 def _dir(data_dir: Path) -> Path:
-    d = data_dir / "user_data" / "monitor_rules"
+    # v2.3 数据命名空间 (M3-3c): 生产/桌面形态切用户根 (user_subdir 兼容层)
+    d = user_subdir(data_dir, "monitor_rules")
     d.mkdir(parents=True, exist_ok=True)
     return d
 

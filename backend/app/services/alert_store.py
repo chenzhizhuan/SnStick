@@ -17,6 +17,8 @@ import logging
 import threading
 from pathlib import Path
 
+from app.identity.user_context import user_subdir
+
 logger = logging.getLogger(__name__)
 
 # 保留策略
@@ -30,7 +32,8 @@ _write_count = 0
 
 
 def _path(data_dir: Path) -> Path:
-    p = data_dir / "user_data" / "alerts.jsonl"
+    # v2.3 数据命名空间 (M3-3c): 生产/桌面切用户根 (user_subdir 兼容层)
+    p = user_subdir(data_dir, "alerts.jsonl")
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

@@ -134,7 +134,11 @@ class CandidateValidationError(CandidateStoreError):
 
 class CandidateStore:
     def __init__(self, data_dir: Path) -> None:
-        self.path = Path(data_dir) / "user_data" / "research_candidates.json"
+        # v2.3 数据命名空间 (M3-3c): 生产/桌面切用户根 (user_subdir 兼容层);
+        # 测试传隔离目录时保持原拼接 data_dir/user_data/。
+        from app.identity.user_context import user_subdir
+
+        self.path = user_subdir(data_dir, "research_candidates.json")
 
     def list(self) -> list[dict[str, Any]]:
         with _lock:

@@ -134,7 +134,11 @@ def _fetch_pool(pool_id: PoolId) -> list[str]:
 
 def _load_watchlist() -> list[str]:
     """读取用户自选(由 watchlist service 维护)。"""
-    path = settings.data_dir / "user_data" / "watchlist.parquet"
+    from app.identity.user_context import user_root
+
+    # v2.3 数据命名空间 (M3-3c): 与 watchlist service 同源 (user_root),
+    # 互通形态读当前上下文用户; 桌面版即 data/user_data/ 原路径。
+    path = user_root() / "watchlist.parquet"
     if not path.exists():
         return []
     df = pl.read_parquet(path)

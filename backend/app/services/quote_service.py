@@ -1450,6 +1450,8 @@ class QuoteService:
         try:
             from app.strategy import custom_signals
 
+            # v2.3 数据命名空间 (M3-3c): custom_signals._dir 经 user_subdir 兼容层
+            # 解析, 后台轮询线程在互通形态下读 local 降级根 (M3-3d 再切遍历)。
             return custom_signals.load_intraday_all(self._repo.store.data_dir)
         except Exception as e:
             logger.warning("load intraday signal defs failed: %s", e)

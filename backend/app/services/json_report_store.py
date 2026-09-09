@@ -42,8 +42,10 @@ class JsonReportStore:
         self._lock = threading.Lock()
 
     def _path(self) -> Path:
-        from app.config import settings
-        p = settings.data_dir / "user_data" / self.filename
+        from app.identity.user_context import user_root
+
+        # v2.3 数据命名空间 (M3-3c): 报告属用户工件 (AI 生成报告类), 存用户根
+        p = user_root() / self.filename
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 

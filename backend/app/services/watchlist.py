@@ -24,6 +24,7 @@ from pathlib import Path
 import polars as pl
 
 from app.config import settings
+from app.identity.user_context import user_root
 from app.tickflow.capabilities import Cap, CapabilitySet
 from app.tickflow.client import get_client
 from app.tickflow.rate_limits import chunked, resolve_limit
@@ -33,12 +34,18 @@ logger = logging.getLogger(__name__)
 _LOCK = threading.RLock()
 # 数据版本号: 每次写盘 +1 (在 _LOCK 内递增, 读取免锁)。供监控引擎等进程内
 # 消费方做缓存失效判断 —— 版本没变就不必重读文件, 版本一变立即拿到新成员。
-_REVISION = 0
+# v2.3 数据命名空间: per-user 字典 (未互通时统一归入单密码桶, 行为不变)。
+_REVISIONS: dict[str, int] = {}
+
+
+def _revision_key() -> str:
+    """版本号桶键: 互通形态按用户隔离, 桌面版单桶。"""
+    return str(user_root())
 
 
 def revision() -> int:
-    """自选/分组数据版本号, 每次写操作递增。"""
-    return _REVISION
+    """自选/分组数据版本号, 每次写操作递增 (当前上下文用户)。"""
+    return _REVISIONS.get(_revision_key(), 0)
 _MAX_GROUP_NAME_LENGTH = 24
 DEFAULT_GROUP_COLOR = "sky"
 GROUP_COLORS = frozenset({
@@ -64,15 +71,11 @@ _ENTRY_SCHEMA = {
 
 
 def _path() -> Path:
-    p = settings.data_dir / "user_data" / "watchlist.parquet"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    return user_root() / "watchlist.parquet"
 
 
 def _groups_path() -> Path:
-    p = settings.data_dir / "user_data" / "watchlist_groups.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    return user_root() / "watchlist_groups.json"
 
 
 def _empty_entries() -> pl.DataFrame:
@@ -99,9 +102,14 @@ def _read_entries() -> pl.DataFrame:
     return df.select(list(_ENTRY_SCHEMA))
 
 
+def _bump_revision() -> None:
+    key = _revision_key()
+    _REVISIONS[key] = _REVISIONS.get(key, 0) + 1
+
+
 def _write_entries(df: pl.DataFrame) -> None:
-    global _REVISION
     p = _path()
+    p.parent.mkdir(parents=True, exist_ok=True)
     # 首次从旧 schema 迁移到 group_ids 前, 备份原文件(一次性)
     if p.exists():
         try:
@@ -112,7 +120,7 @@ def _write_entries(df: pl.DataFrame) -> None:
     tmp = p.with_suffix(p.suffix + ".tmp")
     df.select(list(_ENTRY_SCHEMA)).write_parquet(tmp)
     os.replace(tmp, p)
-    _REVISION += 1
+    _bump_revision()
 
 
 def _read_groups() -> list[dict]:
@@ -139,12 +147,12 @@ def _read_groups() -> list[dict]:
 
 
 def _write_groups(groups: list[dict]) -> None:
-    global _REVISION
     p = _groups_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(groups, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, p)
-    _REVISION += 1
+    _bump_revision()
 
 
 def _normalize_group_name(name: str) -> str:

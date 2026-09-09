@@ -305,7 +305,10 @@ def _selected_strategy_metadata(
         if strategy.execution_backend != "matrix_native":
             raise ValueError(f"scheduled mining strategy is not matrix-native: {strategy_id}")
         source_path = Path(strategy.file_path) if strategy.file_path is not None else None
-        override_path = data_dir / "user_data" / "strategy_overrides" / f"{strategy_id}.json"
+        # v2.3 数据命名空间 (M3-3c): override 路径经兼容层解析 (桌面版原位置)
+        from app.identity.user_context import user_subdir
+
+        override_path = user_subdir(data_dir, "strategy_overrides") / f"{strategy_id}.json"
         metadata.append(
             {
                 "strategy_id": strategy_id,

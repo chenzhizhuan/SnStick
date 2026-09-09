@@ -100,6 +100,25 @@ async def _application_lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("auth bootstrap failed: %s", e)
 
+    # agti 账号互通 (服务端形态): 预热身份库连接池。
+    # 失败仅警告不阻断启动 —— 身份库不可用不影响行情/回测业务,
+    # 已登录用户凭本地会话继续使用 (v2.3: DB 抖动零感知), 仅新登录受影响。
+    app.state.identity_pool_ready = False
+    try:
+        from app.identity import pool as identity_pool
+        if identity_pool.is_enabled():
+            health = await identity_pool.health_check()
+            if health.ok:
+                app.state.identity_pool_ready = True
+                logger.info("identity db ready (%.1fms)", health.latency_ms)
+            else:
+                logger.warning(
+                    "identity db unreachable, login disabled until it recovers: %s",
+                    health.error,
+                )
+    except Exception as e:
+        logger.warning("identity pool init failed: %s", e)
+
     # 数据层
     store = DataStore()
     repo = KlineRepository(store)
@@ -250,11 +269,17 @@ async def _application_lifespan(app: FastAPI):
 
     _screener_svc = ScreenerService(repo)
     _etf_screener_svc = ScreenerService(repo, asset_type="etf")
+    # v2.3 数据命名空间 (M3-3c): 注入生产 data_dir/默认用户根 (领域模块兼容层
+    # user_subdir/user_strategies_dir 依赖此注入区分生产目录 vs 测试隔离目录)。
+    from app.identity.user_context import set_production_roots, user_root, user_strategies_dir
+
+    set_production_roots(store.data_dir, user_root())
+    _strategies_root = user_strategies_dir(store.data_dir)
     strategy_dirs = [
         Path(__file__).resolve().parent / "strategy" / "builtin",
-        store.data_dir / "strategies" / "custom",
-        store.data_dir / "strategies" / "ai",
-        store.data_dir / "strategies" / "composite",
+        _strategies_root / "custom",
+        _strategies_root / "ai",
+        _strategies_root / "composite",
     ]
     strategy_engine = StrategyEngine(
         strategy_dirs=strategy_dirs,
@@ -359,6 +384,12 @@ async def _application_lifespan(app: FastAPI):
         yield
     finally:
         repo._on_refresh_done = None  # noqa: SLF001
+        # 身份库连接池 (agti 账号互通, 未启用时为 no-op)
+        try:
+            from app.identity import pool as identity_pool
+            await identity_pool.close_pool()
+        except Exception as e:
+            logger.warning("identity pool close failed: %s", e)
         wd = getattr(app.state, "watchdog", None)
         if wd:
             await wd.stop()
@@ -443,6 +474,33 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     from app.services import auth as auth_service
+    from app.services import identity_auth
+    from app.identity import pool as identity_pool
+
+    # agti 账号互通形态: 用身份会话校验 (角色/身份注入 request.state)
+    if identity_pool.is_enabled():
+        from app.identity.user_context import set_context_user
+
+        token = request.cookies.get(auth_api.COOKIE_NAME)
+        if token and identity_auth.is_valid_session(token):
+            # 惰性刷新: 请求进入时快照超期且身份库可用则刷新 (DB 抖动零感知)
+            await identity_auth.refresh_session(token)
+            identity = identity_auth.get_identity(token)
+            if identity:
+                request.state.identity = identity
+                request.state.auth_mode = "identity"
+                # v2.3 §5 数据命名空间: 请求级用户上下文 (services 层取用户根用)
+                ctx_token = set_context_user(identity.get("user_id"))
+                try:
+                    return await call_next(request)
+                finally:
+                    from app.identity.user_context import reset_context_user
+
+                    reset_context_user(ctx_token)
+            # 身份已失效(硬上限/用户删除) → 按未登录处理
+        return JSONResponse(status_code=401, content={"detail": "未登录或会话已过期"})
+
+    # 单密码模式 (桌面版 / 未互通): 原有逻辑不变
     # 情况 1+2: 未设密码
     if not auth_service.is_configured():
         # 本机/内网 → 放行(服务器主人可访问, 并去 /login 设密码)
@@ -460,6 +518,8 @@ async def auth_middleware(request: Request, call_next):
     # 情况 3: 已设密码, 检查会话
     token = request.cookies.get(auth_api.COOKIE_NAME)
     if token and auth_service.is_valid_session(token):
+        request.state.identity = None
+        request.state.auth_mode = "password"
         return await call_next(request)
     # 未登录: 401(前端跳登录页)
     return JSONResponse(status_code=401, content={"detail": "未登录或会话已过期"})

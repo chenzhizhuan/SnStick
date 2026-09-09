@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from datetime import date as _date
 from pathlib import Path
 
+from app.identity.user_context import user_subdir
 from app.services.fs_utils import atomic_write_text
 from app.strategy import monitor_rules
 from app.strategy.monitor import MonitorRuleEngine  # 复用条件文本拼装 (静态方法)
@@ -24,7 +25,8 @@ _MAX_ID_LEN = 40 - 2  # 派生规则 id 后缀 "_p" / "_d"
 
 
 def _dir(data_dir: Path) -> Path:
-    d = data_dir / "user_data" / "lots"
+    # v2.3 数据命名空间 (M3-3c): 生产/桌面形态切用户根 (user_subdir 兼容层)
+    d = user_subdir(data_dir, "lots")
     d.mkdir(parents=True, exist_ok=True)
     return d
 

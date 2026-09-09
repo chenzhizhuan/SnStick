@@ -1622,7 +1622,13 @@ class StrategyEngine:
     )
 
     def _user_data_dir(self) -> Path | None:
-        """从策略目录推导 data_dir(…/strategies/custom → data_dir)。推不出则跳过注入。"""
+        """从策略目录推导用户工件根(v2.3 §5: …/strategies/custom → 用户根)。
+
+        桌面版: data_dir/strategies/custom → data_dir (历史行为, 兼容 custom_signals
+        以 data_dir 参数拼 user_data/ 的旧口径 —— 由 user_subdir 兼容层自动路由);
+        互通形态: users/<uid>/strategies/custom → users/<uid> (用户根)。
+        推不出则跳过注入。
+        """
         for d in self._strategy_dirs:
             if d.name == "custom" and d.parent.name == "strategies":
                 return d.parent.parent

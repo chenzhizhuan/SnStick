@@ -21,6 +21,7 @@ import pyarrow.parquet as pq
 from app.backtest.candidates import CandidateStore
 from app.backtest.factor import FACTOR_COLUMNS
 from app.backtest.mining import compute_candidate_signature, evaluate_candidate_gate
+from app.identity.user_context import user_strategies_dir
 from app.services.mining_jobs import SUCCESS_RUN_STATUSES, MiningRunStore
 from app.strategy.ai_generator import AIStrategyGenerator
 from app.strategy.engine import StrategyEngine
@@ -538,12 +539,18 @@ class MiningCandidateService:
             raise ValueError("candidate publication backlink is inconsistent")
 
     def _custom_strategy_path(self, strategy_id: str) -> Path:
-        unresolved_root = self.data_dir / "strategies" / "custom"
+        # v2.3 数据命名空间 (M3-3c): strategies/ 经 user_strategies_dir 解析
+        # (桌面版 = data_dir/strategies/ 原位置, 零改动)。
+        unresolved_root = user_strategies_dir(self.data_dir) / "custom"
         unresolved_root.mkdir(parents=True, exist_ok=True)
         if unresolved_root.is_symlink():
             raise ValueError("custom strategy directory must not be a symlink")
         root = unresolved_root.resolve()
-        if not root.is_relative_to(self.data_dir):
+        if not root.is_relative_to(self.data_dir) and not root.is_relative_to(
+            self.data_dir.parent
+        ):
+            # 互通形态 root 在 users/<uid>/strategies/ 下 (data_dir/users/...) 仍
+            # 在 data_dir 树内; 独立用户根部署时以 data_dir.parent 宽容判定。
             raise ValueError("custom strategy directory escapes data_dir")
         path = (root / f"{strategy_id}.py").resolve(strict=False)
         if path.parent != root:

@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.backtest.minute_trigger import MINUTE_EXIT_TRIGGER_SIGNALS
+from app.identity.user_context import user_strategies_dir
 from app.strategy import config as strategy_config
 from app.strategy.ai_generator import AIStrategyGenerator, find_meta_assignment
 from app.strategy.engine import StrategyDef, StrategyEngine
@@ -686,7 +687,9 @@ def _validate_strategy_id(strategy_id: str) -> str:
 def _target_dir(data_dir: Path, source: str) -> Path:
     if source not in {"ai", "custom", "composite"}:
         raise ValueError("target_source 必须是 ai、custom 或 composite")
-    return data_dir / "strategies" / source
+    # v2.3 数据命名空间 (M3-3c): 桌面版保持 data_dir/strategies/<source>;
+    # 互通形态切用户根 (与 main.py 启动装载/worker _strategy_dirs 同构)
+    return user_strategies_dir(data_dir) / source
 
 
 def _prepare_strategy_code(req: StrategyCodeValidateRequest | StrategyCodeSaveRequest) -> dict:
@@ -1170,7 +1173,7 @@ def delete_strategy(strategy_id: str, request: Request):
         raise HTTPException(status_code=400, detail="策略源文件路径无效, 无法删除")
 
     try:
-        allowed_dir = (data_dir / "strategies" / s.source).resolve()
+        allowed_dir = (user_strategies_dir(data_dir) / s.source).resolve()
         resolved_path = path.resolve()
     except (OSError, RuntimeError) as e:
         raise HTTPException(status_code=409, detail=f"无法访问策略文件: {e}") from e

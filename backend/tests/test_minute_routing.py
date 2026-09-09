@@ -1164,7 +1164,9 @@ def test_preferences_parallel_saves_do_not_lose_each_other(tmp_path, monkeypatch
     import threading
     from app.services import preferences as prefs
 
-    monkeypatch.setattr(prefs, "_path", lambda: tmp_path / "preferences.json")
+    monkeypatch.setattr(prefs, "_user_path", lambda: tmp_path / "preferences.json")
+
+    monkeypatch.setattr(prefs, "_global_path", lambda: tmp_path / "preferences.json")
     prefs._invalidate_cache()
     prefs.save({"minute_batch_compress": True})
 

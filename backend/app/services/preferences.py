@@ -1,6 +1,15 @@
 """用户偏好设置持久化。
 
-存储位置: data/user_data/preferences.json
+存储位置 (v2.3 §5 数据命名空间, 双层):
+  - 用户层: <user_root>/preferences.json —— 个人 UI 偏好 (菜单排序/列配置/引导等)
+  - 全局层: data/user_data/preferences.json —— 部署级配置 (数据源选择/管道调度/
+    推送渠道等, 后台任务在无请求上下文时也要读)
+  桌面版 (未互通): user_root() 即 data/user_data/, 两层同文件自然合并,
+  行为与升级前完全一致 (零改动铁律)。
+
+  互通形态: 部署级键写入全局层 (运维统一管控), 用户级键写入用户层
+  (A/B 用户互不影响); load() 返回合并视图 (用户层覆盖全局层同键)。
+
 沿用 secrets_store 的 merge-write 模式,但不做 chmod 0600 (非敏感数据)。
 """
 from __future__ import annotations
@@ -12,66 +21,211 @@ import re
 import threading
 from pathlib import Path
 
+from app.identity.user_context import user_root
+
 logger = logging.getLogger(__name__)
 
 # 进程内缓存: 行情轮询线程一轮会调用 8~12 次 getter, 每次读盘+parse 是纯重复;
 # 文件仅在用户改设置时变化, 以 (mtime_ns, size) 签名判断是否重读。
-_cache: dict | None = None
-_cache_sig: tuple[int, int] | None = None
+# 缓存以「层路径」为键 —— 互通形态下 A/B 用户各自独立缓存。
+_cache: dict[str, dict] = {}
+_cache_sig: dict[str, tuple[int, int]] = {}
 
 
-def _path() -> Path:
-    from app.config import settings
-    p = settings.data_dir / "user_data" / "preferences.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
+def _user_path() -> Path:
+    """用户层 preferences.json (桌面版 = 原路径)。"""
+    p = user_root() / "preferences.json"
     return p
 
 
+def _global_path() -> Path:
+    """全局层 preferences.json (部署级键; 桌面版与用户层同文件)。"""
+    from app.config import settings
+
+    p = settings.data_dir / "user_data" / "preferences.json"
+    return p
+
+
+def _path() -> Path:
+    """兼容入口: 单密码/桌面版语义下的 preferences.json 路径。
+
+    历史调用方 (含测试 monkeypatch) 依赖此函数; 未互通时即唯一存储文件。
+    """
+    return _user_path()
+
+
+# ── 键分层: 部署级 (全局) vs 用户级 (个人) ──────────────────────
+# 判定标准 (v2.3 §5.1 三分法 + 代码实证): 后台任务在无请求上下文时消费的键
+# 必须全局 (跨请求可见); 纯个人 UI 偏好按 user_id 隔离。清单如下:
+#   部署级: 数据源选择 / 拉取开关 / 各类调度 / 推送渠道与 webhook / regime
+#           批量参数 / mining 调度 / 趢势监控后台开关 / 财务同步游标 /
+#           分时/日K 传输压缩 / pipeline 超时
+#   用户级: 菜单排序隐藏 / 列配置 / 引导标记 / realtime_quotes_enabled 等
+#           个人展示开关 / system_notify_enabled
+# 新增键时: 后台任务会读的键进 _DEPLOY_KEYS, 否则进用户层 (默认)。
+# 桌面版两层同文件, 分流不可见, 行为零变化。
+_DEPLOY_KEYS = frozenset({
+    # 数据源选择 (tickflow/policy.py 等后台读)
+    "daily_data_provider", "adj_factor_provider", "minute_data_provider",
+    "full_minute_data_provider", "depth5_data_provider",
+    "realtime_data_provider", "financial_data_provider",
+    # 盘后管道拉取与调度
+    "pipeline_pull_a_share", "pipeline_pull_etf", "pipeline_pull_index",
+    "pipeline_schedule", "instruments_schedule",
+    "pipeline_index_symbols", "pipeline_regime_enabled",
+    "regime_batch_days", "regime_warmup_days",
+    "enriched_batch_size", "index_daily_batch_size",
+    # 分钟 K 同步 / 盘中增量刷新
+    "minute_sync_enabled", "minute_sync_days", "minute_sync_segment_days",
+    "minute_refresh_enabled", "minute_refresh_interval",
+    # 实时行情拉取范围 (后台 quote_service 读)
+    "realtime_pull_stock", "realtime_pull_etf",
+    "realtime_quote_interval",
+    # 推送渠道与 webhook (后台推送/复盘归档读)
+    "feishu_webhook_url", "feishu_webhook_secret",
+    "wecom_webhook_url", "wecom_bot_id", "wecom_bot_secret", "wecom_bot_enabled",
+    "custom_webhook_url", "email_smtp_config",
+    "review_schedule", "review_push_channels", "review_push_mode",
+    "review_push_channel", "review_push_enabled",
+    "webhook_enabled_default", "webhook_default_channels",
+    # 主线/regime 过滤口径 (盘后计算读)
+    "mainline_max_members", "mainline_min_members", "mainline_blacklist",
+    "sentiment_exclude_st",
+    # mining 周度调度
+    "mining_schedule_enabled", "mining_schedule_weekday", "mining_budget_profile",
+    # 五档/连板梯队后台开关
+    "limit_ladder_monitor_enabled", "depth_polling_interval", "depth_finalize_time",
+    # 财务同步游标 (financial_sync 后台读)
+    "financial_sync_times",
+    # 传输压缩 (服务端出口带宽策略)
+    "minute_batch_compress", "daily_batch_compress",
+    # 数据任务超时 (pipeline_jobs 读)
+    "data_source_job_timeout_s", "data_source_long_job_timeout_s",
+    # 策略监控后台总开关 (main.py 线程读)
+    "strategy_monitor_enabled",
+    # 监控中心个股通知 ext 字段 (告警轮询读)
+    "monitor_ext_fields",
+})
+# 用户级键 (个人 UI 偏好; 显式列出防遗漏, 未列出的新键默认用户层)
+_USER_KEYS = frozenset({
+    "nav_order", "nav_hidden",
+    "watchlist_columns", "screener_result_columns",
+    "onboarding_completed",
+    "realtime_quotes_enabled",
+    "watchlist_groups_in_nav",
+    "minute_intraday_refresh", "minute_intraday_refresh_interval",
+    "sse_refresh_pages",
+    "strategy_monitor_ids",
+    "screener_auto_run",
+    "system_notify_enabled",
+})
+
+
+def _is_deploy_key(key: str) -> bool:
+    return key in _DEPLOY_KEYS
+
+
 def _invalidate_cache() -> None:
-    global _cache, _cache_sig
-    _cache = None
-    _cache_sig = None
+    _cache.clear()
+    _cache_sig.clear()
 
 
-def load() -> dict:
-    """读取 preferences.json (带 mtime 签名缓存)。返回深拷贝, 调用方可自由修改。"""
-    global _cache, _cache_sig
-    p = _path()
+def _invalidate_cache_path(path: Path) -> None:
+    _cache.pop(str(path), None)
+    _cache_sig.pop(str(path), None)
+
+
+def _load_layer(path: Path) -> dict:
+    """单层读取 (带 mtime 签名缓存, 以路径为键)。不存在/malformed 返回 {}。"""
+    key = str(path)
     try:
-        sig = (p.stat().st_mtime_ns, p.stat().st_size)
+        sig = (path.stat().st_mtime_ns, path.stat().st_size)
     except OSError:
+        _cache.pop(key, None)
+        _cache_sig.pop(key, None)
         return {}
-    if _cache is not None and sig == _cache_sig:
-        return copy.deepcopy(_cache)
+    cached = _cache.get(key)
+    if cached is not None and sig == _cache_sig.get(key):
+        return copy.deepcopy(cached)
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}
     except Exception as e:
         logger.warning("preferences.json malformed: %s", e)
         return {}
-    _cache = data
-    _cache_sig = sig
-    return copy.deepcopy(_cache)
+    _cache[key] = data
+    _cache_sig[key] = sig
+    return copy.deepcopy(data)
+
+
+def _layers() -> list[Path]:
+    """当前上下文的层列表: 互通形态 = [全局层, 用户层]; 桌面版 = 单层 (同路径去重)。"""
+    u = _user_path()
+    g = _global_path()
+    return [g, u] if g != u else [u]
+
+
+def load() -> dict:
+    """读取 preferences.json 合并视图 (带 mtime 签名缓存)。返回深拷贝, 调用方可自由修改。
+
+    合并规则: 全局层为底, 用户层覆盖同键 (仅互通形态存在两层)。
+    """
+    merged: dict = {}
+    for path in _layers():
+        merged.update(_load_layer(path))
+    return merged
 
 
 _SAVE_LOCK = threading.Lock()
 
 
 def save(updates: dict) -> dict:
-    """合并写入。返回新内容。
+    """合并写入。返回新内容 (合并视图)。
+
+    键分流 (互通形态): 部署级键写全局层, 用户级键写用户层。
+    桌面版两层同文件: 分流退化为普通单文件 merge-write, 行为不变。
 
     锁内 read-modify-write: FastAPI 同步端点跑线程池, 并行 PUT 各自基于旧快照
     写盘会互相覆盖 (实测: 压缩总开关并行写分时/日K两键, 后写者把先写者覆盖)。
     """
+    from app.identity.user_context import identity_enabled
+
     with _SAVE_LOCK:
-        current = load()
-        current.update(updates)
-        _path().write_text(
-            json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
-        )
-        _invalidate_cache()
-    return current
+        if not identity_enabled():
+            # 桌面版/未互通: 单文件 merge-write (原行为)
+            p = _user_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            current = _load_layer(p)
+            current.update(updates)
+            p.write_text(
+                json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
+            )
+            _invalidate_cache_path(p)
+            return current
+
+        # 互通形态: 按键分流到两层
+        deploy_updates = {k: v for k, v in updates.items() if _is_deploy_key(k)}
+        user_updates = {k: v for k, v in updates.items() if not _is_deploy_key(k)}
+        if deploy_updates:
+            g = _global_path()
+            g.parent.mkdir(parents=True, exist_ok=True)
+            current = _load_layer(g)
+            current.update(deploy_updates)
+            g.write_text(
+                json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
+            )
+            _invalidate_cache_path(g)
+        if user_updates:
+            u = _user_path()
+            u.parent.mkdir(parents=True, exist_ok=True)
+            current = _load_layer(u)
+            current.update(user_updates)
+            u.write_text(
+                json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
+            )
+            _invalidate_cache_path(u)
+        return load()
 
 
 def get_realtime_quotes_enabled() -> bool:
@@ -89,12 +243,7 @@ def get_realtime_quote_interval() -> float:
 
 def set_realtime_quote_interval(interval: float) -> float:
     """保存行情轮询间隔（不在此做 min/max 校验，由调用方按档位限制）。"""
-    current = load()
-    current["realtime_quote_interval"] = interval
-    _path().write_text(
-        json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
-    )
-    _invalidate_cache()
+    save({"realtime_quote_interval": interval})
     return interval
 
 

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from app.factors.dsl import compile_formula
 from app.factors.registry import FactorSpec, factor_dependencies, get_factor, register_factor
+from app.identity.user_context import user_subdir
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,8 @@ STATUSES = frozenset({"draft", "active", "watch", "retired"})
 
 
 def _dir(data_dir: Path) -> Path:
-    directory = data_dir / "user_data" / "custom_factors"
+    # v2.3 数据命名空间 (M3-3c): 生产/桌面形态切用户根 (user_subdir 兼容层)
+    directory = user_subdir(data_dir, "custom_factors")
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 

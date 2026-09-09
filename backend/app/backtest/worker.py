@@ -10,7 +10,7 @@ import threading
 import time
 import traceback
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -83,12 +83,18 @@ def _rss_bytes() -> int:
 
 
 def _strategy_dirs(data_dir: Path) -> list[Path]:
+    # v2.3 数据命名空间 (M3-3c): 桌面版保持 data_dir/strategies/ (零改动铁律);
+    # 互通形态切用户根 —— 子进程 task dict 里的 data_dir 是行情根, 由父进程
+    # make_worker_task 序列化时已按当前用户解析 (见 make_worker_task)。
+    from app.identity.user_context import user_strategies_dir
+
     app_dir = Path(__file__).resolve().parents[1]
+    strategies_dir = user_strategies_dir(data_dir)
     return [
         app_dir / "strategy" / "builtin",
-        data_dir / "strategies" / "custom",
-        data_dir / "strategies" / "ai",
-        data_dir / "strategies" / "composite",
+        strategies_dir / "custom",
+        strategies_dir / "ai",
+        strategies_dir / "composite",
     ]
 
 
@@ -133,7 +139,13 @@ def encode_optimize_config(config) -> dict[str, Any]:
     return payload
 
 
-def make_worker_task(kind: str, data_dir: Path, config) -> dict[str, Any]:
+def make_worker_task(
+    kind: str,
+    data_dir: Path,
+    config,
+    *,
+    user_root_path: Path | None = None,
+) -> dict[str, Any]:
     if kind == "backtest":
         encoded = encode_backtest_config(config)
     elif kind == "optimize":
@@ -148,11 +160,18 @@ def make_worker_task(kind: str, data_dir: Path, config) -> dict[str, Any]:
         encoded = dict(config)
     else:
         raise ValueError(f"unsupported worker task kind: {kind}")
-    return {
+    task: dict[str, Any] = {
         "kind": kind,
         "data_dir": str(data_dir.resolve()),
         "config": encoded,
     }
+    # v2.3 §5.2 子进程穿透: 父进程算好当前用户根再序列化传入; 子进程 root_scope
+    # 包裹执行 (策略目录/overrides/custom_signals/custom_factors 随根解析)。
+    # None = 未互通 (桌面版): 子进程不设显式根, 领域模块兼容层走 settings 判定,
+    # 行为与升级前一致 (零改动铁律)。
+    if user_root_path is not None:
+        task["user_root"] = str(Path(user_root_path).resolve())
+    return task
 
 
 def _attach_worker_metrics(
@@ -176,6 +195,15 @@ def _error_message(exc: BaseException) -> str:
 
 
 def _worker_entry(task: dict[str, Any], event_queue, cancel_event) -> None:
+    from app.identity.user_context import root_scope
+
+    _user_root = task.get("user_root")
+    _scope = root_scope(_user_root) if _user_root else nullcontext()
+    with _scope:
+        _run_worker_task(task, event_queue, cancel_event)
+
+
+def _run_worker_task(task: dict[str, Any], event_queue, cancel_event) -> None:
     sampler = _PeakRssSampler()
     sampler.start()
     started = time.perf_counter()
@@ -194,6 +222,8 @@ def _worker_entry(task: dict[str, Any], event_queue, cancel_event) -> None:
         # 子进程不继承主进程的因子注册表; 自定义/复合因子 (uf_/cf_) 在任何
         # 涉及因子物化的 worker 任务里都依赖注册表, 启动时从存储加载。
         # 单个加载失败只跳过 (fail-open 跳过该因子), 与主进程启动行为一致。
+        # v2.3 数据命名空间: data_dir 为行情根, custom_factors 由兼容层
+        # (user_subdir) 按 root_scope 显式根解析到用户根下。
         from app.factors.store import load_into_registry
 
         load_into_registry(data_dir)
