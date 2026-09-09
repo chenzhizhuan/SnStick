@@ -128,6 +128,9 @@ COPY backend/app ./app
 # COPY --from 不受 .dockerignore 的 **/node_modules 规则影响。
 COPY --from=stocksdk-builder /build/node_modules ./app/plugins/stocksdk/node_modules
 COPY tiers.yaml /app/tiers.yaml
+# 权限矩阵 (M3-4): lazy 加载, 未启互通不触发, 但镜像必须携带,
+# 否则互通一启用即 RoleMapError (permissions._role_map_path 指向 /app)
+COPY role_map.yaml /app/role_map.yaml
 ENV STATIC_DIR=/app/static \
     TIERS_YAML=/app/tiers.yaml \
     DATA_DIR=/app/data \
