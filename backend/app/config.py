@@ -139,6 +139,21 @@ class Settings(BaseSettings):
     # 公网服务器部署时免去 SSH 端口转发设密码的麻烦。写入 auth.json(哈希)后即不再读取。
     auth_password: str = ""
 
+    # ── agti 账号互通 (服务端部署形态专用, 桌面版不配置即不启用) ──────
+    # 留空 = 不启用身份库, 沿用单密码模式 (桌面版/未开通互通的部署)。
+    # dsn 示例: postgresql://readonly_user:pwd@47.236.149.88:27095/agti
+    # 密码含特殊字符时建议 URL-encode, 或在 .env 中用单引号包裹。
+    agti_dsn: str = ""
+    # 连接安全: 生产库当前 ssl=off (公网明文), 待 AGTi 侧开通 SSL 后改
+    # 'require'。空串 = 不加 ssl 参数 (兼容 PG 服务器显式拒绝 ssl 的场景)。
+    agti_sslmode: str = ""
+    # 连接池 (刻意小于 AGTi 侧 pool=50; 只做登录/刷新查询)
+    agti_pool_min: int = 1
+    agti_pool_max: int = 4
+    # 查询/连接超时: 登录查询毫秒级, 给足余量; 连接超时防止启动卡顿
+    agti_query_timeout_ms: int = 5000
+    agti_connect_timeout_s: float = 5.0
+
     # Data — frozen: exe 同级 data/ 子目录; 非 frozen: 项目根 data/
     # (均可被环境变量 DATA_DIR 覆盖, pydantic-settings 自动注入)
     data_dir: Path = _user_data_root()
@@ -177,6 +192,14 @@ class Settings(BaseSettings):
             raise ValueError("strategy_run_all_workers must be >= 1")
         if self.strategy_run_all_first_return_s < 0:
             raise ValueError("strategy_run_all_first_return_s must be >= 0")
+        if self.agti_pool_min < 1:
+            raise ValueError("agti_pool_min must be >= 1")
+        if self.agti_pool_max < self.agti_pool_min:
+            raise ValueError("agti_pool_max must be >= agti_pool_min")
+        if self.agti_query_timeout_ms < 1000:
+            raise ValueError("agti_query_timeout_ms must be >= 1000")
+        if self.agti_connect_timeout_s <= 0:
+            raise ValueError("agti_connect_timeout_s must be positive")
         return self
 
     @property
