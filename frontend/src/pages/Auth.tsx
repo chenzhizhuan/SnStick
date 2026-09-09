@@ -15,16 +15,18 @@
  */
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, Sparkles, User } from 'lucide-react'
 import { api } from '@/lib/api'
+import { AUTH_ME_KEY } from '@/lib/useAuth'
 import { cn } from '@/lib/cn'
 import logoUrl from '@/assets/logo.png'
 // import { Logo } from '@/components/Logo'
 
 export function Auth() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')  // 仅设密码时用
@@ -66,6 +68,9 @@ export function Auth() {
       return api.authLogin(password)
     },
     onSuccess: () => {
+      // 互通登录成功后丢弃旧的 auth-me 缓存 (可能是登录前的 404 哨兵/401 error),
+      // 进面板后 useAuth 重新拉取真实身份与权限集。
+      qc.removeQueries({ queryKey: AUTH_ME_KEY })
       // 成功: 跳回原页面(或首页)
       const redirect = new URLSearchParams(window.location.search).get('redirect') || '/'
       navigate(redirect, { replace: true })

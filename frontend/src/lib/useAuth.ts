@@ -24,20 +24,35 @@ export interface AuthState {
 }
 
 /**
- * 互通形态判定: /api/auth/me 返回 404 = 互通未启用 (单密码/桌面版) → enabled=false, 权限恒放行。
+ * 形态判定: /api/auth/me 返回 404 = 互通未启用 (单密码/桌面版) → enabled=false, 权限恒放行。
  * 401 (互通启用但未登录) / 200 → enabled=true, 按后端身份/权限集处理。
+ *
+ * 防轮询风暴 (M3-4 修复): 404 不作为 error 抛出, 而是 queryFn 内捕获为哨兵成功值
+ * { notEnabled: true }。若抛 error, error query 永远 stale + retryOnMount 默认 true,
+ * 守卫页 (RequirePerm) 在「pending: enabled 误判 true → 403 → 卸载; error: enabled=false
+ * → 放行 → 重挂载」间振荡, 每轮重订阅都触发 refetch, 实测每秒数十次 404 风暴。
+ * 哨兵值让 query 走 success 状态, staleTime 60s 真正生效, 挂载/导航零额外请求。
  */
-export function useAuth(): AuthState {
-  const { data, error } = useQuery({
-    queryKey: AUTH_ME_KEY,
-    queryFn: () => api.authMe(),   // 包一层: authMe 带可选 refresh 参数, 不能直接做 queryFn
-    staleTime: 60_000,          // 快照 60s 内复用, 与后端 SNAPSHOT_TTL 对齐 (轻量)
-    retry: false,               // 未启用互通 → 404, 不重试
+const NOT_ENABLED = { notEnabled: true } as const
+type AuthMeResult = { ok: boolean; identity: AuthIdentity } | typeof NOT_ENABLED
+
+function authMeQueryFn(): Promise<AuthMeResult> {
+  return api.authMe().catch((err: unknown) => {
+    if (err instanceof ApiError && err.status === 404) return NOT_ENABLED
+    throw err
   })
-  const notEnabled = (error as ApiError | null)?.status === 404
+}
+
+export function useAuth(): AuthState {
+  const { data } = useQuery({
+    queryKey: AUTH_ME_KEY,
+    queryFn: authMeQueryFn,      // 404 → 哨兵成功值, 不进 error 状态 (防轮询风暴)
+    staleTime: 60_000,           // 快照 60s 内复用, 与后端 SNAPSHOT_TTL 对齐 (轻量)
+    retry: false,                // 互通启用但后端异常时不重试, 失败由兜底逻辑处理
+  })
   return {
-    enabled: !notEnabled,
-    identity: data?.identity ?? null,
+    enabled: data != null && !('notEnabled' in data),
+    identity: data != null && !('notEnabled' in data) ? data.identity : null,
   }
 }
 

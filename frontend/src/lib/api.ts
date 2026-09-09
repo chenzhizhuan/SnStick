@@ -1925,9 +1925,10 @@ export const api = {
   identityLogout: () =>
     request<{ ok: boolean }>('/api/auth/identity/logout', { method: 'POST' }),
   /** 当前登录身份(互通形态): user_id/user_name/nick_name/roles; 未启用互通 → 404。
-   *  refresh=true → 后端触发一次惰性刷新 (角色变更后拿到最新快照); 默认零 DB 查询。 */
+   *  refresh=true → 后端触发一次惰性刷新 (角色变更后拿到最新快照); 默认零 DB 查询。
+   *  quiet: 形态探测型接口, 404/401 是合法响应而非错误, 不弹全局 toast。 */
   authMe: (refresh = false) =>
-    request<{ ok: boolean; identity: AuthIdentity }>(`/api/auth/me${refresh ? '?refresh=1' : ''}`),
+    request<{ ok: boolean; identity: AuthIdentity }>(`/api/auth/me${refresh ? '?refresh=1' : ''}`, { quiet: true }),
 
   settings: () => request<SettingsState>('/api/settings'),
   saveTickflowKey: (api_key: string) =>
