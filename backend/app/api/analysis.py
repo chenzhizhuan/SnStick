@@ -6,8 +6,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+
+from app.identity.permissions import P_ANALYSIS_READ, P_ANALYSIS_WRITE, require_perm
 
 router = APIRouter(prefix="/api/analysis-menus", tags=["analysis-menus"])
 
@@ -121,7 +123,7 @@ def _default_menus(request: Request) -> list[AnalysisMenu]:
 
 
 @router.get("")
-def list_menus(request: Request):
+def list_menus(request: Request, _: None = Depends(require_perm(P_ANALYSIS_READ))):
     saved = _load_saved(request)
     saved_ids = {m.id for m in saved}
     defaults = [m for m in _default_menus(request) if m.id not in saved_ids]
@@ -129,7 +131,7 @@ def list_menus(request: Request):
 
 
 @router.get("/{menu_id}")
-def get_menu(request: Request, menu_id: str):
+def get_menu(request: Request, menu_id: str, _: None = Depends(require_perm(P_ANALYSIS_READ))):
     for menu in _ordered(_load_saved(request) + _default_menus(request)):
         if menu.id == menu_id:
             return menu
@@ -137,7 +139,9 @@ def get_menu(request: Request, menu_id: str):
 
 
 @router.post("/reorder")
-def reorder_menus(request: Request, body: ReorderMenusReq):
+def reorder_menus(
+    request: Request, body: ReorderMenusReq, _: None = Depends(require_perm(P_ANALYSIS_WRITE))
+):
     saved = {m.id: m for m in _load_saved(request)}
     defaults = {m.id: m for m in _default_menus(request)}
     for idx, menu_id in enumerate(body.ids):
@@ -150,7 +154,12 @@ def reorder_menus(request: Request, body: ReorderMenusReq):
 
 
 @router.post("/{menu_id}")
-def upsert_menu(request: Request, menu_id: str, body: UpsertAnalysisMenu):
+def upsert_menu(
+    request: Request,
+    menu_id: str,
+    body: UpsertAnalysisMenu,
+    _: None = Depends(require_perm(P_ANALYSIS_WRITE)),
+):
     if not menu_id.replace("_", "").isalnum():
         raise HTTPException(400, "菜单标识只能包含字母、数字和下划线")
     existing = next((m for m in _load_saved(request) if m.id == menu_id), None)
@@ -163,7 +172,9 @@ def upsert_menu(request: Request, menu_id: str, body: UpsertAnalysisMenu):
 
 
 @router.delete("/{menu_id}")
-def delete_menu(request: Request, menu_id: str):
+def delete_menu(
+    request: Request, menu_id: str, _: None = Depends(require_perm(P_ANALYSIS_WRITE))
+):
     p = _path(request, menu_id)
     if not p.exists():
         raise HTTPException(404, f"分析菜单 '{menu_id}' 不存在或为默认菜单")

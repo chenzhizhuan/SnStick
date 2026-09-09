@@ -1,0 +1,167 @@
+# SnStick 用户角色 → 功能权限映射表 (v2.3 定稿)
+#
+# 用途: 服务端 agti 账号互通形态下, 将 AGTi 订阅角色 (sys_role.role_key)
+#       映射为 SnStick 功能权限点。请求进入时由 RequirePerm 依赖按
+#       request.state.identity.roles 判定, 无权限 → 403 NO_PERM。
+#
+# 权限点命名: stick:<模块>:<动作>   (模块 = 功能域, 动作 = read/write/run/admin)
+# 多角色取并集; admin 直通 *:*:* (全功能, 见 permissions.py 内置逻辑)。
+#
+# 变更方式 (P1): 改此文件 + 重启容器, 生效 < 1 分钟。
+#   P2 (按需): overlay.json 热加载, 准入门槛 = 年改档 >= 3 次。
+#
+# 注意: 本表只控制「功能权限」(能否用某功能), 与 TickFlow 套餐能力
+# (capset, 控制数据吞吐/行情深度) 正交叠加, 互不影响。
+
+# 权限点清单 (stick:<模块>:<动作>):
+#   模块: watchlist 自选股 / kline 行情日K / screener 选股 / strategy 策略库
+#         signals 信号 / backtest 回测 / mining 因子挖掘 / factors 因子
+#         intraday 分钟K实时 / depth 深度五档 / monitor 监控 / alerts 告警
+#         financial 财务 / ext 扩展数据 / regime 市场状态 / analysis 分析
+#         data 数据管理 / settings 设置 / admin 管理
+#   动作: read 读 / write 写 / run 运行 / admin 管理
+
+roles:
+  # 超级管理员: 全功能 + 管理页 (通配, 代码内判定)
+  admin:
+    perms: ["*:*:*"]
+
+  # 企业版: 全功能 + 管理页(查看) — 与 admin 差异仅在管理页写操作
+  enterprise:
+    perms:
+      - "stick:watchlist:read"
+      - "stick:watchlist:write"
+      - "stick:kline:read"
+      - "stick:screener:read"
+      - "stick:screener:run"
+      - "stick:strategy:read"
+      - "stick:strategy:write"
+      - "stick:signals:read"
+      - "stick:signals:write"
+      - "stick:backtest:read"
+      - "stick:backtest:run"
+      - "stick:factors:read"
+      - "stick:factors:write"
+      - "stick:mining:read"
+      - "stick:mining:run"
+      - "stick:intraday:read"
+      - "stick:depth:read"
+      - "stick:financial:read"
+      - "stick:ext:read"
+      - "stick:ext:write"
+      - "stick:regime:read"
+      - "stick:analysis:read"
+      - "stick:analysis:write"
+      - "stick:data:read"
+      - "stick:settings:read"
+      - "stick:settings:write"
+      - "stick:admin:view"          # 管理页(查看)
+      - "stick:admin:manage"       # 管理操作
+
+  # 导师版: 全功能 + 团队数据 (P3 团队数据暂未实现, 先给全功能)
+  mentor:
+    perms:
+      - "stick:watchlist:read"
+      - "stick:watchlist:write"
+      - "stick:kline:read"
+      - "stick:screener:read"
+      - "stick:screener:run"
+      - "stick:strategy:read"
+      - "stick:strategy:write"
+      - "stick:signals:read"
+      - "stick:signals:write"
+      - "stick:backtest:read"
+      - "stick:backtest:run"
+      - "stick:factors:read"
+      - "stick:factors:write"
+      - "stick:mining:read"
+      - "stick:mining:run"
+      - "stick:intraday:read"
+      - "stick:depth:read"
+      - "stick:financial:read"
+      - "stick:ext:read"
+      - "stick:ext:write"
+      - "stick:regime:read"
+      - "stick:analysis:read"
+      - "stick:analysis:write"
+      - "stick:data:read"
+      - "stick:settings:read"
+
+  # 服务商: 全功能 + 下线数据 (P3 下线数据暂未实现, 先全功能)
+  agent:
+    perms:
+      - "stick:watchlist:read"
+      - "stick:watchlist:write"
+      - "stick:kline:read"
+      - "stick:screener:read"
+      - "stick:screener:run"
+      - "stick:strategy:read"
+      - "stick:strategy:write"
+      - "stick:signals:read"
+      - "stick:signals:write"
+      - "stick:backtest:read"
+      - "stick:backtest:run"
+      - "stick:factors:read"
+      - "stick:factors:write"
+      - "stick:mining:read"
+      - "stick:mining:run"
+      - "stick:intraday:read"
+      - "stick:depth:read"
+      - "stick:financial:read"
+      - "stick:ext:read"
+      - "stick:ext:write"
+      - "stick:regime:read"
+      - "stick:analysis:read"
+      - "stick:analysis:write"
+      - "stick:data:read"
+      - "stick:settings:read"
+
+  # 高级版: 回测 / 因子挖掘 / 分钟K / 深度五档
+  premium:
+    perms:
+      - "stick:watchlist:read"
+      - "stick:watchlist:write"
+      - "stick:kline:read"
+      - "stick:screener:read"
+      - "stick:screener:run"
+      - "stick:strategy:read"
+      - "stick:strategy:write"
+      - "stick:signals:read"
+      - "stick:signals:write"
+      - "stick:backtest:read"
+      - "stick:backtest:run"
+      - "stick:factors:read"
+      - "stick:factors:write"
+      - "stick:mining:read"
+      - "stick:mining:run"
+      - "stick:intraday:read"
+      - "stick:depth:read"
+      - "stick:regime:read"
+      - "stick:analysis:read"
+      - "stick:analysis:write"
+      - "stick:data:read"
+
+  # 标准版: 选股 / 自定义信号 / 策略库
+  standard:
+    perms:
+      - "stick:watchlist:read"
+      - "stick:watchlist:write"
+      - "stick:kline:read"
+      - "stick:screener:read"
+      - "stick:screener:run"
+      - "stick:strategy:read"
+      - "stick:strategy:write"
+      - "stick:signals:read"
+      - "stick:signals:write"
+      - "stick:regime:read"
+      - "stick:analysis:read"
+      - "stick:data:read"
+
+  # 体验版: 自选股 + 日K
+  common:
+    perms:
+      - "stick:watchlist:read"
+      - "stick:watchlist:write"
+      - "stick:kline:read"
+      - "stick:analysis:read"
+      - "stick:data:read"

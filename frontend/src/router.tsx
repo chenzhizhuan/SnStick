@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate, useSearchParams } from 'react-router-dom
 import { Layout } from './components/Layout'
 import { Onboarding } from './pages/Onboarding'
 import { Auth } from './pages/Auth'
+import { RequirePerm } from './components/RequirePerm'
 import { useSettings } from './lib/useSharedQueries'
 import { Logo } from './components/Logo'
 import { ExtensionBoundary } from './extensions/ExtensionBoundary'
@@ -125,27 +126,27 @@ export const router = createBrowserRouter([
       { index: true, element: <Dashboard /> },
       { path: 'overview', element: <Navigate to="/" replace /> },
       { path: 'analysis', element: <Navigate to="/settings?tab=ext-pages" replace /> },
-      { path: 'analysis/:menuId', element: <AnalysisDetail /> },
-      { path: 'concept-analysis', element: <ConceptAnalysis /> },
-      { path: 'industry-analysis', element: <IndustryAnalysis /> },
-      { path: 'stock-analysis', element: <StockAnalysis /> },
-      { path: 'review', element: <Review /> },
-      { path: 'watchlist', element: <Watchlist /> },
-      { path: 'screener', element: <Screener /> },
-      { path: 'backtest', element: <Backtest /> },
-      { path: 'factors', element: <Factors /> },
-      { path: 'mining', element: <MiningRedirect /> },
-      { path: 'financials', element: <Financials /> },
-      { path: 'data', element: <Data /> },
-      { path: 'monitor', element: <Monitor /> },
-      { path: 'lots', element: <Lots /> },
-      { path: 'signals', element: <Signals /> },
-      { path: 'limit-ladder', element: <LimitUpLadder /> },
-      { path: 'indices', element: <Indices /> },
-    { path: 'regime', element: <Regime /> },
-      { path: 'abnormal', element: <AbnormalMoves /> },
-      { path: 'branding', element: <Branding /> },
-      { path: 'settings', element: <Settings /> },
+      { path: 'analysis/:menuId', element: <RequirePerm perm="stick:analysis:read"><AnalysisDetail /></RequirePerm> },
+      { path: 'concept-analysis', element: <RequirePerm perm="stick:analysis:read"><ConceptAnalysis /></RequirePerm> },
+      { path: 'industry-analysis', element: <RequirePerm perm="stick:analysis:read"><IndustryAnalysis /></RequirePerm> },
+      { path: 'stock-analysis', element: <RequirePerm perm="stick:analysis:read"><StockAnalysis /></RequirePerm> },
+      { path: 'review', element: <RequirePerm perm="stick:analysis:read"><Review /></RequirePerm> },
+      { path: 'watchlist', element: <RequirePerm perm="stick:watchlist:read"><Watchlist /></RequirePerm> },
+      { path: 'screener', element: <RequirePerm perm="stick:screener:read"><Screener /></RequirePerm> },
+      { path: 'backtest', element: <RequirePerm perm="stick:backtest:read"><Backtest /></RequirePerm> },
+      { path: 'factors', element: <RequirePerm perm="stick:factors:read"><Factors /></RequirePerm> },
+      { path: 'mining', element: <RequirePerm perm="stick:mining:read"><MiningRedirect /></RequirePerm> },
+      { path: 'financials', element: <RequirePerm perm="stick:financial:read"><Financials /></RequirePerm> },
+      { path: 'data', element: <RequirePerm perm="stick:data:read"><Data /></RequirePerm> },
+      { path: 'monitor', element: <RequirePerm perm="stick:signals:read"><Monitor /></RequirePerm> },
+      { path: 'lots', element: <RequirePerm perm="stick:signals:read"><Lots /></RequirePerm> },
+      { path: 'signals', element: <RequirePerm perm="stick:signals:read"><Signals /></RequirePerm> },
+      { path: 'limit-ladder', element: <RequirePerm perm="stick:kline:read"><LimitUpLadder /></RequirePerm> },
+      { path: 'indices', element: <RequirePerm perm="stick:kline:read"><Indices /></RequirePerm> },
+    { path: 'regime', element: <RequirePerm perm="stick:regime:read"><Regime /></RequirePerm> },
+      { path: 'abnormal', element: <RequirePerm perm="stick:analysis:read"><AbnormalMoves /></RequirePerm> },
+      { path: 'branding', element: <RequirePerm perm="stick:settings:read"><Branding /></RequirePerm> },
+      { path: 'settings', element: <RequirePerm perm="stick:settings:read"><Settings /></RequirePerm> },
       // 隐藏路由：开发者工具（不暴露在菜单，仅供调试）
       { path: 'dev', element: <Dev /> },
       // 旧路由兼容重定向

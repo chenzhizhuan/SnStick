@@ -7,6 +7,11 @@
   POST /api/auth/logout        — 注销当前会话
   POST /api/auth/change-password — 改密码(需已登录)
 
+agti 账号互通 (服务端形态, 启用时额外提供):
+  POST /api/auth/identity/login — 用户名+密码登录(含双层限流)
+  GET  /api/auth/me             — 当前身份信息(user_id/roles)
+  (logout 复用; change-password 仅单密码模式)
+
 安全:
   - setup 端点只接受本机/内网请求(request.client.host), 公网请求 403。
     否则黑客可比用户更早扫到域名, 抢先设密码, 反客为主。
@@ -20,10 +25,10 @@ import time
 from collections import defaultdict
 from threading import Lock
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from app.services import auth
+from app.services import auth, identity_auth
 
 logger = logging.getLogger(__name__)
 
@@ -226,3 +231,107 @@ def change_password(req: ChangePasswordIn, request: Request) -> dict:
     # 改密码(set_password 会清空所有会话)
     auth.set_password(req.new_password)
     return {"ok": True, "message": "密码已修改, 请重新登录"}
+
+
+# ================================================================
+# agti 账号互通 (服务端形态)
+# ================================================================
+# 仅在配置了 AGTI_DSN 时启用 (桌面版 / 未互通部署不暴露这些端点逻辑)。
+
+
+class IdentityLoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=128)
+
+
+def _identity_enabled() -> bool:
+    from app.identity import pool as identity_pool
+
+    return identity_pool.is_enabled()
+
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        max_age=_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        path="/",
+        secure=False,
+    )
+
+
+@router.post("/identity/login")
+async def identity_login(
+    req: IdentityLoginIn, request: Request, response: Response
+) -> dict:
+    """用户名+密码登录 (agti 账号互通)。含账号+IP 双层限流。"""
+    if not _identity_enabled():
+        raise HTTPException(status_code=404, detail="账号互通未启用")
+
+    ip = _client_ip(request)
+    try:
+        identity_auth.check_login_rate_limit(req.username, ip)
+    except identity_auth._RateLimitError as e:
+        raise HTTPException(
+            status_code=429,
+            detail=f"登录失败次数过多, 请 {e.wait} 秒后重试",
+        ) from None
+
+    try:
+        token = await identity_auth.login(req.username, req.password)
+    except Exception as e:
+        # 身份库不可用 → 503 (区别于密码错误 401)
+        logger.warning("identity login error: %s", e)
+        raise HTTPException(status_code=503, detail="身份服务暂不可用, 请稍后重试") from None
+
+    if not token:
+        identity_auth.record_login_fail(req.username, ip)
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    identity_auth.clear_login_fails(req.username, ip)
+    _set_session_cookie(response, token)
+    return {"ok": True, "authenticated": True}
+
+
+@router.get("/me")
+async def identity_me(request: Request, refresh: bool = Query(default=False)) -> dict:
+    """当前登录身份 (agti 互通形态)。未登录 → 401。
+
+    v2.3 §3.5「有界陈旧快照」: 默认返回会话快照 (零 DB 查询, DB 抖动零感知)。
+    带 ?refresh=1 才触发一次惰性刷新 (快照超 SNAPSHOT_TTL 且身份库可用时重查)。
+    返回身份快照 + 解析后的权限点集合 (perms, role_map.yaml 求并集, 含 admin
+    通配 *:*:*)。perms 供前端 usePerm 做菜单/按钮过滤, 后端 RequirePerm 仍是
+    最终门禁。
+    """
+    if not _identity_enabled():
+        raise HTTPException(status_code=404, detail="账号互通未启用")
+
+    token = request.cookies.get(COOKIE_NAME)
+    # 默认零 DB 查询: 仅当显式要求刷新时才走惰性刷新 (SNAPSHOT_TTL 内不查库)
+    if token and refresh:
+        await identity_auth.refresh_session(token)
+    identity = identity_auth.get_identity(token) if token else None
+    if not identity:
+        raise HTTPException(status_code=401, detail="未登录或会话已过期")
+    # 权限点集: 多角色并集, admin 通配 (与 RequirePerm 同一来源)
+    from app.identity.permissions import role_perms
+
+    return {
+        "ok": True,
+        "identity": {
+            **identity,
+            "perms": sorted(role_perms(tuple(identity.get("roles") or ()))),
+        },
+    }
+
+
+@router.post("/identity/logout")
+async def identity_logout(request: Request, response: Response) -> dict:
+    """注销 agti 会话。"""
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        identity_auth.revoke_session(token)
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    return {"ok": True}

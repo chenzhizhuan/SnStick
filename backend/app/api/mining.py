@@ -9,7 +9,7 @@ from datetime import date
 from typing import Annotated, Any, Literal
 
 import polars as pl
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sse_starlette.sse import EventSourceResponse
 
@@ -21,6 +21,7 @@ from app.backtest.mining import (
 )
 from app.enriched_generation import EnrichedGenerationUnavailableError
 from app.factors.registry import factor_columns_view
+from app.identity.permissions import P_MINING_RUN, P_SETTINGS_WRITE, require_perm
 from app.services import preferences
 from app.services.mining_jobs import (
     RUN_STATUSES,
@@ -199,7 +200,7 @@ def list_runs(
 
 
 @router.post("/runs")
-def start_run(payload: MiningStartRequest, request: Request) -> dict[str, Any]:
+def start_run(payload: MiningStartRequest, request: Request, _: None = Depends(require_perm(P_MINING_RUN))) -> dict[str, Any]:
     manager = _manager(request)
     worker_request = payload.model_dump(mode="json", exclude={"force"})
     try:
@@ -262,7 +263,7 @@ def get_run(run_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.post("/runs/{run_id}/cancel")
-def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
+def cancel_run(run_id: str, request: Request, _: None = Depends(require_perm(P_MINING_RUN))) -> dict[str, Any]:
     manager = _manager(request)
     try:
         return _project_run(manager.store, manager.cancel(run_id))
@@ -273,7 +274,7 @@ def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.post("/auto")
-def start_auto_run(payload: MiningAutoStartRequest, request: Request) -> dict[str, Any]:
+def start_auto_run(payload: MiningAutoStartRequest, request: Request, _: None = Depends(require_perm(P_MINING_RUN))) -> dict[str, Any]:
     """自动挖掘: L1 统计筛选全量因子 → 达标池 → 复用挖掘任务管理启动嵌套样本外验证。
 
     筛选结果随请求持久化 (request.auto_screening), 供结果页展示达标因子清单与
@@ -456,7 +457,7 @@ def stream_events(
 
 
 @router.post("/runs/{run_id}/candidates/{signature}/promote")
-def promote_candidate(run_id: str, signature: str, request: Request) -> dict[str, Any]:
+def promote_candidate(run_id: str, signature: str, request: Request, _: None = Depends(require_perm(P_MINING_RUN))) -> dict[str, Any]:
     service = _candidate_service(request)
     try:
         return service.promote(run_id, signature)
@@ -469,7 +470,7 @@ def promote_candidate(run_id: str, signature: str, request: Request) -> dict[str
 
 
 @router.post("/runs/{run_id}/candidates/{signature}/publish")
-def publish_candidate(run_id: str, signature: str, request: Request) -> dict[str, Any]:
+def publish_candidate(run_id: str, signature: str, request: Request, _: None = Depends(require_perm(P_MINING_RUN))) -> dict[str, Any]:
     service = _candidate_service(request)
     try:
         return service.publish(run_id, signature)
@@ -489,7 +490,7 @@ def get_config() -> dict[str, Any]:
 
 
 @router.patch("/config")
-def update_config(payload: MiningSchedulePatch) -> dict[str, Any]:
+def update_config(payload: MiningSchedulePatch, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict[str, Any]:
     current = preferences.get_mining_schedule()
     updates = payload.model_dump(exclude_none=True)
     if not updates:

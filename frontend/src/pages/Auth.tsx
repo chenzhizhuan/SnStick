@@ -1,19 +1,23 @@
 /**
- * 访问认证页 — 复用同一组件处理「首次设密码」和「登录」两种状态。
+ * 访问认证页 — 复用同一组件处理「首次设密码」/「单密码登录」/「账号登录(互通)」。
  *
- * 根据后端 /api/auth/status 的 configured 字段决定显示:
- *   - configured=false → 显示「设置访问密码」(首次)
- *   - configured=true  → 显示「登录」
+ * 形态判定 (依据 /api/auth/status):
+ *   - configured=false → 设置访问密码 (单密码, 首次)
+ *   - configured=true  → 尝试账号互通: 互通启用(后端 /me 非404) → 用户名+密码
+ *                        互通未启用 → 单密码登录
  *
- * 安全:
- *   - 设密码接口后端限本机/内网; 公网用户设密码会被 403 拒绝, 页面据此提示。
- *   - 登录失败由后端限流(5次锁5分钟), 429 时前端显示等待提示。
+ * 互通形态 (服务端 agti 多用户):
+ *   - 登录走 /api/auth/identity/login (用户名+密码)
+ *   - 登录成功 → 进入面板, 身份快照由 useAuth 拉取
+ *   - 无角色/未开通 → 后端 401/403 提示
+ *
+ * 安全: 设密码接口后端限本机/内网; 登录失败后端限流(账号5次/10分钟)。
  */
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, Sparkles } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, Sparkles, User } from 'lucide-react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import logoUrl from '@/assets/logo.png'
@@ -21,28 +25,43 @@ import logoUrl from '@/assets/logo.png'
 
 export function Auth() {
   const navigate = useNavigate()
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')  // 仅设密码时用
   const [showPwd, setShowPwd] = useState(false)
   const [localError, setLocalError] = useState('')
+  const [identityMode, setIdentityMode] = useState(false)     // 互通账号模式 (双字段)
 
-  // 取认证状态(是否已设密码)
-  const [status, setStatus] = useState<{ configured: boolean } | null>(null)
+  // 取认证状态(是否已设密码) + 探测互通是否启用
+  const [status, setStatus] = useState<{ configured: boolean; authenticated: boolean } | null>(null)
   useEffect(() => {
-    api.authStatus().then(s => {
+    api.authStatus().then(async s => {
       setStatus(s)
-      // 已登录的话直接进面板(避免登录页死循环)
-      if (s.authenticated) navigate('/', { replace: true })
-    }).catch(() => setStatus({ configured: false }))
+      // 已登录直接进面板(避免登录页死循环)
+      if (s.authenticated) { navigate('/', { replace: true }); return }
+      // 已设密码 → 探测互通: 仅 404(互通未启用)降级单密码; 200/401 都是互通形态
+      // (401 = 互通启用但当前未登录, 需走账号登录)
+      if (s.configured) {
+        try {
+          await api.authMe()
+          setIdentityMode(true)
+        } catch (err: any) {
+          setIdentityMode(err?.status !== 404)
+        }
+      }
+    }).catch(() => setStatus({ configured: false, authenticated: false }))
   }, [navigate])
 
   const isSetup = !status?.configured  // configured=false → 设密码模式
 
-  // 登录 / 设密码 共用一个 mutation(按 isSetup 调不同接口)
+  // 登录 / 设密码 共用一个 mutation(按模式调不同接口)
   const submitMut = useMutation({
     mutationFn: async () => {
       if (isSetup) {
         return api.authSetup(password)
+      }
+      if (identityMode) {
+        return api.identityLogin(username, password)
       }
       return api.authLogin(password)
     },
@@ -53,7 +72,6 @@ export function Auth() {
     },
     onError: (err: any) => {
       const msg = err?.message || (isSetup ? '设置失败' : '登录失败')
-      // 设密码/登录失败必须显示: 401(密码错)/403(公网设密码被拒)/429(限流) 都要提示
       setLocalError(msg)
     },
   })
@@ -65,6 +83,7 @@ export function Auth() {
       if (password.length < 6) { setLocalError('密码至少 6 位'); return }
       if (password !== confirmPassword) { setLocalError('两次密码不一致'); return }
     }
+    if (identityMode && !username.trim()) { setLocalError('请输入用户名'); return }
     submitMut.mutate()
   }
 
@@ -99,19 +118,39 @@ export function Auth() {
               'grid h-9 w-9 place-items-center rounded-lg',
               'bg-accent/15 text-accent',
             )}>
-              {isSetup ? <ShieldCheck className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
+              {isSetup ? <ShieldCheck className="h-5 w-5" /> : identityMode ? <User className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
             </div>
             <div>
               <div className="text-sm font-medium text-foreground">
-                {isSetup ? '设置访问密码' : '登录访问'}
+                {isSetup ? '设置访问密码' : identityMode ? '账号登录' : '登录访问'}
               </div>
               <div className="text-[11px] text-muted">
-                {isSetup ? '首次使用, 请为面板设置访问密码' : '请输入访问密码以继续'}
+                {isSetup
+                  ? '首次使用, 请为面板设置访问密码'
+                  : identityMode
+                    ? '请输入平台账号与密码'
+                    : '请输入访问密码以继续'}
               </div>
             </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3">
+            {/* 互通账号登录: 用户名 */}
+            {identityMode && (
+              <div className="relative">
+                <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  placeholder="用户名"
+                  autoFocus
+                  autoComplete="username"
+                  className="h-10 w-full rounded-btn border border-border bg-base pl-9 pr-3 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
+                />
+              </div>
+            )}
+
             {/* 密码输入 */}
             <div className="relative">
               <input
@@ -119,7 +158,8 @@ export function Auth() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="访问密码"
-                autoFocus
+                autoFocus={!identityMode}
+                autoComplete={identityMode ? 'current-password' : undefined}
                 className="h-10 w-full rounded-btn border border-border bg-base px-3 pr-9 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
               />
               <button
@@ -153,7 +193,7 @@ export function Auth() {
 
             <button
               type="submit"
-              disabled={submitMut.isPending || !password}
+              disabled={submitMut.isPending || !password || (identityMode && !username.trim())}
               className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-btn bg-accent text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
             >
               {submitMut.isPending ? (
@@ -180,6 +220,15 @@ export function Auth() {
                 >
                   访问密码部署文档
                 </a>
+              </p>
+            </div>
+          )}
+
+          {/* 互通模式: 提示无账号怎么办 */}
+          {identityMode && (
+            <div className="mt-3 text-[10px] leading-relaxed text-muted/70">
+              <p>
+                登录账号由平台统一开通。若无法登录, 请联系管理员开通订阅后重试。
               </p>
             </div>
           )}

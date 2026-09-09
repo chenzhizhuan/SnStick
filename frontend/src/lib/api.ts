@@ -74,7 +74,10 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
     } catch { /* ignore */ }
     const msg = detail || `${res.status} ${res.statusText}`
     // 401 (未登录/会话过期) 不弹 toast — 由全局认证拦截器统一跳登录页, 避免刷屏
-    if (res.status !== 401 && !quiet) toast(msg, 'error')
+    // 403 NO_PERM (互通形态权限不足) 不弹 toast — 由页面级权限提示统一处理, 避免刷屏
+    if (res.status !== 401 && !(res.status === 403 && res.headers.get('X-Error-Code') === 'NO_PERM') && !quiet) {
+      toast(msg, 'error')
+    }
     throw new ApiError(msg, res.status)
   }
   return res.json() as Promise<T>
@@ -1875,6 +1878,18 @@ export interface StrategyAlertEvent {
   [key: string]: unknown
 }
 
+// ===== Auth identity (agti 账号互通) =====
+/** /api/auth/me 返回的当前身份快照 (有界陈旧: 后端 SNAPSHOT_TTL 惰性刷新)。 */
+export interface AuthIdentity {
+  user_id: string
+  user_name: string
+  nick_name?: string
+  /** AGTi 订阅角色 (role_key); 多角色取并集, admin 通配全功能。 */
+  roles: string[]
+  /** 后端 role_map.yaml 解析后的权限点集合 (多角色并集; admin 含 *:*:*)。 */
+  perms?: string[]
+}
+
 // ===== API surface =====
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
@@ -1899,6 +1914,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
     }),
+
+  // ===== Auth (agti 账号互通 — 服务端多用户形态) =====
+  // 互通未启用时后端返回 404(账号互通未启用); 前端据此降级到单密码登录。
+  identityLogin: (username: string, password: string) =>
+    request<{ ok: boolean; authenticated: boolean }>('/api/auth/identity/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  identityLogout: () =>
+    request<{ ok: boolean }>('/api/auth/identity/logout', { method: 'POST' }),
+  /** 当前登录身份(互通形态): user_id/user_name/nick_name/roles; 未启用互通 → 404。
+   *  refresh=true → 后端触发一次惰性刷新 (角色变更后拿到最新快照); 默认零 DB 查询。 */
+  authMe: (refresh = false) =>
+    request<{ ok: boolean; identity: AuthIdentity }>(`/api/auth/me${refresh ? '?refresh=1' : ''}`),
 
   settings: () => request<SettingsState>('/api/settings'),
   saveTickflowKey: (api_key: string) =>

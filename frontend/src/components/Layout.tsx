@@ -55,6 +55,8 @@ import {
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
+  LogOut,
+  User,
 } from 'lucide-react'
 import { api, type CapabilityMatrix, type IndexQuote } from '@/lib/api'
 import logoUrl from '@/assets/logo.png'
@@ -67,6 +69,7 @@ import { fmtPct } from '@/lib/format'
 import { findDataSource } from '@/lib/dataSources'
 import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
+import { usePerm, useAuth } from '@/lib/useAuth'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
 
@@ -80,6 +83,7 @@ const CORE_INDEXES = [
 type CoreIndex = (typeof CORE_INDEXES)[number]
 
 // v3.2: 按业务域分 5 组（视觉重组，路由/功能不变）；group 仅用于侧栏渲染分组
+// perm: 互通形态下该菜单的权限点 (与 role_map.yaml 一致)；单密码形态恒放行。
 const NAV_GROUPS = [
   { key: 'overview', label: '总览' },
   { key: 'strategy', label: '策略与回测' },
@@ -90,24 +94,24 @@ const NAV_GROUPS = [
 type NavGroupKey = (typeof NAV_GROUPS)[number]['key']
 
 const nav = [
-  { to: '/',                label: '看板',     icon: LayoutDashboard, group: 'overview' },
-  { to: '/watchlist',  label: '自选',   icon: Star,           group: 'overview' },
-  { to: '/screener',   label: '策略', icon: ScanSearch,      group: 'strategy' },
-  { to: '/factors',    label: '因子', icon: Sigma,            group: 'strategy' },
-  { to: '/backtest',   label: '回测', icon: History,         group: 'strategy' },
-  { to: '/lots',       label: '持仓提醒', icon: Layers2,     group: 'strategy' },
-  { to: '/signals',    label: '信号库',   icon: Zap,           group: 'strategy' },
-  { to: '/stock-analysis',    label: '个股分析', icon: TrendingUp, group: 'market' },
-  { to: '/limit-ladder', label: '连板梯队', icon: Flame,       group: 'market' },
-  { to: '/concept-analysis', label: '概念分析', icon: Layers3,   group: 'market' },
-  { to: '/industry-analysis', label: '行业分析', icon: Landmark, group: 'market' },
-  { to: '/financials', label: '财务分析', icon: FileText,       group: 'market' },
-  { to: '/monitor', label: '监控中心', icon: RadioTower,        group: 'monitor' },
-  { to: '/regime', label: '市场环境', icon: Gauge,             group: 'monitor' },
-  { to: '/abnormal', label: '异动监控', icon: Siren,           group: 'monitor' },
-  { to: '/review',      label: '复盘',   icon: BookOpenCheck,  group: 'data' },
-  { to: '/indices', label: '指数', icon: BarChart3,             group: 'data' },
-  { to: '/data',       label: '数据',     icon: Database,       group: 'data' },
+  { to: '/',                label: '看板',     icon: LayoutDashboard, group: 'overview', perm: undefined },
+  { to: '/watchlist',  label: '自选',   icon: Star,           group: 'overview', perm: 'stick:watchlist:read' },
+  { to: '/screener',   label: '策略', icon: ScanSearch,      group: 'strategy', perm: 'stick:screener:read' },
+  { to: '/factors',    label: '因子', icon: Sigma,            group: 'strategy', perm: 'stick:factors:read' },
+  { to: '/backtest',   label: '回测', icon: History,         group: 'strategy', perm: 'stick:backtest:read' },
+  { to: '/lots',       label: '持仓提醒', icon: Layers2,     group: 'strategy', perm: 'stick:signals:read' },
+  { to: '/signals',    label: '信号库',   icon: Zap,           group: 'strategy', perm: 'stick:signals:read' },
+  { to: '/stock-analysis',    label: '个股分析', icon: TrendingUp, group: 'market', perm: 'stick:analysis:read' },
+  { to: '/limit-ladder', label: '连板梯队', icon: Flame,       group: 'market', perm: 'stick:kline:read' },
+  { to: '/concept-analysis', label: '概念分析', icon: Layers3,   group: 'market', perm: 'stick:analysis:read' },
+  { to: '/industry-analysis', label: '行业分析', icon: Landmark, group: 'market', perm: 'stick:analysis:read' },
+  { to: '/financials', label: '财务分析', icon: FileText,       group: 'market', perm: 'stick:financial:read' },
+  { to: '/monitor', label: '监控中心', icon: RadioTower,        group: 'monitor', perm: 'stick:signals:read' },
+  { to: '/regime', label: '市场环境', icon: Gauge,             group: 'monitor', perm: 'stick:regime:read' },
+  { to: '/abnormal', label: '异动监控', icon: Siren,           group: 'monitor', perm: 'stick:analysis:read' },
+  { to: '/review',      label: '复盘',   icon: BookOpenCheck,  group: 'data', perm: 'stick:analysis:read' },
+  { to: '/indices', label: '指数', icon: BarChart3,             group: 'data', perm: 'stick:kline:read' },
+  { to: '/data',       label: '数据',     icon: Database,       group: 'data', perm: 'stick:data:read' },
 ] as const
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
@@ -468,6 +472,11 @@ export function Layout() {
   const navigate = useNavigate()
   const version = versionData?.version
   const realtimeEnabled = prefs?.realtime_quotes_enabled ?? false
+  const handleLogout = async () => {
+    try { await api.identityLogout() } catch { /* 后端不可达也继续本地退出 */ }
+    qc.clear()
+    window.location.href = '/login'
+  }
   // 自选实时模式限制提示: 可手动关闭, 不持久化 (刷新后恢复显示)
   const [dismissFreeHint, setDismissFreeHint] = useState(false)
   // 开启实时行情时若存在排队中的挖掘任务 → 确认弹窗 (实时落盘会让排队任务开跑即失败)
@@ -557,9 +566,13 @@ export function Layout() {
   // 合并内置页面 + 可见的扩展分析菜单
   // v3.2: group 用于侧栏分组渲染; 分析菜单归「市场分析」, 扩展菜单兑底「数据与复盘」
   type NavItem = { to: string; label: string; icon: typeof Gauge; badge?: string; group?: NavGroupKey }
+  // 权限过滤 (M3-4): 互通形态下无权限的菜单不显示; 单密码形态恒放行
+  const { hasPerm } = usePerm()
+  const { identity } = useAuth()
   const analysisNav: NavItem[] = (analysisMenus?.items ?? [])
     .filter(m => m.visible)
     .map(m => ({ to: `/analysis/${m.id}`, label: m.label, icon: m.icon === 'tags' ? Tags : BarChart3, group: 'market' as const }))
+    .filter(n => !n.to.startsWith('/analysis/') || hasPerm('stick:analysis:read'))
   const extensionNav: NavItem[] = getFrontendExtensionNavigation().map(item => ({
     to: item.route.path,
     label: item.label,
@@ -568,7 +581,9 @@ export function Layout() {
     group: 'data' as const,
   }))
 
-  const allNav: NavItem[] = [...nav, ...analysisNav, ...extensionNav]
+  // 权限过滤: 内置 nav 带 perm 的按 hasPerm 过滤; 单密码形态恒放行
+  const filteredNav = nav.filter(n => !n.perm || hasPerm(n.perm))
+  const allNav: NavItem[] = [...filteredNav, ...analysisNav, ...extensionNav]
   const savedOrder = prefs?.nav_order ?? []
 
   const navItems = savedOrder.length > 0
@@ -583,11 +598,11 @@ export function Layout() {
           if (seen.has(item.to)) continue
           // 未保存过排序的新条目: 内置页插回默认位置(排在已保存的默认前驱之后),
           // 分析/扩展菜单仍追加到末尾
-          const defaultIndex = nav.findIndex(n => n.to === item.to)
+          const defaultIndex = filteredNav.findIndex(n => n.to === item.to)
           let anchor = -1
           if (defaultIndex > 0) {
             for (let i = defaultIndex - 1; i >= 0 && anchor < 0; i -= 1) {
-              anchor = merged.findIndex(n => n.to === nav[i].to)
+              anchor = merged.findIndex(n => n.to === filteredNav[i].to)
             }
           }
           if (anchor >= 0) merged.splice(anchor + 1, 0, item)
@@ -1059,6 +1074,31 @@ export function Layout() {
               )}
             </NavLink>
           </div>
+          {/* 互通形态: 当前登录用户 + 退出 */}
+          {identity && (
+            <div className={cn('mt-1 border-t border-border/60 pt-2', railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5')}>
+              <div className={cn(
+                'flex min-w-0 items-center gap-2 text-[11px] text-muted',
+                railMode ? 'justify-center px-0 py-1' : 'flex-1 px-2 py-1',
+              )} title={`${identity.user_name}${identity.nick_name ? ` (${identity.nick_name})` : ''}`}>
+                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
+                  <User className="h-3 w-3" />
+                </span>
+                {!railMode && <span className="truncate">{identity.nick_name || identity.user_name}</span>}
+              </div>
+              <button
+                onClick={handleLogout}
+                title="退出登录"
+                className={cn(
+                  'flex items-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground',
+                  railMode ? 'justify-center p-2' : 'gap-1.5 px-3 py-1.5 text-[11px]',
+                )}
+              >
+                <LogOut className="h-3.5 w-3.5 shrink-0" />
+                {!railMode && <span>退出</span>}
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 

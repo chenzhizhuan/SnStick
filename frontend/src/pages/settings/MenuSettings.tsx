@@ -22,34 +22,37 @@ import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
+import { usePerm } from '@/lib/useAuth'
 
 interface NavEntry {
   id: string
   label: string
   type: 'builtin' | 'analysis'
   visible: boolean
+  /** 互通形态下该菜单的权限点 (与 role_map.yaml 一致); 无权限点=恒显示 */
+  perm?: string
 }
 
 // 与 Layout 侧边栏默认顺序保持一致 (nav_order 未保存时的默认展示顺序)
 const BUILTIN_PAGES: NavEntry[] = [
   { id: '/', label: '看板', type: 'builtin', visible: true },
-  { id: '/watchlist', label: '自选', type: 'builtin', visible: true },
-  { id: '/screener', label: '策略', type: 'builtin', visible: true },
-  { id: '/factors', label: '因子', type: 'builtin', visible: true },
-  { id: '/backtest', label: '回测', type: 'builtin', visible: true },
-  { id: '/stock-analysis', label: '个股分析', type: 'builtin', visible: true },
-  { id: '/limit-ladder', label: '连板梯队', type: 'builtin', visible: true },
-  { id: '/concept-analysis', label: '概念分析', type: 'builtin', visible: true },
-  { id: '/industry-analysis', label: '行业分析', type: 'builtin', visible: true },
-  { id: '/financials', label: '财务分析', type: 'builtin', visible: true },
-  { id: '/monitor', label: '监控中心', type: 'builtin', visible: true },
-  { id: '/regime', label: '市场环境', type: 'builtin', visible: true },
-  { id: '/abnormal', label: '异动监控', type: 'builtin', visible: true },
-  { id: '/lots', label: '持仓提醒', type: 'builtin', visible: true },
-  { id: '/signals', label: '信号库', type: 'builtin', visible: true },
-  { id: '/review', label: '复盘', type: 'builtin', visible: true },
-  { id: '/indices', label: '指数', type: 'builtin', visible: true },
-  { id: '/data', label: '数据', type: 'builtin', visible: true },
+  { id: '/watchlist', label: '自选', type: 'builtin', visible: true, perm: 'stick:watchlist:read' },
+  { id: '/screener', label: '策略', type: 'builtin', visible: true, perm: 'stick:screener:read' },
+  { id: '/factors', label: '因子', type: 'builtin', visible: true, perm: 'stick:factors:read' },
+  { id: '/backtest', label: '回测', type: 'builtin', visible: true, perm: 'stick:backtest:read' },
+  { id: '/stock-analysis', label: '个股分析', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
+  { id: '/limit-ladder', label: '连板梯队', type: 'builtin', visible: true, perm: 'stick:kline:read' },
+  { id: '/concept-analysis', label: '概念分析', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
+  { id: '/industry-analysis', label: '行业分析', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
+  { id: '/financials', label: '财务分析', type: 'builtin', visible: true, perm: 'stick:financial:read' },
+  { id: '/monitor', label: '监控中心', type: 'builtin', visible: true, perm: 'stick:signals:read' },
+  { id: '/regime', label: '市场环境', type: 'builtin', visible: true, perm: 'stick:regime:read' },
+  { id: '/abnormal', label: '异动监控', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
+  { id: '/lots', label: '持仓提醒', type: 'builtin', visible: true, perm: 'stick:signals:read' },
+  { id: '/signals', label: '信号库', type: 'builtin', visible: true, perm: 'stick:signals:read' },
+  { id: '/review', label: '复盘', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
+  { id: '/indices', label: '指数', type: 'builtin', visible: true, perm: 'stick:kline:read' },
+  { id: '/data', label: '数据', type: 'builtin', visible: true, perm: 'stick:data:read' },
 ]
 
 // ── Sortable row ──
@@ -167,20 +170,26 @@ export function SettingsMenuSettingsPanel() {
   const { data: prefs } = usePreferences()
   const menus = useQuery({ queryKey: QK.analysisMenus, queryFn: api.analysisMenus })
 
-  const analysisEntries: NavEntry[] = (menus.data?.items ?? []).map(m => ({
-    id: m.id,
-    label: m.label,
-    type: 'analysis' as const,
-    visible: m.visible,
-  }))
+  // M3-4: 互通形态下无权限的内置菜单不在设置页出现; 单密码形态恒放行
+  const { hasPerm } = usePerm()
+  const allowedBuiltin = BUILTIN_PAGES.filter(p => !p.perm || hasPerm(p.perm))
+
+  const analysisEntries: NavEntry[] = (menus.data?.items ?? [])
+    .filter(m => m.visible && hasPerm('stick:analysis:read'))
+    .map(m => ({
+      id: m.id,
+      label: m.label,
+      type: 'analysis' as const,
+      visible: m.visible,
+    }))
 
   const allEntries = useMemo(() => {
     const saved = prefs?.nav_order ?? []
     const entryMap = new Map<string, NavEntry>()
-    for (const e of BUILTIN_PAGES) entryMap.set(e.id, e)
+    for (const e of allowedBuiltin) entryMap.set(e.id, e)
     for (const e of analysisEntries) entryMap.set(e.id, e)
 
-    if (saved.length === 0) return [...BUILTIN_PAGES, ...analysisEntries]
+    if (saved.length === 0) return [...allowedBuiltin, ...analysisEntries]
 
     const ordered: NavEntry[] = []
     const seen = new Set<string>()
@@ -191,14 +200,14 @@ export function SettingsMenuSettingsPanel() {
         seen.add(id)
       }
     }
-    for (const e of [...BUILTIN_PAGES, ...analysisEntries]) {
+    for (const e of [...allowedBuiltin, ...analysisEntries]) {
       if (seen.has(e.id)) continue
       // 未保存过排序的新条目: 内置页插回默认位置, 分析菜单追加到末尾
-      const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
+      const defaultIndex = allowedBuiltin.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {
         for (let i = defaultIndex - 1; i >= 0 && anchor < 0; i -= 1) {
-          anchor = ordered.findIndex(o => o.id === BUILTIN_PAGES[i].id)
+          anchor = ordered.findIndex(o => o.id === allowedBuiltin[i].id)
         }
       }
       if (anchor >= 0) ordered.splice(anchor + 1, 0, e)
@@ -206,7 +215,7 @@ export function SettingsMenuSettingsPanel() {
       else ordered.push(e)
     }
     return ordered
-  }, [prefs?.nav_order, analysisEntries])
+  }, [prefs?.nav_order, analysisEntries, allowedBuiltin])
 
   const hiddenSet = useMemo(() => new Set(prefs?.nav_hidden ?? []), [prefs?.nav_hidden])
 
@@ -225,11 +234,11 @@ export function SettingsMenuSettingsPanel() {
     for (const e of allEntries) {
       if (seen.has(e.id)) continue
       // 与 allEntries 同一语义: 未保存的新内置页插回默认位置而非追加到末尾
-      const defaultIndex = BUILTIN_PAGES.findIndex(p => p.id === e.id)
+      const defaultIndex = allowedBuiltin.findIndex(p => p.id === e.id)
       let anchor = -1
       if (defaultIndex > 0) {
         for (let i = defaultIndex - 1; i >= 0 && anchor < 0; i -= 1) {
-          anchor = result.findIndex(o => o.id === BUILTIN_PAGES[i].id)
+          anchor = result.findIndex(o => o.id === allowedBuiltin[i].id)
         }
       }
       if (anchor >= 0) result.splice(anchor + 1, 0, e)
@@ -237,7 +246,7 @@ export function SettingsMenuSettingsPanel() {
       else result.push(e)
     }
     return result
-  }, [localOrder, prefs?.nav_order, allEntries])
+  }, [localOrder, prefs?.nav_order, allEntries, allowedBuiltin])
 
   const saveNavOrder = useMutation({
     mutationFn: (order: string[]) => api.saveNavOrder(order),

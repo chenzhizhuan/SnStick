@@ -9,11 +9,13 @@ from dataclasses import asdict
 from datetime import date, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.identity.permissions import P_BACKTEST_RUN, require_perm
+from app.identity.user_context import user_root
 from app.services.backtest import (
     BacktestConfig,
     BacktestService,
@@ -91,7 +93,7 @@ class BacktestRequest(BaseModel):
 
 
 @router.post("/run")
-def run(req: BacktestRequest, request: Request):
+def run(req: BacktestRequest, request: Request, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     """信号回测 — 现有接口，向后兼容。"""
     repo = request.app.state.repo
     svc = BacktestService(repo)
@@ -147,7 +149,7 @@ class FactorBacktestRequest(BaseModel):
 
 
 @router.post("/factor/run")
-def factor_run(req: FactorBacktestRequest, request: Request):
+def factor_run(req: FactorBacktestRequest, request: Request, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     """因子回测 — IC/IR 分析 + 分层回测。"""
     from app.backtest.factor import FactorBacktestService, FactorConfig
     from app.factors.registry import factor_columns_view
@@ -198,7 +200,7 @@ class FactorBatchRequest(BaseModel):
 
 
 @router.post("/factor/batch")
-def factor_batch(req: FactorBatchRequest, request: Request):
+def factor_batch(req: FactorBatchRequest, request: Request, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     """批量筛选因子, 同一批次只加载并计算一次数据面板。"""
     from app.backtest.factor import (
         FactorBacktestService,
@@ -279,7 +281,7 @@ def candidates_list():
 
 
 @router.post("/candidates")
-def candidate_create(req: CandidateCreateRequest):
+def candidate_create(req: CandidateCreateRequest, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     try:
         return _candidate_store().create(
             kind=req.kind,
@@ -295,7 +297,7 @@ def candidate_create(req: CandidateCreateRequest):
 
 
 @router.patch("/candidates/{candidate_id}")
-def candidate_update(candidate_id: str, req: CandidateUpdateRequest):
+def candidate_update(candidate_id: str, req: CandidateUpdateRequest, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     if req.name is None and req.status is None:
         raise HTTPException(status_code=400, detail="至少提供一个需要更新的字段")
     try:
@@ -307,7 +309,7 @@ def candidate_update(candidate_id: str, req: CandidateUpdateRequest):
 
 
 @router.delete("/candidates/{candidate_id}")
-def candidate_delete(candidate_id: str):
+def candidate_delete(candidate_id: str, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     try:
         _candidate_store().delete(candidate_id)
         return {"ok": True}
@@ -375,7 +377,7 @@ def _guard_minute_strategy_backtest(
 
 
 @router.post("/strategy/run")
-def strategy_run(req: StrategyBacktestRequest, request: Request):
+def strategy_run(req: StrategyBacktestRequest, request: Request, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     """策略回测 — 复用 StrategyDef 体系做全周期回测。"""
     from app.backtest.strategy import StrategyBacktestConfig
     from app.backtest.worker import make_worker_task, run_worker_task
@@ -409,7 +411,7 @@ def strategy_run(req: StrategyBacktestRequest, request: Request):
         minute_fill=req.minute_fill,
         regime_filter=req.regime_filter,
     )
-    task = make_worker_task("backtest", settings.data_dir, cfg)
+    task = make_worker_task("backtest", settings.data_dir, cfg, user_root_path=user_root())
     from app.services.heavy_job_limiter import shared_heavy_job_limiter
 
     with shared_heavy_job_limiter.slot("normal"):
@@ -512,6 +514,7 @@ async def strategy_stream(
     asset_type: str = "stock",
     minute_fill: bool = False,
     regime_filter: str | None = None,
+    _: None = Depends(require_perm(P_BACKTEST_RUN)),
 ):
     """SSE 流式策略回测: 实时推送进度, 完成后推送结果, 支持重连 (刷新/切页后恢复)。
 
@@ -627,7 +630,7 @@ async def strategy_stream(
                         "normal",
                         cancel_event=job.cancel_event,
                     ):
-                        task = make_worker_task("backtest", settings.data_dir, cfg)
+                        task = make_worker_task("backtest", settings.data_dir, cfg, user_root_path=user_root())
                         result = run_worker_task(
                             task,
                             lambda d: job.progress.append(d),
@@ -685,7 +688,7 @@ async def strategy_stream(
 
 
 @router.post("/strategy/cancel")
-async def strategy_cancel(request: Request):
+async def strategy_cancel(request: Request, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     """取消正在运行的回测任务 (前端传 query string, 后端算 job_key)。"""
     body = await request.json()
     qs = body.get("qs", "")
@@ -819,6 +822,7 @@ async def optimize_stream(
     position_sizing: str = "equal",
     mode: str = "position",
     holding_days: int = 5,
+    _: None = Depends(require_perm(P_BACKTEST_RUN)),
 ):
     """SSE 流式参数优化: 并行跑各参数组回测, 按 objective 排序。
 
@@ -931,7 +935,7 @@ async def optimize_stream(
                             "normal",
                             cancel_event=job.cancel_event,
                         ):
-                            task = make_worker_task("optimize", settings.data_dir, ocfg)
+                            task = make_worker_task("optimize", settings.data_dir, ocfg, user_root_path=user_root())
                             result = run_worker_task(
                                 task,
                                 lambda d: job.progress.append(d),
@@ -973,7 +977,7 @@ async def optimize_stream(
 
 
 @router.post("/optimize/cancel")
-async def optimize_cancel(request: Request):
+async def optimize_cancel(request: Request, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     """取消优化任务 — 前端传 stream 首事件回吐的 job_key, 后端直接查表。
 
     不再让 cancel 侧重算 job_key: 两侧重算必须逐字段一致的脆弱契约(PR3 C1 / direction
@@ -1042,6 +1046,7 @@ async def walkforward_stream(
     position_sizing: str = "equal",
     mode: str = "position",
     holding_days: int = 5,
+    _: None = Depends(require_perm(P_BACKTEST_RUN)),
 ):
     """SSE 流式 walk-forward: 每折训练区间网格优化 -> 测试区间 OOS 回测。
 
@@ -1157,7 +1162,7 @@ async def walkforward_stream(
                             "normal",
                             cancel_event=job.cancel_event,
                         ):
-                            task = make_worker_task("walkforward", settings.data_dir, wf_cfg)
+                            task = make_worker_task("walkforward", settings.data_dir, wf_cfg, user_root_path=user_root())
                             result = run_worker_task(
                                 task,
                                 lambda d: job.progress.append(d),
@@ -1198,7 +1203,7 @@ async def walkforward_stream(
 
 
 @router.post("/walkforward/cancel")
-async def walkforward_cancel(request: Request):
+async def walkforward_cancel(request: Request, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     """取消 walk-forward 任务 — 传 stream 首事件回吐的 job_key。"""
     body = await request.json()
     job_key = body.get("job_key", "")

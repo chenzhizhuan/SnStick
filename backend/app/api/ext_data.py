@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Literal
 
 import polars as pl
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from app.identity.permissions import P_EXT_READ, P_EXT_WRITE, require_perm
 from app.services.ext_data import (
     ExtConfig,
     ExtConfigStore,
@@ -323,7 +324,7 @@ def _date_range(config: ExtConfig, data_dir: Path) -> list[str] | None:
 
 
 @router.get("")
-def list_configs(request: Request):
+def list_configs(request: Request, _: None = Depends(require_perm(P_EXT_READ))):
     """列出所有扩展数据配置。"""
     configs = _store(request).load_all()
     data_dir = _data_dir(request)
@@ -337,7 +338,9 @@ def list_configs(request: Request):
 
 
 @router.post("/presets/{config_id}/fetch")
-async def fetch_preset_data(request: Request, config_id: str):
+async def fetch_preset_data(
+    request: Request, config_id: str, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """手动触发内置预设 (概念/行业) 的数据拉取。
 
     注意: 必须在 /{config_id}/... 动态路由之前声明, 否则 'presets' 会被当成 config_id。
@@ -358,7 +361,7 @@ async def fetch_preset_data(request: Request, config_id: str):
 
 
 @router.post("")
-def create_config(request: Request, body: CreateExtReq):
+def create_config(request: Request, body: CreateExtReq, _: None = Depends(require_perm(P_EXT_WRITE))):
     """创建扩展数据配置。"""
     store = _store(request)
     if store.get(body.id):
@@ -378,7 +381,9 @@ def create_config(request: Request, body: CreateExtReq):
 
 
 @router.put("/{config_id}")
-def update_config(request: Request, config_id: str, body: UpdateExtReq):
+def update_config(
+    request: Request, config_id: str, body: UpdateExtReq, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """更新扩展数据配置。"""
     store = _store(request)
     config = store.get(config_id)
@@ -400,7 +405,9 @@ def update_config(request: Request, config_id: str, body: UpdateExtReq):
 
 
 @router.delete("/{config_id}")
-def delete_config(request: Request, config_id: str):
+def delete_config(
+    request: Request, config_id: str, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """删除扩展数据配置。"""
     store = _store(request)
     if not store.delete(config_id):
@@ -420,6 +427,7 @@ def list_rows(
     snapshot_date: str | None = Query(None, alias="date"),
     columns: str | None = Query(None, description="逗号分隔的字段列表"),
     limit: int = Query(1000, ge=1, le=20000),
+    _: None = Depends(require_perm(P_EXT_READ)),
 ):
     """读取扩展数据明细。
 
@@ -466,6 +474,7 @@ def dimension_members(
     value: str = Query(..., min_length=1),
     snapshot_date: str | None = Query(None, alias="date"),
     limit: int = Query(1000, ge=1, le=10000),
+    _: None = Depends(require_perm(P_EXT_READ)),
 ):
     """按扩展字段的完整标签值返回成分股，不绑定具体概念/行业数据源。"""
     config = _store(request).get(config_id)
@@ -689,6 +698,7 @@ def dimension_intraday(
     field: str = Query(..., min_length=1),
     value: str = Query(..., min_length=1),
     snapshot_date: str | None = Query(None, alias="date"),
+    _: None = Depends(require_perm(P_EXT_READ)),
 ):
     """板块分时走势 (等权): 成分股 × 当日分钟K聚合; 60s 缓存, 点击触发不预计算。"""
     config = _store(request).get(config_id)
@@ -740,6 +750,7 @@ async def upload_data(
     config_id: str,
     file: UploadFile = File(...),
     snapshot_date: str | None = None,
+    _: None = Depends(require_perm(P_EXT_WRITE)),
 ):
     """上传 CSV/Excel 文件写入扩展数据。"""
     store = _store(request)
@@ -804,7 +815,9 @@ async def upload_data(
 # ---------------------------------------------------------------------------
 
 @router.post("/{config_id}/ingest")
-def ingest_data(request: Request, config_id: str, body: IngestReq):
+def ingest_data(
+    request: Request, config_id: str, body: IngestReq, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """通过 JSON 接口批量写入扩展数据。"""
     store = _store(request)
     config = store.get(config_id)
@@ -835,7 +848,9 @@ def ingest_data(request: Request, config_id: str, body: IngestReq):
 # ---------------------------------------------------------------------------
 
 @router.put("/{config_id}/pull")
-def configure_pull(request: Request, config_id: str, body: PullConfigReq):
+def configure_pull(
+    request: Request, config_id: str, body: PullConfigReq, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """配置（或更新）定时拉取。"""
     store = _store(request)
     config = store.get(config_id)
@@ -878,7 +893,7 @@ def configure_pull(request: Request, config_id: str, body: PullConfigReq):
 
 
 @router.get("/{config_id}/api-key")
-def get_pull_api_key(request: Request, config_id: str):
+def get_pull_api_key(request: Request, config_id: str, _: None = Depends(require_perm(P_EXT_READ))):
     """查询拉取接口 API Key 状态。只返回脱敏值, 不返回明文。"""
     store = _store(request)
     config = store.get(config_id)
@@ -892,7 +907,9 @@ def get_pull_api_key(request: Request, config_id: str):
 
 
 @router.put("/{config_id}/api-key")
-def set_pull_api_key(request: Request, config_id: str, body: ApiKeyReq):
+def set_pull_api_key(
+    request: Request, config_id: str, body: ApiKeyReq, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """设置 (或空串清除) 拉取接口的 API Key, 存 secrets.json (权限 0600)。"""
     store = _store(request)
     config = store.get(config_id)
@@ -910,7 +927,9 @@ def set_pull_api_key(request: Request, config_id: str, body: ApiKeyReq):
 
 
 @router.post("/{config_id}/pull/test")
-async def test_pull(request: Request, config_id: str):
+async def test_pull(
+    request: Request, config_id: str, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """测试拉取：请求外部 API 并返回预览数据，不写入。"""
     store = _store(request)
     config = store.get(config_id)
@@ -938,7 +957,9 @@ async def test_pull(request: Request, config_id: str):
 
 
 @router.post("/{config_id}/pull/run")
-async def run_pull(request: Request, config_id: str):
+async def run_pull(
+    request: Request, config_id: str, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """手动触发一次拉取并写入。"""
     store = _store(request)
     config = store.get(config_id)
@@ -978,6 +999,7 @@ async def backfill_history_ep(
     config_id: str,
     start: str = Query(..., description="开始日期 YYYY-MM-DD"),
     end: str = Query(..., description="结束日期 YYYY-MM-DD (含)"),
+    _: None = Depends(require_perm(P_EXT_WRITE)),
 ):
     """历史回补: 按本地交易日逐日拉取并写入 timeseries 分区。
 
@@ -1010,7 +1032,9 @@ async def backfill_history_ep(
 # ---------------------------------------------------------------------------
 
 @router.post("/{config_id}/fix-symbol")
-def fix_symbol(request: Request, config_id: str):
+def fix_symbol(
+    request: Request, config_id: str, _: None = Depends(require_perm(P_EXT_WRITE))
+):
     """扫描已有 Parquet 数据，将 symbol 列标准化为 代码.交易所 格式。"""
     store = _store(request)
     config = store.get(config_id)
@@ -1031,6 +1055,7 @@ def fix_symbol(request: Request, config_id: str):
 async def detect_fields(
     request: Request,
     file: UploadFile = File(...),
+    _: None = Depends(require_perm(P_EXT_WRITE)),
 ):
     """上传 CSV/Excel 文件，自动检测列名和类型。
 
@@ -1095,7 +1120,7 @@ def _find_row_arrays(data, prefix: str = "", limit: int = 8) -> list[str]:
 
 
 @router.post("/detect-url")
-async def detect_url(body: DetectUrlReq):
+async def detect_url(body: DetectUrlReq, _: None = Depends(require_perm(P_EXT_WRITE))):
     """请求外部 URL，自动检测 JSON 行数据的字段和标的代码列。"""
     from app.services.ext_pull import _extract_rows, _apply_field_map
     import httpx
@@ -1162,7 +1187,9 @@ async def detect_url(body: DetectUrlReq):
 
 
 @router.get("/schema/{config_id}")
-def discover_schema(request: Request, config_id: str):
+def discover_schema(
+    request: Request, config_id: str, _: None = Depends(require_perm(P_EXT_READ))
+):
     """发现扩展数据的实际 Parquet schema（基于已有数据）。"""
     config = _store(request).get(config_id)
     if not config:
@@ -1183,7 +1210,7 @@ def discover_schema(request: Request, config_id: str):
 
 
 @router.get("/schema-all")
-def discover_all_schemas(request: Request):
+def discover_all_schemas(request: Request, _: None = Depends(require_perm(P_EXT_READ))):
     """发现所有扩展表的 schema（用于前端动态列选择）。"""
     configs = _store(request).load_all()
     result = []

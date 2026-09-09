@@ -4,12 +4,13 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.factors import store
 from app.factors.dsl import FACTOR_COLUMN, compile_formula
 from app.factors.registry import all_factors, unregister_factor
+from app.identity.permissions import P_FACTORS_WRITE, require_perm
 
 router = APIRouter(prefix="/api/factors", tags=["factors"])
 
@@ -68,7 +69,7 @@ class FormulaTrialRequest(FormulaValidateRequest):
 
 
 @router.post("/trial")
-def trial_formula(req: FormulaTrialRequest, request: Request) -> dict:
+def trial_formula(req: FormulaTrialRequest, request: Request, _: None = Depends(require_perm(P_FACTORS_WRITE))) -> dict:
     """公式试算: 最近 N 个交易日截面 Rank IC 快照 (复用回测面板与虚拟因子物化路径)。"""
     compiled = compile_formula(req.formula)
     if not compiled.ok:
@@ -253,7 +254,7 @@ def _trial_nonempty(request: Request, formula: str, asset_type: str = "stock") -
 
 
 @router.post("/custom")
-def create_custom_factor(req: CustomFactorCreateRequest, request: Request) -> dict:
+def create_custom_factor(req: CustomFactorCreateRequest, request: Request, _: None = Depends(require_perm(P_FACTORS_WRITE))) -> dict:
     """保存自定义公式因子: 编译通过 + 服务端试算非空 (fail-closed)。"""
     data_dir = _data_dir(request)
     factor_id = _resolve_id(req.id, req.label, "uf")
@@ -284,7 +285,7 @@ def create_custom_factor(req: CustomFactorCreateRequest, request: Request) -> di
 
 
 @router.post("/composite")
-def create_composite_factor(req: CompositeFactorCreateRequest, request: Request) -> dict:
+def create_composite_factor(req: CompositeFactorCreateRequest, request: Request, _: None = Depends(require_perm(P_FACTORS_WRITE))) -> dict:
     """保存复合因子: 成员校验 + 循环引用检查 (无需试算, 值由成员物化路径计算)。"""
     data_dir = _data_dir(request)
     factor_id = _resolve_id(req.id, req.label, "cf")
@@ -318,7 +319,7 @@ class CustomFactorUpdateRequest(BaseModel):
 
 
 @router.post("/custom/{factor_id}/update")
-def update_custom_factor(factor_id: str, req: CustomFactorUpdateRequest, request: Request) -> dict:
+def update_custom_factor(factor_id: str, req: CustomFactorUpdateRequest, request: Request, _: None = Depends(require_perm(P_FACTORS_WRITE))) -> dict:
     """编辑已有自定义因子: 编译校验 + 试算非空 (与创建同一门禁) → 版本提升注册。
 
     公式变化时状态回 draft (生命周期语义: 编辑后需重新检验激活); 仅改名称/分组保留状态。
@@ -356,8 +357,11 @@ def update_custom_factor(factor_id: str, req: CustomFactorUpdateRequest, request
 
 def _find_references(data_dir, factor_id: str) -> list[str]:
     """扫描策略与复合因子定义中的引用 (删除前 fail-closed 检查)。"""
+    from app.identity.user_context import user_strategies_dir
+
     references: list[str] = []
-    strategies_dir = data_dir / "strategies"
+    # v2.3 数据命名空间 (M3-3c): 桌面版 = data_dir/strategies/ 原位置
+    strategies_dir = user_strategies_dir(data_dir)
     if strategies_dir.is_dir():
         for file in strategies_dir.glob("*.json"):
             try:
@@ -376,7 +380,7 @@ def _find_references(data_dir, factor_id: str) -> list[str]:
 
 
 @router.delete("/custom/{factor_id}")
-def delete_custom_factor(factor_id: str, request: Request, force: bool = Query(default=False)) -> dict:
+def delete_custom_factor(factor_id: str, request: Request, _: None = Depends(require_perm(P_FACTORS_WRITE)), force: bool = Query(default=False)) -> dict:
     """删除自定义/复合因子; 有引用时列出引用方并拒绝 (需 force)。"""
     data_dir = _data_dir(request)
     from app.factors.registry import get_factor
@@ -402,7 +406,7 @@ class FactorStatusRequest(BaseModel):
 
 
 @router.post("/custom/{factor_id}/status")
-def update_factor_status(factor_id: str, req: FactorStatusRequest, request: Request) -> dict:
+def update_factor_status(factor_id: str, req: FactorStatusRequest, request: Request, _: None = Depends(require_perm(P_FACTORS_WRITE))) -> dict:
     """生命周期状态迁移 (P4): draft->active->watch->retired, 编辑后回 draft。"""
     data_dir = _data_dir(request)
     target = None
@@ -430,7 +434,7 @@ class FactorGroupRequest(BaseModel):
 
 
 @router.post("/custom/{factor_id}/group")
-def update_factor_group(factor_id: str, req: FactorGroupRequest, request: Request) -> dict:
+def update_factor_group(factor_id: str, req: FactorGroupRequest, request: Request, _: None = Depends(require_perm(P_FACTORS_WRITE))) -> dict:
     """修改单个自定义/复合因子的分组 (内置因子分组与快照/预设绑定, 不可改)。"""
     data_dir = _data_dir(request)
     group = req.group.strip()
