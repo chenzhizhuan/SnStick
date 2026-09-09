@@ -473,7 +473,15 @@ export function Layout() {
   const version = versionData?.version
   const realtimeEnabled = prefs?.realtime_quotes_enabled ?? false
   const handleLogout = async () => {
-    try { await api.identityLogout() } catch { /* 后端不可达也继续本地退出 */ }
+    // 未互通(单密码)形态也需可登出: /api/auth/logout 撤销会话 token + 删 cookie
+    // 互通形态走 /identity/logout; 两者后端均幂等, 未互通时 identity 接口返回 404 也不影响
+    try {
+      if (identity) {
+        await api.identityLogout()
+      } else {
+        await api.authLogout()
+      }
+    } catch { /* 后端不可达也继续本地退出 */ }
     qc.clear()
     window.location.href = '/login'
   }
@@ -1074,9 +1082,43 @@ export function Layout() {
               )}
             </NavLink>
           </div>
-          {/* 互通形态: 当前登录用户 + 退出 */}
-          {identity && (
-            <div className={cn('mt-1 border-t border-border/60 pt-2', railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5')}>
+          {/* 底部: 设置入口 + 版本号 */}
+          <div className={railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5'}>
+            <NavLink
+              to="/settings"
+              title={railMode ? '设置' : undefined}
+              className={({ isActive }) =>
+                cn(
+                  'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
+                  railMode ? 'justify-center px-0 py-2' : 'flex-1 gap-3 px-3 py-2',
+                  isActive
+                    ? 'bg-elevated text-foreground font-medium'
+                    : 'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
+                )
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <span
+                    className={cn(
+                      'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
+                      isActive ? 'opacity-100' : 'opacity-0',
+                    )}
+                  />
+                  <Settings className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
+                  {!railMode && <span>设置</span>}
+                  {!railMode && version && (
+                    <span className="ml-auto font-mono text-[10px] text-muted/70 select-none shrink-0">
+                      {version}
+                    </span>
+                  )}
+                </>
+              )}
+            </NavLink>
+          </div>
+          {/* 底部区: 当前登录用户(互通形态) + 退出(所有形态均显示, 单密码也可登出) */}
+          <div className={cn('mt-1 border-t border-border/60 pt-2', railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5')}>
+            {identity && (
               <div className={cn(
                 'flex min-w-0 items-center gap-2 text-[11px] text-muted',
                 railMode ? 'justify-center px-0 py-1' : 'flex-1 px-2 py-1',
@@ -1086,19 +1128,19 @@ export function Layout() {
                 </span>
                 {!railMode && <span className="truncate">{identity.nick_name || identity.user_name}</span>}
               </div>
-              <button
-                onClick={handleLogout}
-                title="退出登录"
-                className={cn(
-                  'flex items-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground',
-                  railMode ? 'justify-center p-2' : 'gap-1.5 px-3 py-1.5 text-[11px]',
-                )}
-              >
-                <LogOut className="h-3.5 w-3.5 shrink-0" />
-                {!railMode && <span>退出</span>}
-              </button>
-            </div>
-          )}
+            )}
+            <button
+              onClick={handleLogout}
+              title="退出登录"
+              className={cn(
+                'flex items-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground',
+                railMode ? 'justify-center p-2' : 'gap-1.5 px-3 py-1.5 text-[11px]',
+              )}
+            >
+              <LogOut className="h-3.5 w-3.5 shrink-0" />
+              {!railMode && <span>退出</span>}
+            </button>
+          </div>
         </div>
       </aside>
 
