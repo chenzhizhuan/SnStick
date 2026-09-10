@@ -329,13 +329,15 @@ async def identity_me(request: Request, refresh: bool = Query(default=False)) ->
     if not identity:
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
     # 权限点集: 多角色并集, admin 通配 (与 RequirePerm 同一来源)
-    from app.identity.permissions import role_perms
+    from app.identity.permissions import effective_role, role_perms
 
     return {
         "ok": True,
         "identity": {
             **identity,
             "perms": sorted(role_perms(tuple(identity.get("roles") or ()))),
+            # 最有效角色 (多角色取优先级最高者), 供前端展示角色名称
+            "effective_role": effective_role(tuple(identity.get("roles") or ())),
         },
     }
 

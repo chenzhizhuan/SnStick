@@ -1126,7 +1126,17 @@ export function Layout() {
                 <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
                   <User className="h-3 w-3" />
                 </span>
-                {!railMode && <span className="truncate">{identity.nick_name || identity.user_name}</span>}
+                {!railMode && (
+                  <span className="flex min-w-0 flex-col leading-tight">
+                    <span className="truncate">{identity.nick_name || identity.user_name}</span>
+                    {/* 最有效角色名称 (多角色取优先级最高者) */}
+                    {identity.effective_role?.label && (
+                      <span className="mt-0.5 inline-flex w-fit max-w-full items-center rounded-sm bg-accent/10 px-1 py-px text-[10px] font-medium leading-none text-accent">
+                        <span className="truncate">{identity.effective_role.label}</span>
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
             )}
             <button

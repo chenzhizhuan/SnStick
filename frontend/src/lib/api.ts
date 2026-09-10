@@ -1888,6 +1888,8 @@ export interface AuthIdentity {
   roles: string[]
   /** 后端 role_map.yaml 解析后的权限点集合 (多角色并集; admin 含 *:*:*)。 */
   perms?: string[]
+  /** 最有效角色 (多角色取优先级最高者), 供前端展示角色名称。 */
+  effective_role?: { key: string; label: string } | null
 }
 
 // ===== Admin (平台管理) =====

@@ -270,3 +270,70 @@ class TestPutRoleMap:
 @pytest.fixture
 def tmp_client(admin_client):
     return admin_client
+
+
+# ── 最有效角色 (effective_role) ───────────────────────────────────
+class TestEffectiveRole:
+    def test_single_role(self):
+        """单角色 → 返回该角色中文名。"""
+        from app.identity.permissions import effective_role
+
+        assert effective_role(("common",)) == {"key": "common", "label": "体验版"}
+        assert effective_role(("premium",)) == {"key": "premium", "label": "高级版"}
+        assert effective_role(("admin",)) == {"key": "admin", "label": "超级版"}
+
+    def test_multirole_picks_highest(self):
+        """多角色 → 取 ROLE_ORDER 中最靠前者 (权限层级最高)。"""
+        from app.identity.permissions import effective_role
+
+        assert effective_role(("agent", "premium"))["key"] == "agent"        # 服务商 > 高级版
+        assert effective_role(("standard", "premium"))["key"] == "premium"   # 高级版 > 标准版
+        assert effective_role(("common", "standard"))["key"] == "standard"   # 标准版 > 体验版
+        assert effective_role(("mentor", "agent"))["key"] == "mentor"        # 导师版 > 服务商
+
+    def test_empty_returns_none(self):
+        from app.identity.permissions import effective_role
+
+        assert effective_role(()) is None
+
+    def test_unknown_role_falls_back_raw(self):
+        """未知角色 (不在 ROLE_ORDER) 视为最低优先级, 展示 raw key。"""
+        from app.identity.permissions import effective_role
+
+        r = effective_role(("some_new_role",))
+        assert r == {"key": "some_new_role", "label": "some_new_role"}
+
+    def test_me_includes_effective_role(self, admin_client):
+        """GET /me 返回 effective_role (单角色 → 中文名)。"""
+        from app.api import auth as auth_api
+
+        _app = FastAPI()
+        _app.include_router(auth_api.router)
+
+        @_app.middleware("http")
+        async def _auth_mw(request, call_next):
+            if not request.url.path.startswith("/api/"):
+                return await call_next(request)
+            from app.identity import pool as identity_pool
+
+            if identity_pool.is_enabled():
+                from app.services import identity_auth as ia
+
+                token = request.cookies.get("tf_session")
+                if token and ia.is_valid_session(token):
+                    identity = ia.get_identity(token)
+                    if identity:
+                        request.state.identity = identity
+                        return await call_next(request)
+                return JSONResponse(status_code=401, content={"detail": "未登录"})
+            return await call_next(request)
+
+        client = TestClient(_app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.get("/api/auth/me", cookies={"tf_session": token})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["identity"]["effective_role"] == {"key": "premium", "label": "高级版"}
+        # roles 原样透传, perms 并集解析仍正常
+        assert body["identity"]["roles"] == ("premium",) or "premium" in body["identity"]["roles"]

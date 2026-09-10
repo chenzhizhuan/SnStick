@@ -83,6 +83,41 @@ P_MENU_DATA = "stick:menu:data"
 
 _ADMIN_WILDCARD = "*:*:*"
 
+# ── 角色元数据 (展示名 + 优先级, 单一事实来源) ─────────────────────
+# 对齐 role_map.yaml 注释顺序; 下标越小角色越"有效" (权限层级越高)。
+# 多角色用户取顺序最靠前者作为「最有效角色」用于前端展示。
+ROLE_ORDER = ["admin", "enterprise", "mentor", "agent", "premium", "standard", "common"]
+
+# 角色 → 中文展示名 (对齐 AGTi sys_role)
+ROLE_LABELS = {
+    "admin": "超级版",
+    "enterprise": "企业版",
+    "mentor": "导师版",
+    "agent": "服务商",
+    "premium": "高级版",
+    "standard": "标准版",
+    "common": "体验版",
+}
+
+_ROLE_RANK = {key: i for i, key in enumerate(ROLE_ORDER)}
+
+
+def effective_role(roles: tuple[str, ...]) -> dict | None:
+    """多角色 → 最有效角色 (展示名 + key)。
+
+    取 ROLE_ORDER 中顺序最靠前者 (优先级最高)。无有效角色 → None。
+    未知角色 (不在 ROLE_ORDER) 视为最低优先级, 仅作为兜底展示 raw key。
+    """
+    if not roles:
+        return None
+    best_key = min(roles, key=lambda r: _ROLE_RANK.get(r, len(ROLE_ORDER)))
+    return {"key": best_key, "label": ROLE_LABELS.get(best_key, best_key)}
+
+
+def role_label(key: str) -> str:
+    """角色 key → 中文展示名 (未知角色回退 raw key)。"""
+    return ROLE_LABELS.get(key, key)
+
 
 class RoleMapError(RuntimeError):
     """role_map.yaml 加载/格式错误。"""

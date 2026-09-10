@@ -21,6 +21,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from app.identity.permissions import (
     P_ADMIN_MANAGE,
     P_ADMIN_VIEW,
+    ROLE_LABELS,
+    ROLE_ORDER,
     current_identity,
     require_perm,
 )
@@ -157,20 +159,7 @@ async def admin_audit(
 
 
 # ── 角色权限矩阵 (方案 A: 可视化授权 P2 通道) ─────────────────────────
-
-# 角色展示顺序 (对齐 role_map.yaml 注释顺序)
-_ROLE_ORDER = ["admin", "enterprise", "mentor", "agent", "premium", "standard", "common"]
-
-# 角色 → 中文名 (对齐 AGTi sys_role)
-_ROLE_LABELS = {
-    "admin": "超级版",
-    "enterprise": "企业版",
-    "mentor": "导师版",
-    "agent": "服务商",
-    "premium": "高级版",
-    "standard": "标准版",
-    "common": "体验版",
-}
+# 角色展示顺序 / 中文名复用 permissions.py 的 ROLE_ORDER / ROLE_LABELS (单一事实来源)
 
 # 权限点 → 归属菜单 (功能分组, 供页面矩阵展示; 与 Layout.tsx NAV / role_map 注释一致)
 _PERM_MENU_GROUPS: list[dict] = [
@@ -289,7 +278,7 @@ def _overlay_payload() -> dict:
     overlay = role_overlay.load_overlay()
 
     effective: dict[str, list[str]] = {}
-    for rkey in _ROLE_ORDER:
+    for rkey in ROLE_ORDER:
         if rkey not in base:
             continue
         effective[rkey] = sorted(role_overlay.effective_role_perms(rkey, base[rkey]))
@@ -299,12 +288,12 @@ def _overlay_payload() -> dict:
         "roles": [
             {
                 "key": rkey,
-                "label": _ROLE_LABELS.get(rkey, rkey),
+                "label": ROLE_LABELS.get(rkey, rkey),
                 "base": sorted(base.get(rkey, set())),
                 "overlay": sorted(overlay.get(rkey, [])),
                 "effective": effective[rkey],
             }
-            for rkey in _ROLE_ORDER
+            for rkey in ROLE_ORDER
             if rkey in base
         ],
         "groups": _PERM_MENU_GROUPS,
