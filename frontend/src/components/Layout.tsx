@@ -333,8 +333,15 @@ function UserMenu({
           <div className="absolute right-0 top-full z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface shadow-2xl shadow-black/30">
             {identity ? (
               <>
-                <div className="px-3.5 py-2.5 text-[11px] text-muted">
-                  账号：{identity.user_name}
+                <div className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-foreground/85">
+                  <User className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  <span className="shrink-0 font-medium">账号</span>
+                  <span
+                    className="ml-auto min-w-0 truncate font-mono text-[11px] font-semibold text-accent"
+                    title={identity.user_name}
+                  >
+                    {identity.user_name}
+                  </span>
                 </div>
                 {canViewSettings && (
                   <div className="border-t border-border/60 p-1.5">
