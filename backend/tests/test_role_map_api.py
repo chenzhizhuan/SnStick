@@ -103,6 +103,7 @@ class TestRoleOverlayService:
         base = {"stick:watchlist:read", "stick:kline:read", "stick:backtest:run"}
         ro.save_overlay({"premium": ["stick:watchlist:read"]})
         eff = ro.effective_role_perms("premium", base)
+        # 覆盖即最终集合 (未列的基线权限被关闭)
         assert eff == {"stick:watchlist:read"}
 
     def test_effective_keeps_all_when_no_overlay(self):
@@ -110,11 +111,22 @@ class TestRoleOverlayService:
         eff = ro.effective_role_perms("premium", base)
         assert eff == base
 
-    def test_overlay_cannot_expand(self):
+    def test_overlay_can_expand(self):
+        """覆盖可扩张: 基线没有的权限点也能授出 (全量授权语义)。"""
         base = {"stick:watchlist:read"}
         ro.save_overlay({"premium": ["stick:watchlist:read", "stick:backtest:run"]})
         eff = ro.effective_role_perms("premium", base)
-        assert "stick:backtest:run" not in eff  # 基线没有 → 忽略
+        assert "stick:backtest:run" in eff  # 覆盖新增 → 生效
+        assert "stick:watchlist:read" in eff
+
+    def test_overlay_wildcard_expands_base(self):
+        """覆盖含通配 → 展开为基线上能匹配的具体权限。"""
+        base = {"stick:watchlist:read", "stick:kline:read", "stick:backtest:run"}
+        ro.save_overlay({"premium": ["stick:*:read"]})
+        eff = ro.effective_role_perms("premium", base)
+        assert "stick:watchlist:read" in eff
+        assert "stick:kline:read" in eff
+        assert "stick:backtest:run" not in eff  # 通配只匹配 read 动作
 
     def test_clear_overlay_restores_base(self):
         base = {"stick:watchlist:read", "stick:kline:read"}
@@ -180,16 +192,19 @@ class TestPutRoleMap:
         ov = ro.load_overlay()
         assert ov["premium"] == ["stick:kline:read", "stick:watchlist:read"]
 
-    def test_put_rejects_expansion(self, admin_client):
-        """覆盖仅允许收敛: 基线没有的权限点 → 400。"""
+    def test_put_allows_expansion(self, admin_client):
+        """覆盖可扩张: 基线没有的权限点也能授出 → 200 且生效。"""
         token = _session_cookie(("admin",))
         with patch("app.identity.pool.is_enabled", return_value=True):
             r = admin_client.put(
                 "/api/admin/role-map",
-                json={"roles": {"common": ["stick:backtest:run"]}},
+                json={"roles": {"common": ["stick:backtest:run", "stick:watchlist:read"]}},
                 cookies={"tf_session": token},
             )
-        assert r.status_code == 400
+        assert r.status_code == 200
+        data = r.json()
+        common = next(x for x in data["roles"] if x["key"] == "common")
+        assert "stick:backtest:run" in common["effective"]  # 扩张生效
 
     def test_put_rejects_admin_role(self, admin_client):
         token = _session_cookie(("admin",))

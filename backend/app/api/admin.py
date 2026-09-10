@@ -307,8 +307,8 @@ async def admin_role_map_update(
     """保存角色权限覆盖 (可视化授权保存)。
 
     约束 (安全边界):
-      - 只允许覆盖 _PERM_MENU_GROUPS 中声明的权限点 (即基线里的合法权限)。
-      - 覆盖是「收敛」语义: 权限点必须在基线中存在 (角色 base 集合), 否则 400。
+      - 只允许覆盖 _PERM_MENU_GROUPS 中声明的权限点 (即平台全量合法权限白名单)。
+      - 覆盖为「全量授权」语义: 覆盖集合即该角色最终生效权限, 相对基线可收敛也可扩张。
       - admin 角色不可覆盖 (通配 *:*:* 由代码硬控, 页面只读)。
       - 不触碰 AGTi 库, 只写本地 data_dir/role_overlay.json (P0 只读约束)。
     生效: 写盘 → 审计 admin_action → 清 role_map 缓存 → 立即生效 (进程内)。
@@ -332,15 +332,9 @@ async def admin_role_map_update(
         if not isinstance(perms, list) or not all(isinstance(p, str) for p in perms):
             raise HTTPException(status_code=400, detail=f"角色 {rkey} 的 perms 须为字符串数组")
 
-        role_base = base.get(rkey, set())
         for p in perms:
             if p not in allowed:
                 raise HTTPException(status_code=400, detail=f"非法权限点: {p}")
-            if p not in role_base:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"权限点 {p} 不在角色 {rkey} 基线中, 覆盖仅允许收敛, 禁止扩张",
-                )
         # 去重 + 排序, 保持文件稳定
         overlay[rkey] = sorted(set(perms))
 

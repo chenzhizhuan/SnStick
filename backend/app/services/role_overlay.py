@@ -3,12 +3,11 @@
 设计:
   - 基线 role_map.yaml 随代码版本管理 (镜像内只读); 本服务提供「运行时覆盖」。
   - 覆盖数据落盘 data_dir/role_overlay.json (随 ./data 卷持久化, 重启不丢)。
-  - 合并优先级: overlay > 基线。overlay 只允许「收敛权限」(删减基线权限点),
-    禁止「扩张」(新增基线没有的权限点), 防止管理员在页面上越权授出
-    代码层未定义/未审查的权限点 (安全边界)。
+  - 合并优先级: overlay > 基线。覆盖为「全量授权」语义: 角色有覆盖时,
+    覆盖集合即该角色最终生效权限 (相对基线可收敛也可扩张)。
   - 生效方式: 保存 overlay 后调用 reload_role_map() 清缓存, 进程内立即生效
     (无需重启容器, 与 P1 改 yaml+重启 相比是 P2 热加载通道)。
-  - 权限判定 (permissions.role_perms) 合并 overlay: 角色权限 = 基线 ∪ overlay
+  - 权限判定 (permissions.role_perms) 合并 overlay: 角色权限 = 覆盖 ? 覆盖 : 基线
     再做段级通配匹配 (与 _perm_matches 一致)。
   - 写路径严格只读 AGTi 库: overlay 只写本地 data_dir, 不触碰 agti 库 (P0 约束)。
 """
@@ -76,17 +75,19 @@ def clear_overlay() -> None:
 
 
 def effective_role_perms(role_key: str, base: set[str]) -> set[str]:
-    """合并基线 + overlay → 某角色最终权限集合 (段级匹配, 与 _perm_matches 对齐)。
+    """合并基线 + overlay → 某角色最终权限集合。
 
-    - 角色有覆盖: 只保留「基线中存在 且 与 overlay 任一项段级匹配」的权限。
-      (基线含但覆盖未列出的权限点 → 视为关闭; 覆盖新增但基线没有 → 被忽略)
-    - 角色无覆盖: 原样返回基线。
+    覆盖语义 (v2.3 P2 可视化授权):
+      - 角色有覆盖: 覆盖集合即最终权限 (全量授权, 可收敛也可扩张)。
+        覆盖含通配 (如 *:*:*) 时展开为基线上能匹配的具体权限 + 覆盖中显式列出的权限。
+      - 角色无覆盖: 原样返回基线。
     """
     ov = load_overlay()
     if role_key not in ov:
         return set(base)
     ov_perms = ov[role_key]
-    result: set[str] = set()
+    result: set[str] = set(ov_perms)
+    # 通配展开: overlay 里的通配模式命中基线具体权限 → 纳入最终集合
     for base_perm in base:
         if _perm_matches_segments(ov_perms, base_perm):
             result.add(base_perm)
