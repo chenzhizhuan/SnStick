@@ -39,10 +39,10 @@ async def get_pool() -> Pool | None:
     if not is_enabled():
         return None
     global _pool
-    if _pool is not None and not _pool.is_closed():
+    if _pool is not None and not _pool.is_closing():
         return _pool
     async with _pool_lock:
-        if _pool is not None and not _pool.is_closed():
+        if _pool is not None and not _pool.is_closing():
             return _pool
         import asyncpg
 
@@ -89,7 +89,7 @@ async def close_pool() -> None:
     global _pool
     pool = _pool
     _pool = None
-    if pool is not None and not pool.is_closed():
+    if pool is not None and not pool.is_closing():
         await pool.close()
 
 
