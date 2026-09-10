@@ -3,8 +3,8 @@
  *
  * 交互模型:
  *   - 矩阵: 行=功能分组/权限点, 列=角色; 勾选=生效权限。
- *   - 覆盖语义 (安全边界): 只允许「收敛」(相对基线删减), 禁止扩张;
- *     基线里没有的权限点禁用置灰 (title 提示); admin 列只读 (代码硬控 *:*:*)。
+ *   - 覆盖语义 (全量授权): 覆盖集合 = 角色最终生效权限, 可收敛也可扩张;
+ *     所有角色均可勾选任意权限点 (选与不选 → 保存); admin 列只读 (代码硬控 *:*:*)。
  *   - 保存 = PUT overlay → 后端写 role_overlay.json → 热加载立即生效 (无需重启)。
  *   - 「恢复基线」= 该角色从 overlay 移除 (勾选回基线状态)。
  *
@@ -192,8 +192,8 @@ export function SettingsRolesPanel() {
 
       <div className="rounded-card border border-border bg-surface p-5">
         <p className="text-[11px] text-muted mb-4">
-          勾选 = 角色拥有该功能权限。安全边界: 仅支持在基线 (role_map.yaml) 范围内
-          <span className="text-foreground font-medium"> 收敛/恢复</span>, 不可新增基线外权限;
+          勾选 = 角色拥有该功能权限, 选与不选后保存即生效 (覆盖层优先于
+          <span className="text-foreground font-medium"> role_map.yaml</span> 基线, 可收敛也可扩张);
           admin 为系统超管 (通配), 不可修改。保存后立即生效, 无需重启。
         </p>
 
@@ -255,19 +255,6 @@ export function SettingsRolesPanel() {
                             </td>
                           )
                         }
-                        const inBase = r.base.includes(p.key)
-                        if (!inBase) {
-                          return (
-                            <td key={r.key} className="py-1.5 px-2 text-center">
-                              <input
-                                type="checkbox"
-                                disabled
-                                className="h-3.5 w-3.5 opacity-25 cursor-not-allowed"
-                                title="基线未授予, 覆盖不允许扩张"
-                              />
-                            </td>
-                          )
-                        }
                         const cur = effectiveDraft[r.key]
                         const checked = cur ? cur.has(p.key) : r.effective.includes(p.key)
                         return (
@@ -278,6 +265,7 @@ export function SettingsRolesPanel() {
                               onChange={() => toggle(r.key, p.key)}
                               disabled={!canManage}
                               className="h-3.5 w-3.5 cursor-pointer accent-accent disabled:cursor-not-allowed"
+                              title={canManage ? '勾选 = 授予该权限' : undefined}
                             />
                           </td>
                         )
@@ -337,6 +325,7 @@ export function SettingsRolesPanel() {
 function RoleOverlayRow({ role }: { role: RoleEntry }) {
   const overlaid = role.overlay.length > 0
   const removed = role.base.filter((p) => !role.effective.includes(p))
+  const added = role.effective.filter((p) => !role.base.includes(p))
   return (
     <div className="flex items-start gap-3 py-1.5">
       <span className="w-16 shrink-0 text-xs text-foreground">{role.label}</span>
@@ -344,9 +333,12 @@ function RoleOverlayRow({ role }: { role: RoleEntry }) {
         <span className="text-[11px] text-muted">系统超管 · 全功能通配</span>
       ) : overlaid ? (
         <div className="min-w-0 flex-1">
-          <span className="text-[11px] text-amber-400">已收敛 {removed.length} 项:</span>
+          <span className="text-[11px] text-amber-400">
+            已覆盖{added.length > 0 ? ` · 较基线新增 +${added.length}` : ''}
+            {removed.length > 0 ? ` · 较基线删减 -${removed.length}` : ''}
+          </span>
           <span className="ml-1.5 text-[11px] text-muted font-mono truncate">
-            {removed.join(', ')}
+            {role.overlay.join(', ')}
           </span>
         </div>
       ) : (
