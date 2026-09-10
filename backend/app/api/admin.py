@@ -218,6 +218,7 @@ _PERM_MENU_GROUPS: list[dict] = [
         "label": "数据与扩展",
         "perms": [
             {"key": "stick:data:read", "label": "数据管理"},
+            {"key": "stick:data:write", "label": "数据治理操作"},
             {"key": "stick:ext:read", "label": "扩展读取"},
             {"key": "stick:ext:write", "label": "扩展写入"},
         ],

@@ -11,8 +11,9 @@ from zoneinfo import ZoneInfo
 from functools import lru_cache
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
+from app.identity.permissions import P_DATA_WRITE, require_perm
 from app.indicators.pipeline import compute_enriched, compute_enriched_single
 from app.market_time import cn_now, cn_today, in_continuous_session
 from app.price_limits import is_risk_warning_name, price_limit_pct
@@ -1278,11 +1279,12 @@ async def sync_minute_single(request: Request, body: dict):
 
 
 @router.post("/clear_minute")
-async def clear_minute(request: Request):
+async def clear_minute(request: Request, _: None = Depends(require_perm(P_DATA_WRITE))):
     """清空全部分钟K数据 (仅 kline_minute, 不影响其他数据)。
 
     删除 data/kline_minute/ 下所有分区 parquet, 刷新视图。
     需二次确认: body { "confirm": true }。
+    v2.4: 挂 stick:data:write — 破坏性数据治理仅 admin/enterprise。
     """
     import shutil
 
@@ -1318,11 +1320,12 @@ async def clear_minute(request: Request):
 
 
 @router.post("/extend_history")
-async def extend_history(request: Request):
+async def extend_history(request: Request, _: None = Depends(require_perm(P_DATA_WRITE))):
     """向前扩展历史日K数据 — 独立于盘后管道。
 
     body: { "value": int, "unit": "day"|"month"|"year" }
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
+    v2.4: 挂 stick:data:write — 全市场重拉历史属数据治理仅 admin/enterprise。
     """
     import asyncio
     import traceback as _tb
@@ -1391,7 +1394,7 @@ async def extend_history(request: Request):
 
 
 @router.post("/repair_daily")
-async def repair_daily(request: Request):
+async def repair_daily(request: Request, _: None = Depends(require_perm(P_DATA_WRITE))):
     """修正 / 补全日K数据 — 从指定起始日期重拉到今天。
 
     典型场景: 昨天没看盘 / 服务挂了,本地日K缺了若干天。
@@ -1399,6 +1402,7 @@ async def repair_daily(request: Request):
 
     body: { "start_date": "YYYY-MM-DD" }
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
+    v2.4: 挂 stick:data:write — 管道级重拉属数据治理仅 admin/enterprise。
     """
     import asyncio
     import traceback as _tb
@@ -1477,10 +1481,11 @@ async def repair_daily(request: Request):
 
 
 @router.post("/rebuild_enriched")
-async def rebuild_enriched(request: Request):
+async def rebuild_enriched(request: Request, _: None = Depends(require_perm(P_DATA_WRITE))):
     """全量重算 enriched 表 — 不获取任何数据,仅基于已有 kline_daily + adj_factor 重算复权+指标。
 
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
+    v2.4: 挂 stick:data:write — 全量重算属数据治理仅 admin/enterprise。
     """
     import asyncio
     try:

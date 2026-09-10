@@ -9,9 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from app.enriched_generation import EnrichedPublication
+from app.identity.permissions import P_DATA_WRITE, require_perm
 from app.indicators.pipeline import ENRICHED_COLUMNS
 
 logger = logging.getLogger(__name__)
@@ -615,8 +616,12 @@ def status(request: Request) -> dict:
 
 
 @router.post("/clear")
-def clear_data(request: Request):
-    """清除所有本地 Parquet 数据（保留 capabilities.json 和目录结构）。"""
+def clear_data(request: Request, _: None = Depends(require_perm(P_DATA_WRITE))):
+    """清除所有本地 Parquet 数据（保留 capabilities.json 和目录结构）。
+
+    v2.4: 挂 stick:data:write 门禁 — 破坏性数据治理操作仅 admin/enterprise;
+    单密码模式 (桌面版) 自动放行, 行为不变。
+    """
     import shutil
 
     repo = request.app.state.repo

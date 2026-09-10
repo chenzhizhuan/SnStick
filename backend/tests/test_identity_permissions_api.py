@@ -156,15 +156,60 @@ class TestRealEndpointMounted:
         assert r.headers.get("X-Error-Code") == "NO_PERM"
 
     def test_analysis_menu_write_denied_for_standard(self):
-        """标准版 (无 stick:analysis:write) 写分析菜单 → 403。"""
+        """标准版 (无 stick:analysis:write) 写分析菜单 → 403。
+
+        v2.4: standard 现含 stick:analysis:write (策略页内嵌分析菜单编辑),
+        改用 common (确无该权限) 验证同一拦截路径。
+        """
         from app.main import app
 
         client = TestClient(app)
-        token = _session_cookie(("standard",))
+        token = _session_cookie(("common",))
         with patch("app.identity.pool.is_enabled", return_value=True):
             r = client.post(
                 "/api/analysis-menus/test_menu",
                 json={"label": "t", "data_source": "x"},
+                cookies={"tf_session": token},
+            )
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_data_clear_denied_for_premium(self):
+        """v2.4: 高级版 (无 stick:data:write) 清空全部数据 → 403 NO_PERM。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post("/api/data/clear", cookies={"tf_session": token})
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_kline_clear_minute_denied_for_premium(self):
+        """v2.4: 高级版清空分钟K → 403 (挂载点: kline/clear_minute)。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post(
+                "/api/kline/clear_minute",
+                json={"confirm": True},
+                cookies={"tf_session": token},
+            )
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_settings_switch_endpoint_denied_for_premium(self):
+        """v2.4: 高级版切换数据源端点 → 403 (挂载点: settings/switch_endpoint)。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post(
+                "/api/settings/switch_endpoint",
+                json={"url": "https://api.tickflow.org"},
                 cookies={"tf_session": token},
             )
         assert r.status_code == 403

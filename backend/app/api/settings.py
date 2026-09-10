@@ -8,11 +8,12 @@ import logging
 import time
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import secrets_store
 from app.data_providers.custom.config import MAX_TIMEOUT
+from app.identity.permissions import P_DATA_WRITE, require_perm
 from app.tickflow import client as tf_client
 from app.tickflow.policy import (
     detect_capabilities,
@@ -103,11 +104,12 @@ class SwitchEndpointIn(BaseModel):
 
 
 @router.post("/switch_endpoint")
-def switch_endpoint(req: SwitchEndpointIn, request: Request) -> dict:
+def switch_endpoint(req: SwitchEndpointIn, request: Request, _: None = Depends(require_perm(P_DATA_WRITE))) -> dict:
     """切换 TickFlow 端点并立即生效。
 
     端点切换仅对付费档(starter+,走 api.tickflow.org)有意义;
     none/free 档运行在 free-api 服务器,无付费端点权限,禁止切换。
+    v2.4: 挂 stick:data:write — 数据源端点切换属数据治理仅 admin/enterprise。
     """
     # none/free 档没有付费端点权限,禁止切换
     if tf_client.current_mode() != "api_key":
