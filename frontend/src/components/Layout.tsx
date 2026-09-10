@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, Suspense } from 'react'
+import { useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
@@ -58,7 +58,7 @@ import {
   LogOut,
   User,
 } from 'lucide-react'
-import { api, type CapabilityMatrix, type IndexQuote } from '@/lib/api'
+import { api, type IndexQuote } from '@/lib/api'
 import logoUrl from '@/assets/logo.png'
 import { cn } from '@/lib/cn'
 import { useIsDesktop } from '@/lib/useMediaQuery'
@@ -70,6 +70,7 @@ import { findDataSource } from '@/lib/dataSources'
 import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { usePerm, useAuth } from '@/lib/useAuth'
+import type { AuthIdentity } from '@/lib/api'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
 
@@ -126,6 +127,88 @@ function ThemeToggle() {
     >
       {dark ? <Sun className="h-4 w-4 shrink-0" /> : <Moon className="h-4 w-4 shrink-0" />}
     </button>
+  )
+}
+
+/**
+ * 右上角用户菜单 — 点击头像/用户名弹出下拉 (含退出登录)。
+ * 互通形态显示身份; 单密码形态 (identity=null) 只显示登录按钮占位。
+ */
+function UserMenu({ identity, onLogout }: { identity: AuthIdentity | null; onLogout: () => void }) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  // 点击外部关闭
+  useEffect(() => {
+    if (!open) return
+    const onDocClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocClick)
+    return () => document.removeEventListener('mousedown', onDocClick)
+  }, [open])
+
+  const displayName = identity?.nick_name || identity?.user_name || ''
+
+  return (
+    <div className="relative shrink-0" ref={menuRef}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 rounded-btn px-1.5 py-1 text-foreground/80 transition-colors duration-150 hover:bg-elevated hover:text-foreground cursor-pointer"
+        title={identity ? (displayName || '用户') : '未登录'}
+        aria-expanded={open}
+      >
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
+          <User className="h-3.5 w-3.5" />
+        </span>
+        {identity && (
+          <span className="hidden max-w-[120px] truncate text-xs font-medium md:inline">
+            {displayName}
+          </span>
+        )}
+        <ChevronDown className={`h-3 w-3 shrink-0 text-muted transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden="true" />
+          <div className="absolute right-0 top-full z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface shadow-2xl shadow-black/30">
+            {identity ? (
+              <>
+                <div className="flex items-center gap-2.5 border-b border-border/60 px-3.5 py-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
+                    <User className="h-4.5 w-4.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-foreground">
+                      {identity.nick_name || identity.user_name}
+                    </div>
+                    {identity.effective_role?.label && (
+                      <div className="mt-0.5 inline-flex items-center rounded-sm bg-accent/10 px-1.5 py-px text-[10px] font-medium leading-none text-accent">
+                        {identity.effective_role.label}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="border-t border-border/60 px-3.5 py-2 text-[11px] text-muted">
+                  账号：{identity.user_name}
+                </div>
+                <div className="border-t border-border/60 p-1.5">
+                  <button
+                    onClick={() => { setOpen(false); onLogout() }}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-danger transition-colors hover:bg-danger/10"
+                  >
+                    <LogOut className="h-3.5 w-3.5 shrink-0" />
+                    退出登录
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="px-3.5 py-3 text-xs text-muted">当前为本地单密码模式</div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -200,158 +283,7 @@ function capSquareCls(c: { id: string; usable: boolean }) {
   return c.usable ? 'bg-accent' : c.id === 'daily' ? 'bg-danger' : 'bg-warning/80'
 }
 
-function DataSourceHealthBadge({ matrix }: { matrix: CapabilityMatrix | undefined }) {
-  const caps = matrix?.capabilities ?? []
-  const loading = caps.length === 0
-  const usableCount = caps.filter(c => c.usable).length
-  const down = caps.filter(c => !c.usable)
-  // 日K是核心能力 (其他一切派生于它): 挂了用危险色; 一般缺项琥珀; 全可用绿
-  const level = loading
-    ? 'loading'
-    : down.length === 0 ? 'ok' : down.some(c => c.id === 'daily') ? 'danger' : 'warn'
-  const countCls = level === 'ok' ? 'text-accent/80'
-    : level === 'danger' ? 'text-danger'
-    : level === 'warn' ? 'text-warning'
-    : 'text-muted'
-
-  // 悬浮卡: 侧栏 aside 是 overflow-hidden, 用 fixed 定位逃逸裁剪 (坐标取自徽标实时位置)。
-  // 徽标靠近屏幕顶部时居中定位会把卡片上半截推出视口 → 渲染后按实际高度钳制进视口。
-  const linkRef = useRef<HTMLAnchorElement>(null)
-  const popRef = useRef<HTMLDivElement>(null)
-  const closeTimer = useRef<number | undefined>(undefined)
-  const [popPos, setPopPos] = useState<{ left: number; top: number } | null>(null)
-  const openPop = () => {
-    window.clearTimeout(closeTimer.current)
-    const rect = linkRef.current?.getBoundingClientRect()
-    if (rect) setPopPos({ left: rect.right, top: rect.top + rect.height / 2 })
-  }
-  const closePop = () => {
-    closeTimer.current = window.setTimeout(() => setPopPos(null), 80)
-  }
-  useEffect(() => () => window.clearTimeout(closeTimer.current), [])
-  useLayoutEffect(() => {
-    if (!popPos || !popRef.current) return
-    const h = popRef.current.offsetHeight
-    const margin = 8
-    const minCenter = margin + h / 2
-    const maxCenter = window.innerHeight - margin - h / 2
-    const clamped = Math.min(maxCenter, Math.max(minCenter, popPos.top))
-    if (clamped !== popPos.top) setPopPos({ ...popPos, top: clamped })
-  }, [popPos])
-
-  return (
-    <>
-      <NavLink
-        ref={linkRef}
-        to="/settings?tab=data-sources"
-        aria-label={`数据源能力 ${usableCount}/${caps.length || 5} 可用, 点击前往数据源配置`}
-        onMouseEnter={openPop}
-        onMouseLeave={closePop}
-        onFocus={openPop}
-        onBlur={closePop}
-        onKeyDown={e => { if (e.key === 'Escape') setPopPos(null) }}
-        className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
-      >
-        <span className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-accent/50 transition-colors group-hover:bg-accent" />
-        <DatabaseZap className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-accent transition-colors" />
-        {/* 能力方格 (按注册顺序: 实时/日K/分钟/除权/财务), 与悬浮卡逐格同色对应 */}
-        <span className="flex items-center gap-1 shrink-0">
-          {loading
-            ? Array.from({ length: 5 }, (_, i) => (
-                <span key={i} className="h-2 w-2 rounded-[2px] bg-muted animate-pulse" />
-              ))
-            : caps.map(c => (
-                <span key={c.id} className={`h-2 w-2 rounded-[2px] ${capSquareCls(c)}`} />
-              ))}
-        </span>
-        {!loading && (
-          <span className={`ml-auto text-[10px] font-mono font-bold leading-none shrink-0 ${countCls}`}>
-            {usableCount}/{caps.length}
-          </span>
-        )}
-      </NavLink>
-      {popPos && (
-        <div
-          ref={popRef}
-          className="fixed z-50 -translate-y-1/2 pl-3"
-          style={{ left: popPos.left, top: popPos.top }}
-          onMouseEnter={() => window.clearTimeout(closeTimer.current)}
-          onMouseLeave={closePop}
-        >
-          <motion.div
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-            className="w-64 rounded-md border border-border bg-surface py-2.5 pl-3 pr-3.5 shadow-2xl shadow-black/40"
-          >
-            <div className="mb-2 flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                <DatabaseZap className="h-3.5 w-3.5 text-accent" />
-                数据源能力
-              </span>
-              <span className={`text-[10px] font-mono font-bold ${countCls}`}>
-                {loading ? '获取中…' : `${usableCount}/${caps.length} 可用`}
-              </span>
-            </div>
-            <div className="space-y-1.5 border-t border-border/60 pt-2">
-              {loading ? (
-                <div className="py-0.5 text-[11px] text-muted">正在获取能力路由状态…</div>
-              ) : caps.map(c => (
-                <div key={c.id} className="flex min-w-0 items-center gap-2">
-                  <span className={`h-2 w-2 shrink-0 rounded-[2px] ${capSquareCls(c)}`} />
-                  <span className="shrink-0 text-xs font-medium text-secondary">{c.label}</span>
-                  <span className="ml-auto flex min-w-0 shrink items-center gap-1.5">
-                    {c.usable ? (
-                      <>
-                        <span className="truncate text-[11px] text-muted">{c.effective_display}</span>
-                        <CheckCircle2 className="h-3 w-3 shrink-0 text-accent" />
-                      </>
-                    ) : (
-                      <span className="text-[11px] text-muted/70">未接入</span>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-            {/* 分时有分钟K功能替身 (intraday_monitor_support 三路可达), 不单独占能力格, 在此备注 */}
-            <div className="mt-1.5 text-[10px] leading-relaxed text-muted/70">
-              分时信号监控可由分钟 K 数据驱动，不单独设能力格
-            </div>
-            <div className="mt-2 flex items-center gap-1 border-t border-border/60 pt-1.5 text-[10px] text-muted">
-              点击前往数据源配置
-              <ChevronRight className="h-3 w-3" />
-            </div>
-          </motion.div>
-        </div>
-      )}
-    </>
-  )
-}
-
-function AIConfigBadge({ configured, model }: { configured?: boolean; model?: string }) {
-  const descText = configured ? (model || '已接入模型') : '接入策略生成模型'
-  return (
-    <NavLink
-      to="/settings?tab=ai"
-      className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
-      title={`AI 配置 — ${descText}`}
-    >
-      <span className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-purple-400/50 transition-colors group-hover:bg-purple-400" />
-      <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-purple-400 transition-colors" />
-      {configured ? (
-        <span className="truncate text-[11px] font-medium text-secondary group-hover:text-foreground transition-colors">
-          {model || '已接入模型'}
-        </span>
-      ) : (
-        <>
-          <span className="text-[11px] text-secondary group-hover:text-foreground transition-colors">AI 配置</span>
-          <span className="ml-auto text-[11px] font-mono leading-none text-muted">未配置</span>
-        </>
-      )}
-      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${configured ? 'bg-bear' : 'bg-warning'}`} />
-    </NavLink>
-  )
-}
+// 侧边栏桌面三态: expanded(14rem) / rail(3.5rem 图标条) / hidden(0 + 左缘悬浮按钮)。
 
 // 侧边栏桌面三态: expanded(14rem) / rail(3.5rem 图标条) / hidden(0 + 左缘悬浮按钮)。
 // 移动端 (<768px) 不参与三态 — aside 以抽屉呈现 (见 Layout 内 drawerOpen)。
@@ -713,12 +645,8 @@ export function Layout() {
           </button>
         )}
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          <DataSourceHealthBadge matrix={matrix} />
-          <AIConfigBadge
-            configured={settingsState?.ai_configured ?? settingsState?.has_ai_key}
-            model={settingsState?.ai_model}
-          />
           <ThemeToggle />
+          <UserMenu identity={identity} onLogout={handleLogout} />
         </div>
       </header>
 
@@ -1048,8 +976,70 @@ export function Layout() {
         )}
 
         <div className={cn('border-t border-border py-3 shrink-0', railMode ? 'px-2 flex flex-col items-center gap-1' : 'px-2')}>
-          {/* v3.2.3: 主题切换移至顶栏（全局偏好，顶栏始终可达）；侧栏底部仅保留设置入口 + 版本号 */}
-          <div className={railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5'}>
+          {/* v3.2.4: 数据源能力 + AI 模型移至侧栏左下角；用户信息/登出移至顶栏右上角 */}
+          <div className={railMode ? 'flex flex-col items-center gap-1' : 'flex flex-col gap-0.5'}>
+            <NavLink
+              to="/settings?tab=data-sources"
+              aria-label={`数据源能力 ${matrix?.capabilities?.filter(c => c.usable).length ?? 0}/${matrix?.capabilities?.length ?? 5} 可用, 点击前往数据源配置`}
+              title={railMode ? '数据源能力' : undefined}
+              className={cn(
+                'group relative flex items-center rounded-md text-xs transition-colors duration-150 hover:bg-elevated/70',
+                railMode ? 'justify-center px-0 py-2' : 'gap-2 py-1.5 pl-2 pr-2',
+              )}
+            >
+              <span className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-accent/50 transition-colors group-hover:bg-accent" />
+              <DatabaseZap className={cn('h-3.5 w-3.5 shrink-0 text-muted group-hover:text-accent transition-colors', railMode && 'h-4 w-4')} />
+              {!railMode && (
+                <>
+                  <span className="flex items-center gap-1 shrink-0">
+                    {(matrix?.capabilities?.length ?? 0) === 0
+                      ? Array.from({ length: 5 }, (_, i) => (
+                          <span key={i} className="h-2 w-2 rounded-[2px] bg-muted animate-pulse" />
+                        ))
+                      : matrix?.capabilities.map(c => (
+                          <span key={c.id} className={`h-2 w-2 rounded-[2px] ${capSquareCls(c)}`} />
+                        ))}
+                  </span>
+                  <span className={`ml-auto text-[10px] font-mono font-bold leading-none shrink-0 ${(() => {
+                    const caps = matrix?.capabilities ?? []
+                    const down = caps.filter(c => !c.usable)
+                    if (caps.length === 0) return 'text-muted'
+                    if (down.length === 0) return 'text-accent/80'
+                    return down.some(c => c.id === 'daily') ? 'text-danger' : 'text-warning'
+                  })()}`}>
+                    {matrix?.capabilities ? `${matrix.capabilities.filter(c => c.usable).length}/${matrix.capabilities.length}` : '--'}
+                  </span>
+                </>
+              )}
+            </NavLink>
+
+            <NavLink
+              to="/settings?tab=ai"
+              title={railMode ? 'AI 配置' : undefined}
+              className={cn(
+                'group relative flex items-center rounded-md text-xs transition-colors duration-150 hover:bg-elevated/70',
+                railMode ? 'justify-center px-0 py-2' : 'gap-2 py-1.5 pl-2 pr-2',
+              )}
+            >
+              <span className="pointer-events-none absolute inset-y-1.5 left-0 w-[2px] rounded-full bg-purple-400/50 transition-colors group-hover:bg-purple-400" />
+              <Sparkles className={cn('h-3.5 w-3.5 shrink-0 text-muted group-hover:text-purple-400 transition-colors', railMode && 'h-4 w-4')} />
+              {!railMode && (
+                <>
+                  <span className={cn(
+                    'truncate text-[11px] font-medium',
+                    (settingsState?.ai_configured ?? settingsState?.has_ai_key)
+                      ? 'text-secondary group-hover:text-foreground'
+                      : 'text-secondary group-hover:text-foreground',
+                  )}>
+                    {settingsState?.ai_model || ((settingsState?.ai_configured ?? settingsState?.has_ai_key) ? '已接入模型' : 'AI 未配置')}
+                  </span>
+                  <span className={`ml-auto h-1.5 w-1.5 rounded-full shrink-0 ${(settingsState?.ai_configured ?? settingsState?.has_ai_key) ? 'bg-bear' : 'bg-warning'}`} />
+                </>
+              )}
+            </NavLink>
+          </div>
+
+          <div className={cn('mt-1 border-t border-border/60 pt-1.5', railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5')}>
             <NavLink
               to="/settings"
               title={railMode ? '设置' : undefined}
@@ -1081,41 +1071,6 @@ export function Layout() {
                 </>
               )}
             </NavLink>
-          </div>
-          {/* 底部区: 当前登录用户(互通形态) + 退出(所有形态均显示, 单密码也可登出) */}
-          <div className={cn('mt-1 border-t border-border/60 pt-2', railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5')}>
-            {identity && (
-              <div className={cn(
-                'flex min-w-0 items-center gap-2 text-[11px] text-muted',
-                railMode ? 'justify-center px-0 py-1' : 'flex-1 px-2 py-1',
-              )} title={`${identity.user_name}${identity.nick_name ? ` (${identity.nick_name})` : ''}`}>
-                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
-                  <User className="h-3 w-3" />
-                </span>
-                {!railMode && (
-                  <span className="flex min-w-0 flex-col leading-tight">
-                    <span className="truncate">{identity.nick_name || identity.user_name}</span>
-                    {/* 最有效角色名称 (多角色取优先级最高者) */}
-                    {identity.effective_role?.label && (
-                      <span className="mt-0.5 inline-flex w-fit max-w-full items-center rounded-sm bg-accent/10 px-1 py-px text-[10px] font-medium leading-none text-accent">
-                        <span className="truncate">{identity.effective_role.label}</span>
-                      </span>
-                    )}
-                  </span>
-                )}
-              </div>
-            )}
-            <button
-              onClick={handleLogout}
-              title="退出登录"
-              className={cn(
-                'flex items-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground',
-                railMode ? 'justify-center p-2' : 'gap-1.5 px-3 py-1.5 text-[11px]',
-              )}
-            >
-              <LogOut className="h-3.5 w-3.5 shrink-0" />
-              {!railMode && <span>退出</span>}
-            </button>
           </div>
         </div>
       </aside>
