@@ -64,18 +64,24 @@ class RoleMapError(RuntimeError):
 
 
 def _role_map_path() -> Path:
-    """role_map.yaml 位置: frozen → 资源目录; 非 frozen → 项目根。
+    """role_map.yaml 位置: frozen → 资源目录; 非 frozen → 项目根 + 回退。
 
-    注意: 不能直接用 _RESOURCE_ROOT — 容器部署 (非 frozen) 下
-    _RESOURCE_ROOT 解析为 / (config.py 上三级), 而 Dockerfile
-    将 role_map.yaml 复制到项目根 /app/role_map.yaml。与
-    config.py 的 tiers_yaml 保持同一 frozen 分支逻辑。
+    Docker 容器: _PROJECT_ROOT 解析为 / (config.py 上三级), 但 Dockerfile
+    将 role_map.yaml 复制到 /app/role_map.yaml, 故加显式回退 (与 policy.py
+    的 tiers.yaml 回退 Path("/app/tiers.yaml") 同一模式)。
     """
     from app.config import _IS_FROZEN, _PROJECT_ROOT, _RESOURCE_ROOT
 
     if _IS_FROZEN:
         return _RESOURCE_ROOT / "role_map.yaml"
-    return _PROJECT_ROOT / "role_map.yaml"
+    candidates = [
+        _PROJECT_ROOT / "role_map.yaml",
+        Path("/app/role_map.yaml"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[0]
 
 
 @lru_cache(maxsize=1)
