@@ -133,6 +133,7 @@ function ThemeToggle() {
 /**
  * 右上角用户菜单 — 点击头像/用户名弹出下拉 (含退出登录)。
  * 互通形态显示身份; 单密码形态 (identity=null) 只显示登录按钮占位。
+ * 顶栏内联展示角色徽标(多角色取最高等级); 下拉仅保留账号与退出登录, 保持精简。
  */
 function UserMenu({ identity, onLogout }: { identity: AuthIdentity | null; onLogout: () => void }) {
   const [open, setOpen] = useState(false)
@@ -148,6 +149,7 @@ function UserMenu({ identity, onLogout }: { identity: AuthIdentity | null; onLog
   }, [open])
 
   const displayName = identity?.nick_name || identity?.user_name || ''
+  const roleLabel = identity?.effective_role?.label || ''
 
   return (
     <div className="relative shrink-0" ref={menuRef}>
@@ -161,9 +163,16 @@ function UserMenu({ identity, onLogout }: { identity: AuthIdentity | null; onLog
           <User className="h-3.5 w-3.5" />
         </span>
         {identity && (
-          <span className="hidden max-w-[120px] truncate text-xs font-medium md:inline">
-            {displayName}
-          </span>
+          <>
+            <span className="hidden max-w-[120px] truncate text-xs font-medium md:inline">
+              {displayName}
+            </span>
+            {roleLabel && (
+              <span className="hidden shrink-0 rounded-sm bg-accent/10 px-1.5 py-px text-[10px] font-medium leading-[16px] text-accent md:inline">
+                {roleLabel}
+              </span>
+            )}
+          </>
         )}
         <ChevronDown className={`h-3 w-3 shrink-0 text-muted transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -174,22 +183,7 @@ function UserMenu({ identity, onLogout }: { identity: AuthIdentity | null; onLog
           <div className="absolute right-0 top-full z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface shadow-2xl shadow-black/30">
             {identity ? (
               <>
-                <div className="flex items-center gap-2.5 border-b border-border/60 px-3.5 py-3">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
-                    <User className="h-4.5 w-4.5" />
-                  </span>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-foreground">
-                      {identity.nick_name || identity.user_name}
-                    </div>
-                    {identity.effective_role?.label && (
-                      <div className="mt-0.5 inline-flex items-center rounded-sm bg-accent/10 px-1.5 py-px text-[10px] font-medium leading-none text-accent">
-                        {identity.effective_role.label}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="border-t border-border/60 px-3.5 py-2 text-[11px] text-muted">
+                <div className="px-3.5 py-2.5 text-[11px] text-muted">
                   账号：{identity.user_name}
                 </div>
                 <div className="border-t border-border/60 p-1.5">
