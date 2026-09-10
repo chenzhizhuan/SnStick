@@ -15,10 +15,11 @@ from __future__ import annotations
 import logging
 from datetime import date as date_cls
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.identity.permissions import P_REVIEW_READ, P_SETTINGS_WRITE, require_perm
 from app.services import auction_benchmark, dragon_tiger, market_recap_reports, preferences
 from app.services.market_recap import recap_market_stream
 
@@ -37,10 +38,12 @@ class AnalyzeRequest(BaseModel):
 def get_dragon_tiger(
     request: Request,
     date: str | None = Query(default=None, description="复盘目标日 YYYY-MM-DD, 缺省取最近已发布交易日"),
+    _: None = Depends(require_perm(P_REVIEW_READ)),
 ):
     """龙虎榜三榜 (全部/机构/游资)。fuyao 专有, 未配置时 state=source_unavailable。
 
     非交易日/当日未发布由服务层自动回退到上一交易日 (state=fallback_prev)。
+    v2.5: 挂 stick:review:read — 复盘页数据, 与菜单可见性配对。
     """
     target = None
     if date:
@@ -57,10 +60,12 @@ def get_dragon_tiger(
 def get_auction_benchmark(
     request: Request,
     date: str | None = Query(default=None, description="复盘目标日 YYYY-MM-DD, 缺省取最近交易日"),
+    _: None = Depends(require_perm(P_REVIEW_READ)),
 ):
     """盘前风向标 (同花顺竞价筛选名单 + 当日/次日真实收益)。
 
     fuyao 专有, 未配置时 state=source_unavailable; 非交易日由服务层自动回退。
+    v2.5: 挂 stick:review:read — 复盘/异动页数据, 与菜单可见性配对。
     """
     target = None
     if date:
@@ -74,17 +79,12 @@ def get_auction_benchmark(
 
 
 @router.post("/analyze")
-async def analyze_market(request: Request, req: AnalyzeRequest):
+async def analyze_market(request: Request, req: AnalyzeRequest, _: None = Depends(require_perm(P_REVIEW_READ))):
     """AI 大盘复盘 — NDJSON 流式返回。
 
     装配市场总览(指数/涨跌/连板/封板/板块/情绪雷达)→ 复盘提示词 →
     流式调用 LLM → 逐 chunk 以 NDJSON 推给前端(每行一个 JSON)。
-
-    协议:
-      {"type":"meta","as_of","emotion_score","emotion_label","summary"}
-      {"type":"delta","content":"..."}
-      {"type":"error","message":"..."}
-      {"type":"done"}
+    v2.5: 挂 stick:review:read — 复盘页核心功能, 与菜单可见性配对。
     """
     from datetime import date as date_cls
 
@@ -126,13 +126,13 @@ class SaveReportRequest(BaseModel):
 
 
 @router.get("/reports")
-def list_reports(request: Request):
+def list_reports(request: Request, _: None = Depends(require_perm(P_REVIEW_READ))):
     """获取全部历史复盘(按时间降序,后端已裁剪到上限)。"""
     return {"reports": market_recap_reports.list_reports()}
 
 
 @router.post("/reports")
-def save_report(request: Request, req: SaveReportRequest):
+def save_report(request: Request, req: SaveReportRequest, _: None = Depends(require_perm(P_REVIEW_READ))):
     """保存一条复盘报告。req.push=True 或 review_push_mode=auto 时才推送到外部渠道。"""
     report = market_recap_reports.save_report({
         "as_of": req.as_of,
@@ -154,7 +154,7 @@ def save_report(request: Request, req: SaveReportRequest):
 
 
 @router.delete("/reports/{report_id}")
-def delete_report(request: Request, report_id: str):
+def delete_report(request: Request, report_id: str, _: None = Depends(require_perm(P_REVIEW_READ))):
     """删除一条复盘报告。"""
     ok = market_recap_reports.delete_report(report_id)
     return {"ok": ok}

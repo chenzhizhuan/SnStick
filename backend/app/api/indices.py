@@ -6,8 +6,9 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from app.identity.permissions import P_DATA_WRITE, require_perm
 from app.indicators.pipeline import compute_enriched
 from app.services import index_sync, kline_sync
 from app.tickflow.capabilities import Cap
@@ -87,8 +88,11 @@ def get_index_minute(
 
 
 @router.post("/sync_instruments")
-def sync_index_instruments(request: Request):
-    """同步 CN_Index 指数标的列表。"""
+def sync_index_instruments(request: Request, _: None = Depends(require_perm(P_DATA_WRITE))):
+    """同步 CN_Index 指数标的列表。
+
+    v2.5: 挂 stick:data:write — 数据写入属治理, 仅 admin/enterprise。
+    """
     repo = request.app.state.repo
     count = index_sync.sync_index_instruments(repo)
     return {"status": "ok", "count": count}
@@ -98,8 +102,12 @@ def sync_index_instruments(request: Request):
 def sync_index_daily(
     request: Request,
     days: int = Query(365, ge=30, le=5000),
+    _: None = Depends(require_perm(P_DATA_WRITE)),
 ):
-    """同步指数日K到独立 parquet。"""
+    """同步指数日K到独立 parquet。
+
+    v2.5: 挂 stick:data:write — 数据写入属治理, 仅 admin/enterprise。
+    """
     repo = request.app.state.repo
     capset = request.app.state.capabilities
     if not capset.has(Cap.KLINE_DAILY_BATCH):

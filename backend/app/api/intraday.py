@@ -13,8 +13,10 @@ import asyncio
 import json
 import time
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sse_starlette.sse import EventSourceResponse
+
+from app.identity.permissions import P_SETTINGS_WRITE, require_perm
 
 router = APIRouter(prefix="/api/intraday", tags=["quotes"])
 
@@ -193,8 +195,11 @@ async def quote_stream(request: Request):
 
 
 @router.post("/refresh")
-def refresh_quotes(request: Request):
-    """手动刷新一次行情数据。"""
+def refresh_quotes(request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))):
+    """手动刷新一次行情数据。
+
+    v2.5: 挂 stick:settings:write — 实时行情轮询属治理, 仅 admin/enterprise。
+    """
     qs = _get_quote_service(request)
     if qs:
         return qs.refresh()

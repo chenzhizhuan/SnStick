@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app import secrets_store
 from app.data_providers.custom.config import MAX_TIMEOUT
-from app.identity.permissions import P_DATA_WRITE, require_perm
+from app.identity.permissions import P_DATA_WRITE, P_SETTINGS_WRITE, require_perm
 from app.tickflow import client as tf_client
 from app.tickflow.policy import (
     detect_capabilities,
@@ -131,7 +131,7 @@ def switch_endpoint(req: SwitchEndpointIn, request: Request, _: None = Depends(r
 
 
 @router.post("/tickflow-key")
-def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
+def save_tickflow_key(req: TickflowKeyIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """保存 TickFlow API Key 并立即重新探测能力。
 
     先探后存(关键改动,修复乱填 key 也会被持久化的问题):
@@ -143,6 +143,8 @@ def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
 
     端点联动:从无 key 升级到付费 key 时,残留的 free-api 端点不可用,
     故自动切到默认付费端点(api.tickflow.org);free 档则清除自定义端点。
+
+    v2.5: 挂 stick:settings:write — 数据源凭证属资产治理, 仅 admin/enterprise。
     """
     from app.tickflow.policy import (
         base_tier_name, is_invalid_key,
@@ -214,11 +216,12 @@ def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
 
 
 @router.delete("/tickflow-key")
-def clear_tickflow_key(request: Request) -> dict:
+def clear_tickflow_key(request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """清除 Key,退回无档(none)。
 
     同时清除 tickflow_base_url(测速切换的自定义端点),使客户端走 free-api
     服务器取历史日K;档位标签为 None(无档)。
+    v2.5: 挂 stick:settings:write — 数据源凭证治理, 仅 admin/enterprise。
     """
     secrets_store.clear("tickflow_api_key", "tickflow_base_url")
     tf_client.reset_clients()
@@ -262,8 +265,11 @@ class AiSettingsIn(BaseModel):
 
 
 @router.post("/ai")
-def save_ai_settings(req: AiSettingsIn) -> dict:
-    """保存 AI 配置（全部持久化到 secrets.json）"""
+def save_ai_settings(req: AiSettingsIn, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """保存 AI 配置（全部持久化到 secrets.json）
+
+    v2.5: 挂 stick:settings:write — AI 凭证/模型属资产配置治理, 仅 admin/enterprise。
+    """
     from app.config import settings
     from app.services.ai_provider import (
         OPENAI_PROVIDER,
@@ -349,10 +355,11 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
 
 
 @router.delete("/ai")
-def clear_ai_settings() -> dict:
+def clear_ai_settings(_: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """一键清空 AI 配置(provider / base_url / api_key / model)。
 
     保留 ai_user_agent —— 自定义请求头与凭证解耦,清空凭证不影响绕过 CDN 拦截的设置。
+    v2.5: 挂 stick:settings:write — AI 凭证治理, 仅 admin/enterprise。
     """
     from app.config import settings
 
@@ -603,11 +610,12 @@ def get_capability_matrix() -> dict:
 
 
 @router.post("/plugin-key")
-def save_plugin_key(req: PluginKeyIn) -> dict:
+def save_plugin_key(req: PluginKeyIn, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """保存插件 API Key(先探后存, 对齐 /tickflow-key 语义)。
 
     流程: probe_plugin_key 用候选 Key 实探 → 有效才写 secrets.json
     ({plugin}_api_key, 优先级高于 .env) → load_all 重扫, 插件即刻变为可切换。
+    v2.5: 挂 stick:settings:write — 数据源凭证治理, 仅 admin/enterprise。
     """
     from app.data_providers import custom as custom_sources
 
@@ -630,8 +638,11 @@ def save_plugin_key(req: PluginKeyIn) -> dict:
 
 
 @router.delete("/plugin-key/{name}")
-def clear_plugin_key(name: str) -> dict:
-    """清除插件的界面配置 Key(secrets.json);.env 里的同名变量仍然生效。"""
+def clear_plugin_key(name: str, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """清除插件的界面配置 Key(secrets.json);.env 里的同名变量仍然生效。
+
+    v2.5: 挂 stick:settings:write — 数据源凭证治理, 仅 admin/enterprise。
+    """
     from app.data_providers import custom as custom_sources
 
     manifest = custom_sources.plugin_manifest(name)
@@ -650,19 +661,23 @@ def clear_plugin_key(name: str) -> dict:
 
 
 @router.post("/data-sources/reload")
-def reload_data_sources() -> dict:
-    """重新加载 data_sources/*.yaml。"""
+def reload_data_sources(_: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """重新加载 data_sources/*.yaml。
+
+    v2.5: 挂 stick:settings:write — 数据源管理属资产治理, 仅 admin/enterprise。
+    """
     from app.data_providers import custom as custom_sources
     custom_sources.load_all()
     return list_data_sources()
 
 
 @router.post("/plugins/{name}/install")
-def install_plugin(name: str) -> dict:
+def install_plugin(name: str, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """安装指定插件的依赖 (npm install / pip install), 完成后重新扫描。
 
     根据 plugin.yaml 的 runtime 字段决定安装方式。安装可能耗时较长 (网络下载),
     客户端需设较长超时。
+    v2.5: 挂 stick:settings:write — 插件安装属资产治理, 仅 admin/enterprise。
     """
     from app.data_providers import custom as custom_sources
     if not custom_sources.is_builtin(name):
@@ -677,10 +692,11 @@ def install_plugin(name: str) -> dict:
 
 
 @router.delete("/plugins/{name}/install")
-def uninstall_plugin(name: str) -> dict:
+def uninstall_plugin(name: str, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """卸载指定插件的依赖 (删除 node_modules / pip uninstall), 完成后重新扫描。
 
     如果该插件当前正被使用, 自动回退到 tickflow。
+    v2.5: 挂 stick:settings:write — 插件卸载属资产治理, 仅 admin/enterprise。
     """
     from app.data_providers import custom as custom_sources
     from app.services import preferences
@@ -714,8 +730,11 @@ def get_data_source(name: str) -> dict:
 
 
 @router.post("/data-sources")
-def save_data_source(req: CustomSourceIn) -> dict:
-    """创建或更新一个自定义数据源 yaml, 保存后自动 reload。"""
+def save_data_source(req: CustomSourceIn, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """创建或更新一个自定义数据源 yaml, 保存后自动 reload。
+
+    v2.5: 挂 stick:settings:write — 数据源配置治理, 仅 admin/enterprise。
+    """
     from app.data_providers import custom as custom_sources
     config = req.model_dump()
     config["name"] = (config.get("name") or "").lower()
@@ -728,10 +747,11 @@ def save_data_source(req: CustomSourceIn) -> dict:
 
 
 @router.delete("/data-sources/{name}")
-def delete_data_source(name: str, request: Request) -> dict:
+def delete_data_source(name: str, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """删除一个自定义数据源 yaml, 保存后自动 reload。
 
     若当前总开关选中的就是被删的源, 回退到 tickflow。
+    v2.5: 挂 stick:settings:write — 数据源配置治理, 仅 admin/enterprise。
     """
     from app.data_providers import custom as custom_sources
     from app.services import preferences
@@ -783,8 +803,11 @@ def test_data_source(req: CustomSourceTestIn) -> dict:
 
 
 @router.put("/preferences/data-providers")
-def update_data_providers(req: DataProvidersIn, request: Request) -> dict:
-    """保存数据源选择。"""
+def update_data_providers(req: DataProvidersIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """保存数据源选择。
+
+    v2.5: 挂 stick:settings:write — 数据源路由偏好属资产治理, 仅 admin/enterprise。
+    """
     from app.services import preferences
     updates = req.model_dump(exclude_none=True)
     if updates:
@@ -1655,7 +1678,7 @@ async def _http_ping(url: str, timeout: float = 10.0) -> float | None:
 
 
 @router.post("/test_endpoint")
-async def test_endpoint(req: TestEndpointIn) -> dict:
+async def test_endpoint(req: TestEndpointIn, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """测试端点网络延迟:对 /health 多轮探测取中位数。
 
     参考 TickFlow 官方 latency_test.py:
@@ -1663,6 +1686,7 @@ async def test_endpoint(req: TestEndpointIn) -> dict:
     - 多轮探测(默认 5 轮,取自 endpoints.json 的 testRounds),间隔 0.3s
     - 返回 median/min/max/success,前端显示中位数
     - 异步实现,保证"全部测速"时多端点真正并行
+    v2.5: 打 stick:settings:write — 端点切换配套治理, 仅 admin/enterprise。
     """
     import asyncio
     import statistics
@@ -1714,8 +1738,11 @@ class PipelineScheduleIn(BaseModel):
 
 
 @router.put("/preferences/pipeline-schedule")
-def update_pipeline_schedule(req: PipelineScheduleIn, request: Request) -> dict:
-    """保存盘后管道调度时间并立即 reschedule。"""
+def update_pipeline_schedule(req: PipelineScheduleIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """保存盘后管道调度时间并立即 reschedule。
+
+    v2.5: 挂 stick:settings:write — 调度配置属资产治理, 仅 admin/enterprise。
+    """
     from app.services import preferences
     sched = preferences.set_pipeline_schedule(req.hour, req.minute)
 
@@ -1738,8 +1765,11 @@ def update_pipeline_schedule(req: PipelineScheduleIn, request: Request) -> dict:
 
 
 @router.put("/preferences/instruments-schedule")
-def update_instruments_schedule(req: PipelineScheduleIn, request: Request) -> dict:
-    """保存盘前标的维表调度时间并立即 reschedule。"""
+def update_instruments_schedule(req: PipelineScheduleIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """保存盘前标的维表调度时间并立即 reschedule。
+
+    v2.5: 挂 stick:settings:write — 调度配置属资产治理, 仅 admin/enterprise。
+    """
     from app.services import preferences
     sched = preferences.set_instruments_schedule(req.hour, req.minute)
 
@@ -1789,8 +1819,11 @@ class LimitLadderMonitorIn(BaseModel):
 
 
 @router.put("/preferences/limit-ladder-monitor")
-def update_limit_ladder_monitor(req: LimitLadderMonitorIn, request: Request) -> dict:
-    """连板梯队 5 档监控开关。开启→启动 depth 轮询, 关闭→停止。"""
+def update_limit_ladder_monitor(req: LimitLadderMonitorIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """连板梯队 5 档监控开关。开启→启动 depth 轮询, 关闭→停止。
+
+    v2.5: 挂 stick:settings:write — 五档监控开关属治理配置, 仅 admin/enterprise。
+    """
     from app.services import preferences
     preferences.save({"limit_ladder_monitor_enabled": req.enabled})
 
@@ -1803,8 +1836,11 @@ def update_limit_ladder_monitor(req: LimitLadderMonitorIn, request: Request) -> 
 
 
 @router.post("/preferences/limit-ladder-monitor/run")
-def run_limit_ladder_fix(request: Request) -> dict:
-    """立即手动修正一次真假板(拉取五档盘口 + 更新缓存)。需 Pro+。"""
+def run_limit_ladder_fix(request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """立即手动修正一次真假板(拉取五档盘口 + 更新缓存)。需 Pro+。
+
+    v2.5: 挂 stick:settings:write — 五档盘口手动重拉属治理, 仅 admin/enterprise。
+    """
     from app.tickflow.capabilities import Cap
     capset = request.app.state.capabilities
     capset.require(Cap.DEPTH5_BATCH)  # 无能力抛 CapabilityDenied(403)
@@ -1825,8 +1861,11 @@ class DepthPollingIntervalIn(BaseModel):
 
 
 @router.put("/preferences/depth-polling-interval")
-def update_depth_polling_interval(req: DepthPollingIntervalIn, request: Request) -> dict:
-    """保存五档盘口盘中轮询间隔(秒)。需 Pro+。"""
+def update_depth_polling_interval(req: DepthPollingIntervalIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """保存五档盘口盘中轮询间隔(秒)。需 Pro+。
+
+    v2.5: 挂 stick:settings:write — 轮询配置属治理, 仅 admin/enterprise。
+    """
     from app.tickflow.capabilities import Cap
     request.app.state.capabilities.require(Cap.DEPTH5_BATCH)
 
@@ -1841,8 +1880,11 @@ class DepthFinalizeTimeIn(BaseModel):
 
 
 @router.put("/preferences/depth-finalize-time")
-def update_depth_finalize_time(req: DepthFinalizeTimeIn, request: Request) -> dict:
-    """保存盘后 sealed 定版时间(范围15:01~18:00)并立即 reschedule。需 Pro+。"""
+def update_depth_finalize_time(req: DepthFinalizeTimeIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
+    """保存盘后 sealed 定版时间(范围15:01~18:00)并立即 reschedule。需 Pro+。
+
+    v2.5: 挂 stick:settings:write — 定版时间属治理配置, 仅 admin/enterprise。
+    """
     from app.tickflow.capabilities import Cap
     request.app.state.capabilities.require(Cap.DEPTH5_BATCH)
 
@@ -1873,13 +1915,14 @@ class ReviewScheduleIn(BaseModel):
 
 
 @router.put("/preferences/review-schedule")
-def update_review_schedule(req: ReviewScheduleIn, request: Request) -> dict:
+def update_review_schedule(req: ReviewScheduleIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """保存定时复盘调度并立即更新 APScheduler job。
 
     - enabled=True: 注册/更新 job(工作日定时生成复盘报告)
     - enabled=False: 移除 job(停止定时复盘)
     - 校验: 开启时若 AI Key 未配置则拒绝(复盘依赖 AI), 提示用户先配置。
     - 时间下限 15:00(A股收盘), 由 preferences 层强制。
+    v2.5: 挂 stick:settings:write — 定时复盘调度属治理配置, 仅 admin/enterprise。
     """
     from app.services import preferences
 
@@ -1917,7 +1960,7 @@ class ReviewPushIn(BaseModel):
 
 
 @router.put("/preferences/review-push")
-def update_review_push(req: ReviewPushIn) -> dict:
+def update_review_push(req: ReviewPushIn, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """复盘推送设置(渠道多选 + 触发方式)。
 
     纯偏好, 与定时复盘 / 实时行情完全独立, 常驻可单独设置。空数组=不推送。
@@ -1926,6 +1969,7 @@ def update_review_push(req: ReviewPushIn) -> dict:
       - manual: 定时复盘只归档不推送, 手动保存需显式 push=true
       - auto: 归档即推(行为与旧逻辑一致)
     白名单外的渠道会被过滤掉, 白名单外的 mode 值回退 manual。
+    v2.5: 挂 stick:settings:write — 外发推送渠道属治理配置, 仅 admin/enterprise。
     """
     from app.services import preferences
     saved = preferences.set_review_push_channels(req.channels)

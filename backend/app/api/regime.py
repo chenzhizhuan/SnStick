@@ -10,8 +10,9 @@ from datetime import date
 from typing import Annotated, Any
 
 import polars as pl
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
+from app.identity.permissions import P_SETTINGS_WRITE, require_perm
 from app.services import regime_builder
 
 router = APIRouter(prefix="/api/regime", tags=["regime"])
@@ -136,7 +137,7 @@ def regime_coverage(request: Request):
 
 
 @router.post("/recompute")
-def regime_recompute(request: Request, start: date | None = None, end: date | None = None):
+def regime_recompute(request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE)), start: date | None = None, end: date | None = None):
     """手动触发重算(全量或指定区间)。管理员操作。
 
     - 不传 start: 强制全量重算(enriched 最早日 ~ 今天), 覆盖所有已有行。
@@ -145,6 +146,7 @@ def regime_recompute(request: Request, start: date | None = None, end: date | No
     - 传 start: 仅重算 [start, end] 区间。
     - 重算后统一重标情绪周期阶段(refresh_phase_labels)并回填主线
       (概念+行业, 概念成分为当前快照回看历史, 早年有归属漂移)。
+    v2.5: 挂 stick:settings:write — 全量重算属治理操作, 仅 admin/enterprise。
     """
     repo = request.app.state.repo
     data_dir = _data_dir(request)
@@ -287,11 +289,12 @@ def _segment_mainlines(mainline: pl.DataFrame, start: date, end: date, top: int 
 
 
 @router.post("/mainline/recompute")
-def mainline_recompute(request: Request):
+def mainline_recompute(request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))):
     """全量重算主线(概念+行业), 应用当前过滤配置。窄扫描, 秒级。
 
     修改过滤配置(preferences mainline-filter)后调用本接口生效,
     无需触发较重的 regime 全量重算。
+    v2.5: 挂 stick:settings:write — 全量重算属治理, 仅 admin/enterprise。
     """
     from app.services import market_mainline
 

@@ -245,3 +245,146 @@ class TestRealEndpointMounted:
             r = client.get("/api/ext-data", cookies={"tf_session": token})
         assert r.status_code == 403
         assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    # ── v2.5: 复盘 / 异动 / 数据治理 / 设置治理 全门禁 ──────────────────
+
+    def test_market_recap_analyze_denied_for_common(self):
+        """v2.5: 体验版 (无 stick:review:read) AI 大盘复盘 → 403。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("common",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post(
+                "/api/market-recap/analyze",
+                json={"focus": ""},
+                cookies={"tf_session": token},
+            )
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_market_recap_reports_denied_for_common(self):
+        """v2.5: 体验版读历史复盘列表 → 403。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("common",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.get("/api/market-recap/reports", cookies={"tf_session": token})
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_abnormal_intraday_denied_for_common(self):
+        """v2.5: 体验版查异动监控 → 403。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("common",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.get("/api/abnormal/intraday", cookies={"tf_session": token})
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_abnormal_overview_denied_for_common(self):
+        """v2.5: 体验版查异动边缘总览 → 403。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("common",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.get("/api/abnormal/overview", cookies={"tf_session": token})
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_settings_tickflow_key_denied_for_premium(self):
+        """v2.5: 高级版 (无 stick:settings:write) 保存 TickFlow Key → 403。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post(
+                "/api/settings/tickflow-key",
+                json={"api_key": "sk-test"},
+                cookies={"tf_session": token},
+            )
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_settings_ai_denied_for_premium(self):
+        """v2.5: 高级版保存 AI 配置 → 403。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post(
+                "/api/settings/ai",
+                json={"provider": "openai_compat"},
+                cookies={"tf_session": token},
+            )
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_settings_data_sources_save_denied_for_premium(self):
+        """v2.5: 高级版新增自定义数据源 → 403。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post(
+                "/api/settings/data-sources",
+                json={"name": "t1", "type": "custom", "datasets": {}},
+                cookies={"tf_session": token},
+            )
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_settings_review_schedule_denied_for_premium(self):
+        """v2.5: 高级版修改定时复盘调度 → 403。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.put(
+                "/api/settings/preferences/review-schedule",
+                json={"enabled": False, "hour": 15, "minute": 30},
+                cookies={"tf_session": token},
+            )
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_regime_recompute_denied_for_premium(self):
+        """v2.5: 高级版触发 regime 全量重算 → 403 (挂载点: regime/recompute)。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post("/api/regime/recompute", cookies={"tf_session": token})
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_index_sync_daily_denied_for_premium(self):
+        """v2.5: 高级版同步指数日K → 403 (挂载点: index/sync_daily)。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post("/api/index/sync_daily", cookies={"tf_session": token})
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
+
+    def test_intraday_refresh_denied_for_premium(self):
+        """v2.5: 高级版手动刷新行情 → 403 (挂载点: intraday/refresh)。"""
+        from app.main import app
+
+        client = TestClient(app)
+        token = _session_cookie(("premium",))
+        with patch("app.identity.pool.is_enabled", return_value=True):
+            r = client.post("/api/intraday/refresh", cookies={"tf_session": token})
+        assert r.status_code == 403
+        assert r.headers.get("X-Error-Code") == "NO_PERM"
