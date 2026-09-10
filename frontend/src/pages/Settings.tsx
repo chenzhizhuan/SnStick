@@ -48,9 +48,10 @@ type TabKey = (typeof TABS)[number]['key']
 
 export function Settings() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const { hasPerm } = usePerm()
-  // 权限过滤: 互通形态下, 无权限的 Tab 隐藏 (如平台管理仅 admin 可见)
-  const visibleTabs = TABS.filter((t) => !t.perm || hasPerm(t.perm))
+  const { hasPerm, ready } = usePerm()
+  // 权限过滤: 互通形态下, 无权限的 Tab 隐藏 (如平台管理仅 admin 可见)。
+  // 探测完成前 (ready=false) 仅显示无权限门槛的 Tab, 防登录后竞态误挂 admin 面板。
+  const visibleTabs = TABS.filter((t) => !t.perm || (ready && hasPerm(t.perm)))
   const tabParam = searchParams.get('tab') as TabKey | null
   const activeTab = visibleTabs.find((t) => t.key === tabParam) ?? visibleTabs[0]
   const highlight = searchParams.get('highlight') ?? ''

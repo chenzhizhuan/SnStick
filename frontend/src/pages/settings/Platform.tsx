@@ -39,6 +39,11 @@ function fmtTs(ts?: number | null): string {
   return d.toLocaleString('zh-CN', { hour12: false })
 }
 
+function fmtMs(ms?: number | null): string {
+  if (ms == null) return '—'
+  return ms >= 100 ? Math.round(ms).toString() : ms.toFixed(1)
+}
+
 function fmtUptime(sec: number): string {
   const d = Math.floor(sec / 86400)
   const h = Math.floor((sec % 86400) / 3600)
@@ -134,7 +139,7 @@ export function SettingsPlatformPanel() {
             label="AGTi 身份库"
             ok={m?.agti?.ok}
             detail={m?.agti?.enabled
-              ? (m.agti.ok ? `连接正常 · ${m.agti.latency_ms ?? '—'}ms` : `异常: ${m.agti.error ?? '未知'}`)
+              ? (m.agti.ok ? `连接正常 · ${fmtMs(m.agti.latency_ms)}ms` : `异常: ${m.agti.error ?? '未知'}`)
               : '未启用账号互通'}
           />
           <StatusRow

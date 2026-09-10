@@ -21,6 +21,8 @@ export interface AuthState {
   /** 互通是否启用 (authMe 非 404) */
   enabled: boolean
   identity: AuthIdentity | null
+  /** 形态探测是否完成 (false = 尚在加载, 权限判定不可靠) */
+  ready: boolean
 }
 
 /**
@@ -44,7 +46,7 @@ function authMeQueryFn(): Promise<AuthMeResult> {
 }
 
 export function useAuth(): AuthState {
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: AUTH_ME_KEY,
     queryFn: authMeQueryFn,      // 404 → 哨兵成功值, 不进 error 状态 (防轮询风暴)
     staleTime: 60_000,           // 快照 60s 内复用, 与后端 SNAPSHOT_TTL 对齐 (轻量)
@@ -53,6 +55,7 @@ export function useAuth(): AuthState {
   return {
     enabled: data != null && !('notEnabled' in data),
     identity: data != null && !('notEnabled' in data) ? data.identity : null,
+    ready: !isLoading && data != null,
   }
 }
 
@@ -77,13 +80,17 @@ export function useRefreshIdentity() {
  *   - 单密码形态 (desktop/local): 恒放行 (升级前行为零改动)。
  */
 export function usePerm() {
-  const { enabled, identity } = useAuth()
+  const { enabled, identity, ready } = useAuth()
   const perms = identity?.perms ?? []
 
   return {
     /** 互通是否启用 */
     enabled,
-    /** 是否有某权限点 (如 'stick:backtest:run'); 单密码形态恒 true */
+    /** 形态探测完成 (探测前 hasPerm 保守拒绝权限 Tab, 防竞态闪烁) */
+    ready,
+    /** 是否有某权限点 (如 'stick:backtest:run'); 单密码形态恒 true;
+     *  互通形态探测中 (ready=false) 对带 perm 的 Tab 保守拒绝, 防止登录后
+     *  auth-me 未返回瞬间误挂 admin 面板发 403 请求。 */
     hasPerm: (required: string): boolean => {
       if (!enabled) return true
       if (perms.includes('*:*:*')) return true
