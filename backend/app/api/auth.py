@@ -140,8 +140,18 @@ class ChangePasswordIn(BaseModel):
 
 @router.get("/status")
 def auth_status(request: Request) -> dict:
-    """认证状态: 是否已设密码 + 当前请求是否已登录。"""
+    """认证状态: 是否已设密码 + 当前请求是否已登录。
+
+    互通形态 (AGTI_DSN 已配置): authenticated 必须用身份会话校验,
+    不能沿用单密码会话表 —— 旧单密码 cookie 在互通下已失效,
+    若仍按旧表判定为已登录, 前端会误跳面板形成重定向循环。
+    """
     token = request.cookies.get(COOKIE_NAME)
+    if _identity_enabled():
+        return {
+            "configured": auth.is_configured(),
+            "authenticated": bool(token and identity_auth.is_valid_session(token)),
+        }
     return {
         "configured": auth.is_configured(),
         "authenticated": bool(token and auth.is_valid_session(token)),
