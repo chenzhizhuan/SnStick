@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BarChart3, Database, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3 } from 'lucide-react'
+import { BarChart3, Database, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck } from 'lucide-react'
 import { SettingsAIPanel } from './settings/AI'
 import { SettingsMonitoringPanel } from './settings/Monitoring'
 import { SettingsExtPagesPanel } from './settings/ExtPages'
@@ -14,8 +14,10 @@ import { SettingsMenuSettingsPanel } from './settings/MenuSettings'
 import { SettingsTimeoutPanel } from './settings/Timeout'
 import { SettingsSystemPanel } from './settings/System'
 import { SettingsDataSourcesPanel } from './settings/DataSources'
+import { SettingsPlatformPanel } from './settings/Platform'
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/cn'
+import { usePerm } from '@/lib/useAuth'
 
 import type { ComponentType } from 'react'
 
@@ -27,6 +29,8 @@ type TabDef = {
   icon: ComponentType<{ className?: string }>
   panel: ComponentType<{ highlight?: string }>
   badge?: string
+  /** 互通形态下要求的权限点 (缺省 = 无门槛); 无权限时 Tab 隐藏。 */
+  perm?: string
 }
 
 const TABS: readonly TabDef[] = [
@@ -37,14 +41,18 @@ const TABS: readonly TabDef[] = [
   { key: 'timeout',    label: '网络设置',   icon: Clock3,    panel: SettingsTimeoutPanel },
   { key: 'menus',      label: '菜单设置',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
   { key: 'system',     label: '系统设置',   icon: Settings2, panel: SettingsSystemPanel },
+  { key: 'platform',   label: '平台管理',   icon: ShieldCheck, panel: SettingsPlatformPanel, perm: 'stick:admin:view' },
 ]
 
 type TabKey = (typeof TABS)[number]['key']
 
 export function Settings() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const { hasPerm } = usePerm()
+  // 权限过滤: 互通形态下, 无权限的 Tab 隐藏 (如平台管理仅 admin 可见)
+  const visibleTabs = TABS.filter((t) => !t.perm || hasPerm(t.perm))
   const tabParam = searchParams.get('tab') as TabKey | null
-  const activeTab = TABS.find((t) => t.key === tabParam) ?? TABS[0]
+  const activeTab = visibleTabs.find((t) => t.key === tabParam) ?? visibleTabs[0]
   const highlight = searchParams.get('highlight') ?? ''
 
   // 设置菜单收起状态 — 持久化到 localStorage
@@ -88,7 +96,7 @@ export function Settings() {
               </button>
 
               {/* Tab 按钮列表 — 收起时只显示图标 */}
-              {TABS.map(({ key, label, icon: Icon, badge }) => (
+              {visibleTabs.map(({ key, label, icon: Icon, badge }) => (
                 <button
                   key={key}
                   onClick={() => setSearchParams({ tab: key }, { replace: true })}

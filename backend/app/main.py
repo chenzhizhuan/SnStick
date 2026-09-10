@@ -39,6 +39,7 @@ from app.api import (
     watchlist,
 )
 from app.api import auth as auth_api
+from app.api import admin as admin_api
 from app.api import settings as settings_api
 from app.api.routes import router as core_router
 from app.config import settings
@@ -547,6 +548,7 @@ app.include_router(financials.router)
 app.include_router(stock_analysis.router)
 app.include_router(market_recap.router)
 app.include_router(settings_api.router)
+app.include_router(admin_api.router)
 app.include_router(strategy.router)
 app.include_router(signals.router)
 app.include_router(monitor_rules.router)

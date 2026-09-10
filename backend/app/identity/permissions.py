@@ -178,6 +178,16 @@ def require_perm(perm: str):
             return
         roles = current_roles(request)
         if not roles or not has_perm(roles, perm):
+            # 审计: 权限拒绝事件 (异步落盘, 不阻塞业务)
+            try:
+                from app.services import audit
+                audit.no_perm(
+                    (current_identity(request) or {}).get("user_name", ""),
+                    request.url.path,
+                    perm,
+                )
+            except Exception:  # noqa: BLE001 审计失败绝不影响门禁
+                pass
             raise HTTPException(
                 status_code=403,
                 detail="无权限访问该功能",

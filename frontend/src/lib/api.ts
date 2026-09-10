@@ -1890,6 +1890,44 @@ export interface AuthIdentity {
   perms?: string[]
 }
 
+// ===== Admin (平台管理) =====
+/** /api/admin/metrics 返回的平台运行指标。 */
+export interface AdminMetrics {
+  sessions: { total: number; active: number; stale: number }
+  login: {
+    ok: number
+    fail: number
+    locked: number
+    last_ok_ts?: number | null
+    last_fail_ts?: number | null
+    last_locked_ts?: number | null
+  }
+  access: { no_perm_count: number; last_no_perm_ts?: number | null }
+  admin: { action_count: number; last_action_ts?: number | null }
+  agti: { enabled: boolean; ok: boolean | null; latency_ms?: number | null; error?: string | null }
+  role_map: { loaded: boolean; roles?: string[]; role_count?: number; error?: string }
+  audit: { write_ok: number; write_fail: number; queue_full: number; queue_size: number }
+  server: { uptime_s: number; now_ts: number }
+}
+
+/** /api/admin/audit 单条审计事件。 */
+export interface AuditItem {
+  ts: string
+  level: 'info' | 'warn'
+  category: 'security' | 'access' | 'admin'
+  event: string
+  actor: string
+  detail: string
+}
+
+/** /api/admin/audit 返回。 */
+export interface AdminAuditResponse {
+  ok: boolean
+  day: string
+  count: number
+  items: AuditItem[]
+}
+
 // ===== API surface =====
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
@@ -1924,11 +1962,23 @@ export const api = {
     }),
   identityLogout: () =>
     request<{ ok: boolean }>('/api/auth/identity/logout', { method: 'POST' }),
-  /** 当前登录身份(互通形态): user_id/user_name/nick_name/roles; 未启用互通 → 404。
+/** 当前登录身份(互通形态): user_id/user_name/nick_name/roles; 未启用互通 → 404。
    *  refresh=true → 后端触发一次惰性刷新 (角色变更后拿到最新快照); 默认零 DB 查询。
    *  quiet: 形态探测型接口, 404/401 是合法响应而非错误, 不弹全局 toast。 */
   authMe: (refresh = false) =>
     request<{ ok: boolean; identity: AuthIdentity }>(`/api/auth/me${refresh ? '?refresh=1' : ''}`, { quiet: true }),
+
+  // ===== Admin (平台管理 — 仅 admin:view 角色, 互通形态) =====
+  adminMetrics: () =>
+    request<AdminMetrics>('/api/admin/metrics'),
+  adminAudit: (params?: { day?: string; limit?: number; category?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.day) q.set('day', params.day)
+    if (params?.limit) q.set('limit', String(params.limit))
+    if (params?.category) q.set('category', params.category)
+    const qs = q.toString()
+    return request<AdminAuditResponse>(`/api/admin/audit${qs ? `?${qs}` : ''}`)
+  },
 
   settings: () => request<SettingsState>('/api/settings'),
   saveTickflowKey: (api_key: string) =>

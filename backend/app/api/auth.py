@@ -28,7 +28,7 @@ from threading import Lock
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from app.services import auth, identity_auth
+from app.services import auth, audit, identity_auth
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +284,7 @@ async def identity_login(
     try:
         identity_auth.check_login_rate_limit(req.username, ip)
     except identity_auth._RateLimitError as e:
+        audit.login_locked(req.username, ip, wait=e.wait)
         raise HTTPException(
             status_code=429,
             detail=f"登录失败次数过多, 请 {e.wait} 秒后重试",
@@ -298,9 +299,11 @@ async def identity_login(
 
     if not token:
         identity_auth.record_login_fail(req.username, ip)
+        audit.login_fail(req.username, ip, reason="bad credentials")
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     identity_auth.clear_login_fails(req.username, ip)
+    audit.login_ok(req.username, ip)
     _set_session_cookie(response, token)
     return {"ok": True, "authenticated": True}
 
@@ -342,6 +345,8 @@ async def identity_logout(request: Request, response: Response) -> dict:
     """注销 agti 会话。"""
     token = request.cookies.get(COOKIE_NAME)
     if token:
+        identity = identity_auth.get_identity(token)
         identity_auth.revoke_session(token)
+        audit.logout((identity or {}).get("user_name", ""))
     response.delete_cookie(key=COOKIE_NAME, path="/")
     return {"ok": True}
