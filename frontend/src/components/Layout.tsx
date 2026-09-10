@@ -1074,14 +1074,20 @@ export function Layout() {
                 </span>
               </div>
               <div className="mt-1.5 text-[10px] leading-snug text-muted">
-                当前数据源无实时行情权限,
-                <button
-                  type="button"
-                  onClick={() => navigate('/settings?tab=data-sources&highlight=data-sources')}
-                  className="mx-0.5 text-accent/80 hover:text-accent hover:underline"
-                >
-                  去配置数据源
-                </button>
+                {canViewSettings ? (
+                  <>
+                    当前数据源无实时行情权限,
+                    <button
+                      type="button"
+                      onClick={() => navigate('/settings?tab=data-sources&highlight=data-sources')}
+                      className="mx-0.5 text-accent/80 hover:text-accent hover:underline"
+                    >
+                      去配置数据源
+                    </button>
+                  </>
+                ) : (
+                  '当前数据源无实时行情权限'
+                )}
               </div>
             </div>
           ) : (
@@ -1099,14 +1105,16 @@ export function Layout() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <button
-                  onClick={() => navigate('/settings?tab=monitoring&highlight=quotes')}
-                  aria-label="打开实时监控设置"
-                  className="flex h-7 w-7 items-center justify-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground"
-                  title="实时监控设置"
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                </button>
+                {canViewSettings && (
+                  <button
+                    onClick={() => navigate('/settings?tab=monitoring&highlight=quotes')}
+                    aria-label="打开实时监控设置"
+                    className="flex h-7 w-7 items-center justify-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground"
+                    title="实时监控设置"
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   role="switch"
