@@ -113,7 +113,7 @@ export function Auth() {
         {/* Logo */}
         <div className="mb-6 flex items-center justify-center">
           {/* <Logo size={96} className="shrink-0" /> */}
-          <img src={logoUrl} className="h-[60px] w-[180px] shrink-0 object-contain object-left" alt="天玑实验室" draggable={false} />
+          <img src={logoUrl} className="mx-auto h-[60px] w-[180px] shrink-0 object-contain" alt="天玑实验室" draggable={false} />
         </div>
 
         <div className="sn-dialog rounded-card border border-border bg-surface/90 p-6 shadow-2xl">

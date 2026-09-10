@@ -1082,40 +1082,6 @@ export function Layout() {
               )}
             </NavLink>
           </div>
-          {/* 底部: 设置入口 + 版本号 */}
-          <div className={railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5'}>
-            <NavLink
-              to="/settings"
-              title={railMode ? '设置' : undefined}
-              className={({ isActive }) =>
-                cn(
-                  'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
-                  railMode ? 'justify-center px-0 py-2' : 'flex-1 gap-3 px-3 py-2',
-                  isActive
-                    ? 'bg-elevated text-foreground font-medium'
-                    : 'text-foreground/75 hover:bg-elevated/70 hover:text-foreground',
-                )
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <span
-                    className={cn(
-                      'pointer-events-none absolute left-0 top-1/2 h-4 -translate-y-1/2 w-[2.5px] rounded-full bg-accent transition-opacity duration-150',
-                      isActive ? 'opacity-100' : 'opacity-0',
-                    )}
-                  />
-                  <Settings className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
-                  {!railMode && <span>设置</span>}
-                  {!railMode && version && (
-                    <span className="ml-auto font-mono text-[10px] text-muted/70 select-none shrink-0">
-                      {version}
-                    </span>
-                  )}
-                </>
-              )}
-            </NavLink>
-          </div>
           {/* 底部区: 当前登录用户(互通形态) + 退出(所有形态均显示, 单密码也可登出) */}
           <div className={cn('mt-1 border-t border-border/60 pt-2', railMode ? 'flex flex-col items-center gap-1' : 'flex items-center gap-1.5')}>
             {identity && (
