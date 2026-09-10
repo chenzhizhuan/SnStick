@@ -59,6 +59,28 @@ P_SETTINGS_WRITE = "stick:settings:write"
 P_ADMIN_VIEW = "stick:admin:view"
 P_ADMIN_MANAGE = "stick:admin:manage"
 
+# ── 菜单可见性权限点 (方案 2: 页面级菜单差异化) ────────────────────
+# 仅控制前端侧栏菜单「可见性」, 与功能权限点 (API 门禁) 完全正交。
+# 命名: stick:menu:<页面slug>; admin 通配 *:*:* 自动覆盖全部菜单。
+# 消费方: Layout.tsx nav / MenuSettings.tsx BUILTIN_PAGES (perm 字段)。
+P_MENU_WATCHLIST = "stick:menu:watchlist"
+P_MENU_SCREENER = "stick:menu:screener"
+P_MENU_FACTORS = "stick:menu:factors"
+P_MENU_BACKTEST = "stick:menu:backtest"
+P_MENU_LOTS = "stick:menu:lots"
+P_MENU_SIGNALS = "stick:menu:signals"
+P_MENU_STOCK_ANALYSIS = "stick:menu:stock-analysis"
+P_MENU_LIMIT_LADDER = "stick:menu:limit-ladder"
+P_MENU_CONCEPT_ANALYSIS = "stick:menu:concept-analysis"
+P_MENU_INDUSTRY_ANALYSIS = "stick:menu:industry-analysis"
+P_MENU_FINANCIALS = "stick:menu:financials"
+P_MENU_MONITOR = "stick:menu:monitor"
+P_MENU_REGIME = "stick:menu:regime"
+P_MENU_ABNORMAL = "stick:menu:abnormal"
+P_MENU_REVIEW = "stick:menu:review"
+P_MENU_INDICES = "stick:menu:indices"
+P_MENU_DATA = "stick:menu:data"
+
 _ADMIN_WILDCARD = "*:*:*"
 
 

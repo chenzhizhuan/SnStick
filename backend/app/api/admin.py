@@ -242,6 +242,28 @@ _PERM_MENU_GROUPS: list[dict] = [
             {"key": "stick:admin:manage", "label": "平台管理操作"},
         ],
     },
+    {
+        "label": "菜单可见性 (页面级)",
+        "perms": [
+            {"key": "stick:menu:watchlist", "label": "自选菜单"},
+            {"key": "stick:menu:screener", "label": "策略菜单"},
+            {"key": "stick:menu:factors", "label": "因子菜单"},
+            {"key": "stick:menu:backtest", "label": "回测菜单"},
+            {"key": "stick:menu:lots", "label": "持仓提醒菜单"},
+            {"key": "stick:menu:signals", "label": "信号库菜单"},
+            {"key": "stick:menu:stock-analysis", "label": "个股分析菜单"},
+            {"key": "stick:menu:limit-ladder", "label": "连板梯队菜单"},
+            {"key": "stick:menu:concept-analysis", "label": "概念分析菜单"},
+            {"key": "stick:menu:industry-analysis", "label": "行业分析菜单"},
+            {"key": "stick:menu:financials", "label": "财务分析菜单"},
+            {"key": "stick:menu:monitor", "label": "监控中心菜单"},
+            {"key": "stick:menu:regime", "label": "市场环境菜单"},
+            {"key": "stick:menu:abnormal", "label": "异动监控菜单"},
+            {"key": "stick:menu:review", "label": "复盘菜单"},
+            {"key": "stick:menu:indices", "label": "指数菜单"},
+            {"key": "stick:menu:data", "label": "数据菜单"},
+        ],
+    },
 ]
 
 

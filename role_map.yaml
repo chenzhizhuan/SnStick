@@ -20,6 +20,15 @@
 #         financial 财务 / ext 扩展数据 / regime 市场状态 / analysis 分析
 #         data 数据管理 / settings 设置 / admin 管理
 #   动作: read 读 / write 写 / run 运行 / admin 管理
+#
+# 菜单权限点 (stick:menu:<页面>): 仅控制前端菜单「可见性」, 与功能权限点正交。
+#   后端 API 门禁仍由功能权限点 (stick:<模块>:<动作>) 负责, 两者互不影响。
+#   菜单 slug: watchlist 自选 / screener 策略 / factors 因子 / backtest 回测 /
+#     lots 持仓提醒 / signals 信号库 / stock-analysis 个股分析 / limit-ladder 连板梯队 /
+#     concept-analysis 概念分析 / industry-analysis 行业分析 / financials 财务分析 /
+#     monitor 监控中心 / regime 市场环境 / abnormal 异动监控 / review 复盘 /
+#     indices 指数 / data 数据
+#   平台管理入口 (设置页 Tab) 由功能权限点 stick:admin:view 控制, 无需菜单权限点。
 
 roles:
   # 超级管理员: 全功能 + 管理页 (通配, 代码内判定)
@@ -57,6 +66,24 @@ roles:
       - "stick:settings:write"
       - "stick:admin:view"          # 管理页(查看)
       - "stick:admin:manage"       # 管理操作
+      # 菜单可见性 (企业版全 17 菜单 + 看板恒显; 平台管理入口由 stick:admin:view 控制)
+      - "stick:menu:watchlist"
+      - "stick:menu:screener"
+      - "stick:menu:factors"
+      - "stick:menu:backtest"
+      - "stick:menu:lots"
+      - "stick:menu:signals"
+      - "stick:menu:stock-analysis"
+      - "stick:menu:limit-ladder"
+      - "stick:menu:concept-analysis"
+      - "stick:menu:industry-analysis"
+      - "stick:menu:financials"
+      - "stick:menu:monitor"
+      - "stick:menu:regime"
+      - "stick:menu:abnormal"
+      - "stick:menu:review"
+      - "stick:menu:indices"
+      - "stick:menu:data"
 
   # 导师版: 全功能 + 团队数据 (P3 团队数据暂未实现, 先给全功能)
   mentor:
@@ -86,6 +113,24 @@ roles:
       - "stick:analysis:write"
       - "stick:data:read"
       - "stick:settings:read"
+      # 菜单可见性 (导师版全 18 菜单, 无平台管理)
+      - "stick:menu:watchlist"
+      - "stick:menu:screener"
+      - "stick:menu:factors"
+      - "stick:menu:backtest"
+      - "stick:menu:lots"
+      - "stick:menu:signals"
+      - "stick:menu:stock-analysis"
+      - "stick:menu:limit-ladder"
+      - "stick:menu:concept-analysis"
+      - "stick:menu:industry-analysis"
+      - "stick:menu:financials"
+      - "stick:menu:monitor"
+      - "stick:menu:regime"
+      - "stick:menu:abnormal"
+      - "stick:menu:review"
+      - "stick:menu:indices"
+      - "stick:menu:data"
 
   # 服务商: 全功能 + 下线数据 (P3 下线数据暂未实现, 先全功能)
   agent:
@@ -115,6 +160,24 @@ roles:
       - "stick:analysis:write"
       - "stick:data:read"
       - "stick:settings:read"
+      # 菜单可见性 (服务商全 18 菜单, 无平台管理)
+      - "stick:menu:watchlist"
+      - "stick:menu:screener"
+      - "stick:menu:factors"
+      - "stick:menu:backtest"
+      - "stick:menu:lots"
+      - "stick:menu:signals"
+      - "stick:menu:stock-analysis"
+      - "stick:menu:limit-ladder"
+      - "stick:menu:concept-analysis"
+      - "stick:menu:industry-analysis"
+      - "stick:menu:financials"
+      - "stick:menu:monitor"
+      - "stick:menu:regime"
+      - "stick:menu:abnormal"
+      - "stick:menu:review"
+      - "stick:menu:indices"
+      - "stick:menu:data"
 
   # 高级版: 回测 / 因子挖掘 / 分钟K / 深度五档
   premium:
@@ -140,6 +203,23 @@ roles:
       - "stick:analysis:read"
       - "stick:analysis:write"
       - "stick:data:read"
+      # 菜单可见性 (高级版 14 菜单: 无平台管理, 含回测/因子/监控/异动;
+      # 菜单权限点 ⊆ 功能权限点, 确保菜单可见即可用)
+      - "stick:menu:watchlist"
+      - "stick:menu:screener"
+      - "stick:menu:factors"
+      - "stick:menu:backtest"
+      - "stick:menu:lots"
+      - "stick:menu:signals"
+      - "stick:menu:stock-analysis"
+      - "stick:menu:concept-analysis"
+      - "stick:menu:industry-analysis"
+      - "stick:menu:limit-ladder"
+      - "stick:menu:indices"
+      - "stick:menu:monitor"
+      - "stick:menu:regime"
+      - "stick:menu:abnormal"
+      - "stick:menu:review"
 
   # 标准版: 选股 / 自定义信号 / 策略库
   standard:
@@ -156,6 +236,20 @@ roles:
       - "stick:regime:read"
       - "stick:analysis:read"
       - "stick:data:read"
+      # 菜单可见性 (标准版 12 菜单: 无回测/因子/监控/财务/平台管理;
+      # 菜单权限点 ⊆ 功能权限点, 确保菜单可见即可用)
+      - "stick:menu:watchlist"
+      - "stick:menu:screener"
+      - "stick:menu:lots"
+      - "stick:menu:signals"
+      - "stick:menu:stock-analysis"
+      - "stick:menu:concept-analysis"
+      - "stick:menu:industry-analysis"
+      - "stick:menu:limit-ladder"
+      - "stick:menu:indices"
+      - "stick:menu:regime"
+      - "stick:menu:abnormal"
+      - "stick:menu:review"
 
   # 体验版: 自选股 + 日K
   common:
@@ -165,3 +259,9 @@ roles:
       - "stick:kline:read"
       - "stick:analysis:read"
       - "stick:data:read"
+      # 菜单可见性 (体验版 6 菜单: 看板恒显 + 自选/个股分析/连板梯队/指数/数据)
+      - "stick:menu:watchlist"
+      - "stick:menu:stock-analysis"
+      - "stick:menu:limit-ladder"
+      - "stick:menu:indices"
+      - "stick:menu:data"

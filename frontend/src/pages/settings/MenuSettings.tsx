@@ -34,25 +34,26 @@ interface NavEntry {
 }
 
 // 与 Layout 侧边栏默认顺序保持一致 (nav_order 未保存时的默认展示顺序)
+// v2.3 方案2: 菜单可见性改用页面级权限点 stick:menu:<slug> (与功能权限点正交)
 const BUILTIN_PAGES: NavEntry[] = [
   { id: '/', label: '看板', type: 'builtin', visible: true },
-  { id: '/watchlist', label: '自选', type: 'builtin', visible: true, perm: 'stick:watchlist:read' },
-  { id: '/screener', label: '策略', type: 'builtin', visible: true, perm: 'stick:screener:read' },
-  { id: '/factors', label: '因子', type: 'builtin', visible: true, perm: 'stick:factors:read' },
-  { id: '/backtest', label: '回测', type: 'builtin', visible: true, perm: 'stick:backtest:read' },
-  { id: '/stock-analysis', label: '个股分析', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
-  { id: '/limit-ladder', label: '连板梯队', type: 'builtin', visible: true, perm: 'stick:kline:read' },
-  { id: '/concept-analysis', label: '概念分析', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
-  { id: '/industry-analysis', label: '行业分析', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
-  { id: '/financials', label: '财务分析', type: 'builtin', visible: true, perm: 'stick:financial:read' },
-  { id: '/monitor', label: '监控中心', type: 'builtin', visible: true, perm: 'stick:signals:read' },
-  { id: '/regime', label: '市场环境', type: 'builtin', visible: true, perm: 'stick:regime:read' },
-  { id: '/abnormal', label: '异动监控', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
-  { id: '/lots', label: '持仓提醒', type: 'builtin', visible: true, perm: 'stick:signals:read' },
-  { id: '/signals', label: '信号库', type: 'builtin', visible: true, perm: 'stick:signals:read' },
-  { id: '/review', label: '复盘', type: 'builtin', visible: true, perm: 'stick:analysis:read' },
-  { id: '/indices', label: '指数', type: 'builtin', visible: true, perm: 'stick:kline:read' },
-  { id: '/data', label: '数据', type: 'builtin', visible: true, perm: 'stick:data:read' },
+  { id: '/watchlist', label: '自选', type: 'builtin', visible: true, perm: 'stick:menu:watchlist' },
+  { id: '/screener', label: '策略', type: 'builtin', visible: true, perm: 'stick:menu:screener' },
+  { id: '/factors', label: '因子', type: 'builtin', visible: true, perm: 'stick:menu:factors' },
+  { id: '/backtest', label: '回测', type: 'builtin', visible: true, perm: 'stick:menu:backtest' },
+  { id: '/stock-analysis', label: '个股分析', type: 'builtin', visible: true, perm: 'stick:menu:stock-analysis' },
+  { id: '/limit-ladder', label: '连板梯队', type: 'builtin', visible: true, perm: 'stick:menu:limit-ladder' },
+  { id: '/concept-analysis', label: '概念分析', type: 'builtin', visible: true, perm: 'stick:menu:concept-analysis' },
+  { id: '/industry-analysis', label: '行业分析', type: 'builtin', visible: true, perm: 'stick:menu:industry-analysis' },
+  { id: '/financials', label: '财务分析', type: 'builtin', visible: true, perm: 'stick:menu:financials' },
+  { id: '/monitor', label: '监控中心', type: 'builtin', visible: true, perm: 'stick:menu:monitor' },
+  { id: '/regime', label: '市场环境', type: 'builtin', visible: true, perm: 'stick:menu:regime' },
+  { id: '/abnormal', label: '异动监控', type: 'builtin', visible: true, perm: 'stick:menu:abnormal' },
+  { id: '/lots', label: '持仓提醒', type: 'builtin', visible: true, perm: 'stick:menu:lots' },
+  { id: '/signals', label: '信号库', type: 'builtin', visible: true, perm: 'stick:menu:signals' },
+  { id: '/review', label: '复盘', type: 'builtin', visible: true, perm: 'stick:menu:review' },
+  { id: '/indices', label: '指数', type: 'builtin', visible: true, perm: 'stick:menu:indices' },
+  { id: '/data', label: '数据', type: 'builtin', visible: true, perm: 'stick:menu:data' },
 ]
 
 // ── Sortable row ──
