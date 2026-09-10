@@ -1928,6 +1928,38 @@ export interface AdminAuditResponse {
   items: AuditItem[]
 }
 
+/** /api/admin/role-map 单个角色的三态权限集。 */
+export interface RoleEntry {
+  key: string
+  label: string
+  /** role_map.yaml 基线 (镜像内只读)。 */
+  base: string[]
+  /** 本地覆盖层 (data/role_overlay.json); 空数组=未覆盖。 */
+  overlay: string[]
+  /** 基线 ∩ 覆盖 后的生效权限。 */
+  effective: string[]
+}
+
+/** 权限点定义 (矩阵列头)。 */
+export interface PermDef {
+  key: string
+  label: string
+}
+
+/** 功能分组 (矩阵行)。 */
+export interface PermGroup {
+  label: string
+  perms: PermDef[]
+}
+
+/** /api/admin/role-map 返回。 */
+export interface AdminRoleMapResponse {
+  ok: boolean
+  roles: RoleEntry[]
+  groups: PermGroup[]
+  all_perms: string[]
+}
+
 // ===== API surface =====
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
@@ -1979,6 +2011,15 @@ export const api = {
     const qs = q.toString()
     return request<AdminAuditResponse>(`/api/admin/audit${qs ? `?${qs}` : ''}`)
   },
+  /** 角色→权限矩阵 (基线+覆盖+生效后), 供可视化授权页。 */
+  adminRoleMap: () =>
+    request<AdminRoleMapResponse>('/api/admin/role-map'),
+  /** 保存角色权限覆盖 (仅允许收敛, admin 角色不可覆盖); 保存后热加载生效。 */
+  updateRoleMap: (roles: Record<string, string[]>) =>
+    request<AdminRoleMapResponse>('/api/admin/role-map', {
+      method: 'PUT',
+      body: JSON.stringify({ roles }),
+    }),
 
   settings: () => request<SettingsState>('/api/settings'),
   saveTickflowKey: (api_key: string) =>
