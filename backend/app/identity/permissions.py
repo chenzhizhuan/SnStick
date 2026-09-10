@@ -20,6 +20,9 @@ import logging
 from functools import lru_cache
 from pathlib import Path
 
+# 运行时覆盖层: 改 role_map 不清缓存, 由 overlay 服务合并 (方案 A P2 通道)
+from app.services.role_overlay import effective_role_perms
+
 import yaml
 from fastapi import HTTPException, Request
 
@@ -84,6 +87,11 @@ def _role_map_path() -> Path:
     return candidates[0]
 
 
+def reload_role_map() -> None:
+    """清空 role_map 缓存 (overlay 保存后调用, 进程内立即生效)。"""
+    load_role_map.cache_clear()
+
+
 @lru_cache(maxsize=1)
 def load_role_map() -> dict[str, set[str]]:
     """加载 role_map.yaml → {role_key: set(perms)}。
@@ -121,7 +129,7 @@ def role_perms(roles: tuple[str, ...]) -> set[str]:
     for r in roles:
         if r == "admin":
             return {_ADMIN_WILDCARD}
-        merged |= rm.get(r, set())
+        merged |= effective_role_perms(r, rm.get(r, set()))
     return merged
 
 

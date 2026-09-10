@@ -16,9 +16,14 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
-from app.identity.permissions import P_ADMIN_VIEW, require_perm
+from app.identity.permissions import (
+    P_ADMIN_MANAGE,
+    P_ADMIN_VIEW,
+    current_identity,
+    require_perm,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -149,3 +154,205 @@ async def admin_audit(
         "count": len(items),
         "items": items,
     }
+
+
+# ── 角色权限矩阵 (方案 A: 可视化授权 P2 通道) ─────────────────────────
+
+# 角色展示顺序 (对齐 role_map.yaml 注释顺序)
+_ROLE_ORDER = ["admin", "enterprise", "mentor", "agent", "premium", "standard", "common"]
+
+# 角色 → 中文名 (对齐 AGTi sys_role)
+_ROLE_LABELS = {
+    "admin": "超级版",
+    "enterprise": "企业版",
+    "mentor": "导师版",
+    "agent": "服务商",
+    "premium": "高级版",
+    "standard": "标准版",
+    "common": "体验版",
+}
+
+# 权限点 → 归属菜单 (功能分组, 供页面矩阵展示; 与 Layout.tsx NAV / role_map 注释一致)
+_PERM_MENU_GROUPS: list[dict] = [
+    {
+        "label": "自选股",
+        "perms": [
+            {"key": "stick:watchlist:read", "label": "查看自选"},
+            {"key": "stick:watchlist:write", "label": "编辑自选"},
+        ],
+    },
+    {
+        "label": "行情",
+        "perms": [
+            {"key": "stick:kline:read", "label": "日K/指数"},
+            {"key": "stick:intraday:read", "label": "分钟K"},
+            {"key": "stick:depth:read", "label": "五档盘口"},
+        ],
+    },
+    {
+        "label": "选股与策略",
+        "perms": [
+            {"key": "stick:screener:read", "label": "策略库浏览"},
+            {"key": "stick:screener:run", "label": "策略运行"},
+            {"key": "stick:strategy:read", "label": "策略读取"},
+            {"key": "stick:strategy:write", "label": "策略保存"},
+        ],
+    },
+    {
+        "label": "信号",
+        "perms": [
+            {"key": "stick:signals:read", "label": "信号查看"},
+            {"key": "stick:signals:write", "label": "信号编辑"},
+        ],
+    },
+    {
+        "label": "回测与因子",
+        "perms": [
+            {"key": "stick:backtest:read", "label": "回测查看"},
+            {"key": "stick:backtest:run", "label": "回测运行"},
+            {"key": "stick:factors:read", "label": "因子查看"},
+            {"key": "stick:factors:write", "label": "因子编辑"},
+            {"key": "stick:mining:read", "label": "因子挖掘查看"},
+            {"key": "stick:mining:run", "label": "因子挖掘运行"},
+        ],
+    },
+    {
+        "label": "市场分析",
+        "perms": [
+            {"key": "stick:analysis:read", "label": "分析查看"},
+            {"key": "stick:analysis:write", "label": "分析编辑"},
+            {"key": "stick:regime:read", "label": "市场环境"},
+            {"key": "stick:financial:read", "label": "财务分析"},
+        ],
+    },
+    {
+        "label": "数据与扩展",
+        "perms": [
+            {"key": "stick:data:read", "label": "数据管理"},
+            {"key": "stick:ext:read", "label": "扩展读取"},
+            {"key": "stick:ext:write", "label": "扩展写入"},
+        ],
+    },
+    {
+        "label": "设置与平台",
+        "perms": [
+            {"key": "stick:settings:read", "label": "设置读取"},
+            {"key": "stick:settings:write", "label": "设置修改"},
+            {"key": "stick:admin:view", "label": "平台管理查看"},
+            {"key": "stick:admin:manage", "label": "平台管理操作"},
+        ],
+    },
+]
+
+
+def _all_perms() -> list[str]:
+    """矩阵里全部权限点 (按 _PERM_MENU_GROUPS 顺序去重)。"""
+    out: list[str] = []
+    seen: set[str] = set()
+    for grp in _PERM_MENU_GROUPS:
+        for p in grp["perms"]:
+            k = p["key"]
+            if k not in seen:
+                seen.add(k)
+                out.append(k)
+    return out
+
+
+def _overlay_payload() -> dict:
+    """统一载荷: 基线 + 覆盖 (生效后) + 菜单分组 + 角色展示名。"""
+    from app.identity import permissions
+    from app.services import role_overlay
+
+    base = permissions.load_role_map()
+    overlay = role_overlay.load_overlay()
+
+    effective: dict[str, list[str]] = {}
+    for rkey in _ROLE_ORDER:
+        if rkey not in base:
+            continue
+        effective[rkey] = sorted(role_overlay.effective_role_perms(rkey, base[rkey]))
+
+    return {
+        "ok": True,
+        "roles": [
+            {
+                "key": rkey,
+                "label": _ROLE_LABELS.get(rkey, rkey),
+                "base": sorted(base.get(rkey, set())),
+                "overlay": sorted(overlay.get(rkey, [])),
+                "effective": effective[rkey],
+            }
+            for rkey in _ROLE_ORDER
+            if rkey in base
+        ],
+        "groups": _PERM_MENU_GROUPS,
+        "all_perms": _all_perms(),
+    }
+
+
+# ── 角色权限矩阵 API ────────────────────────────────────────────
+
+@router.get("/role-map")
+async def admin_role_map(_: None = Depends(require_perm(P_ADMIN_VIEW))) -> dict:
+    """读取角色→权限矩阵 (基线+覆盖+生效后), 供可视化授权页展示。"""
+    return _overlay_payload()
+
+
+@router.put("/role-map")
+async def admin_role_map_update(
+    request: Request,
+    _: None = Depends(require_perm(P_ADMIN_MANAGE)),
+    payload: dict = Body(...),
+) -> dict:
+    """保存角色权限覆盖 (可视化授权保存)。
+
+    约束 (安全边界):
+      - 只允许覆盖 _PERM_MENU_GROUPS 中声明的权限点 (即基线里的合法权限)。
+      - 覆盖是「收敛」语义: 权限点必须在基线中存在 (角色 base 集合), 否则 400。
+      - admin 角色不可覆盖 (通配 *:*:* 由代码硬控, 页面只读)。
+      - 不触碰 AGTi 库, 只写本地 data_dir/role_overlay.json (P0 只读约束)。
+    生效: 写盘 → 审计 admin_action → 清 role_map 缓存 → 立即生效 (进程内)。
+    """
+    from app.identity import permissions
+    from app.services import audit, role_overlay
+
+    allowed = set(_all_perms())
+    base = permissions.load_role_map()
+
+    roles_in = payload.get("roles")
+    if not isinstance(roles_in, dict):
+        raise HTTPException(status_code=400, detail="payload.roles 须为对象 {role_key: [perms]}")
+
+    overlay: dict[str, list[str]] = {}
+    for rkey, perms in roles_in.items():
+        if not isinstance(rkey, str) or rkey not in base:
+            raise HTTPException(status_code=400, detail=f"未知角色: {rkey}")
+        if rkey == "admin":
+            raise HTTPException(status_code=400, detail="admin 角色不可覆盖 (系统通配直通)")
+        if not isinstance(perms, list) or not all(isinstance(p, str) for p in perms):
+            raise HTTPException(status_code=400, detail=f"角色 {rkey} 的 perms 须为字符串数组")
+
+        role_base = base.get(rkey, set())
+        for p in perms:
+            if p not in allowed:
+                raise HTTPException(status_code=400, detail=f"非法权限点: {p}")
+            if p not in role_base:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"权限点 {p} 不在角色 {rkey} 基线中, 覆盖仅允许收敛, 禁止扩张",
+                )
+        # 去重 + 排序, 保持文件稳定
+        overlay[rkey] = sorted(set(perms))
+
+    role_overlay.save_overlay(overlay)
+    permissions.reload_role_map()
+
+    # 审计: 记录被修改的角色 (admin_action 由 require_perm 门禁保证 P_ADMIN_MANAGE)
+    changed = ",".join(sorted(overlay.keys())) or "(空覆盖=恢复基线)"
+    audit.admin_action(
+        current_identity(request)["user_name"] if current_identity(request) else "-",
+        "role_map_update",
+        f"overlay_roles={changed}",
+    )
+
+    return _overlay_payload()

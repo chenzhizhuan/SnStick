@@ -63,7 +63,7 @@ def _session_cookie(roles: tuple[str, ...]) -> str:
 
 # ── audit 服务 ──────────────────────────────────────────────
 class TestAuditService:
-    def test_write_and_read(self):
+    def test_write_and_read(self, _isolate_audit):
         """login_ok + no_perm 写入后, read_audit 能倒序读回。"""
         audit.login_ok("alice", "1.2.3.4")
         audit.no_perm("bob", "/api/x", "stick:admin:view")
@@ -80,7 +80,7 @@ class TestAuditService:
         assert items[1]["actor"] == "alice"
         assert items[1]["category"] == "security"
 
-    def test_metrics_counters(self):
+    def test_metrics_counters(self, _isolate_audit):
         audit.login_ok("a")
         audit.login_ok("b")
         audit.login_fail("c")
@@ -88,7 +88,7 @@ class TestAuditService:
         assert m["login_ok"]["count"] == 2
         assert m["login_fail"]["count"] == 1
 
-    def test_read_audit_category_filter(self):
+    def test_read_audit_category_filter(self, _isolate_audit):
         audit.login_ok("a")
         audit.no_perm("b", "/api/x", "stick:admin:view")
         import time
