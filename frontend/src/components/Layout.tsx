@@ -334,10 +334,10 @@ function UserMenu({
             {identity ? (
               <>
                 <div className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-foreground/85">
-                  <User className="h-3.5 w-3.5 shrink-0 text-accent" />
+                  <User className="h-3.5 w-3.5 shrink-0 text-muted" />
                   <span className="shrink-0 font-medium">账号</span>
                   <span
-                    className="ml-auto min-w-0 truncate font-mono text-[11px] font-semibold text-accent"
+                    className="ml-auto min-w-0 truncate text-xs font-semibold text-accent"
                     title={identity.user_name}
                   >
                     {identity.user_name}
