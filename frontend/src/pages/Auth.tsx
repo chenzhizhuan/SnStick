@@ -158,14 +158,15 @@ export function Auth() {
 
             {/* 密码输入 */}
             <div className="relative">
+              <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
               <input
                 type={showPwd ? 'text' : 'password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                placeholder="访问密码"
+                placeholder={identityMode ? '密码' : '访问密码'}
                 autoFocus={!identityMode}
                 autoComplete={identityMode ? 'current-password' : undefined}
-                className="h-10 w-full rounded-btn border border-border bg-base px-3 pr-9 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
+                className="h-10 w-full rounded-btn border border-border bg-base pl-9 pr-9 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
               />
               <button
                 type="button"
