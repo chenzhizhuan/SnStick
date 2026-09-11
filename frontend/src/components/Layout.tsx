@@ -692,7 +692,7 @@ export function Layout() {
   // v3.2: group 用于侧栏分组渲染; 分析菜单归「市场分析」, 扩展菜单兑底「数据与复盘」
   type NavItem = { to: string; label: string; icon: typeof Gauge; badge?: string; group?: NavGroupKey }
   // 权限过滤 (M3-4): 互通形态下无权限的菜单不显示; 单密码形态恒放行
-  const { hasPerm } = usePerm()
+  const { hasPerm, ready } = usePerm()
   const { identity } = useAuth()
   const analysisNav: NavItem[] = (analysisMenus?.items ?? [])
     .filter(m => m.visible)
@@ -706,11 +706,13 @@ export function Layout() {
     group: 'data' as const,
   }))
 
-  // 权限过滤: 内置 nav 带 perm 的按 hasPerm 过滤; 单密码形态恒放行
+  // 权限过滤: 内置 nav 带 perm 的按 hasPerm 过滤; 单密码形态恒放行;
+  // 探测中 (ready=false) hasPerm 保守 false → 仅渲染无门槛的「看板」,
+  // 防止登录后 auth-me 未返回瞬间闪现全部 18 项菜单 (产品面泄露)。
   const filteredNav = nav.filter(n => !n.perm || hasPerm(n.perm))
   // 左下角「数据源能力/AI 模型标识/设置」入口: 目标均为设置页, 需 settings 读权限
   // (互通形态下 premium/standard/common 无此权限点, 不渲染; 单密码形态恒放行)
-  const canViewSettings = hasPerm('stick:settings:read')
+  const canViewSettings = ready && hasPerm('stick:settings:read')
   const allNav: NavItem[] = [...filteredNav, ...analysisNav, ...extensionNav]
   const savedOrder = prefs?.nav_order ?? []
 

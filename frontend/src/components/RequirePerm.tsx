@@ -9,7 +9,7 @@
  */
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ShieldAlert } from 'lucide-react'
+import { Loader2, ShieldAlert } from 'lucide-react'
 import { usePerm } from '@/lib/useAuth'
 
 /** 403 无权限页 — 权限不足时展示, 并提供返回/重拉身份入口。 */
@@ -39,9 +39,18 @@ export function Forbidden() {
 /**
  * 路由守卫: 无权限 → 渲染 403 页 (而非空白/报错)。
  * 单密码形态 → 直接放行。
+ * 互通形态身份探测中 (ready=false) → 渲染加载态而非 403, 防止登录后
+ * auth-me 未返回瞬间闪现「无权限访问」再切换回页面的抖动。
  */
 export function RequirePerm({ perm, children }: { perm: string; children: ReactNode }) {
-  const { hasPerm } = usePerm()
+  const { hasPerm, enabled, ready } = usePerm()
+  if (enabled && !ready) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center text-muted">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    )
+  }
   if (!hasPerm(perm)) return <Forbidden />
   return <>{children}</>
 }

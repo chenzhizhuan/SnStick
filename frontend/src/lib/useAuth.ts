@@ -89,10 +89,13 @@ export function usePerm() {
     /** 形态探测完成 (探测前 hasPerm 保守拒绝权限 Tab, 防竞态闪烁) */
     ready,
     /** 是否有某权限点 (如 'stick:backtest:run'); 单密码形态恒 true;
-     *  互通形态探测中 (ready=false) 对带 perm 的 Tab 保守拒绝, 防止登录后
-     *  auth-me 未返回瞬间误挂 admin 面板发 403 请求。 */
+     *  互通形态探测中 (ready=false) 保守拒绝所有带权限点的判定, 防止登录后
+     *  auth-me 未返回瞬间侧边栏全量渲染 18 项菜单 (产品面泄露) 或误挂
+     *  admin 面板发 403 请求。ready=false 期间: 菜单/Tab 暂不渲染, 路由守卫
+     *  显示加载态 (RequirePerm), 绝不放行也绝不误拒。 */
     hasPerm: (required: string): boolean => {
       if (!enabled) return true
+      if (!ready) return false
       if (perms.includes('*:*:*')) return true
       return perms.includes(required)
     },
