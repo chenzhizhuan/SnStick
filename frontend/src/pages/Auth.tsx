@@ -17,7 +17,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, Sparkles, User } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Lock, ShieldCheck, ShieldAlert, User } from 'lucide-react'
 import { api } from '@/lib/api'
 import { AUTH_ME_KEY } from '@/lib/useAuth'
 import { cn } from '@/lib/cn'
@@ -117,7 +117,7 @@ export function Auth() {
         </div>
 
         <div className="sn-dialog rounded-card border border-border bg-surface/90 p-6 shadow-2xl">
-          {/* 标题区: 图标 + 文案随模式切换 */}
+          {/* 标题区: 图标 + 标题 (三种形态统一; 副标题与表单占位重复, 精简) */}
           <div className="mb-5 flex items-center gap-2.5">
             <div className={cn(
               'grid h-9 w-9 place-items-center rounded-lg',
@@ -125,17 +125,8 @@ export function Auth() {
             )}>
               {isSetup ? <ShieldCheck className="h-5 w-5" /> : identityMode ? <User className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
             </div>
-            <div>
-              <div className="text-sm font-medium text-foreground">
-                {isSetup ? '设置访问密码' : identityMode ? '账号登录' : '登录访问'}
-              </div>
-              <div className="text-[11px] text-muted">
-                {isSetup
-                  ? '首次使用, 请为面板设置访问密码'
-                  : identityMode
-                    ? '请输入平台账号与密码'
-                    : '请输入访问密码以继续'}
-              </div>
+            <div className="text-sm font-medium text-foreground">
+              {isSetup ? '设置访问密码' : identityMode ? '账号登录' : '登录访问'}
             </div>
           </div>
 
@@ -210,39 +201,27 @@ export function Auth() {
             </button>
           </form>
 
-          {/* 提示: 设密码模式告知本机限制 */}
+          {/* 设密码模式: 本机限制为功能性提示, 单句保留 */}
           {isSetup && (
-            <div className="mt-3 space-y-1.5 text-[10px] leading-relaxed text-muted/70">
-              <p>
-                出于安全考虑, 首次设置密码需在服务器本机或内网访问时操作。公网环境下仅可登录。
-              </p>
-              <p>
-                详细配置说明见{' '}
-                <a
-                  href="https://github.com/shy3130/tickflow-stock-panel/blob/main/docs/deploy-password.md"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent underline-offset-2 hover:underline"
-                >
-                  访问密码部署文档
-                </a>
-              </p>
-            </div>
-          )}
-
-          {/* 互通模式: 提示无账号怎么办 */}
-          {identityMode && (
             <div className="mt-3 text-[10px] leading-relaxed text-muted/70">
-              <p>
-                登录账号由平台统一开通。若无法登录, 请联系管理员开通订阅后重试。
-              </p>
+              出于安全考虑, 首次设置密码需在服务器本机或内网访问时操作, 公网环境仅可登录。{' '}
+              <a
+                href="https://github.com/shy3130/tickflow-stock-panel/blob/main/docs/deploy-password.md"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline-offset-2 hover:underline"
+              >
+                配置说明
+              </a>
             </div>
           )}
-        </div>
 
-        <div className="mt-4 flex items-center justify-center gap-1.5 text-[10px] text-muted/60">
-          <Sparkles className="h-3 w-3" />
-          自托管量化工作台 · 数据完全掌握在自己手里
+          {/* 互通模式: 无账号引导 (单句) */}
+          {identityMode && (
+            <div className="mt-3 text-[11px] text-muted">
+              没有账号？请联系管理员开通。
+            </div>
+          )}
         </div>
       </motion.div>
     </div>
