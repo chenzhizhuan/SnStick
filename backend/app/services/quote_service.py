@@ -283,15 +283,23 @@ class QuoteService:
         self._save_enabled(True)
         logger.info("行情服务已启动, 轮询间隔 %.1fs", self._interval)
 
-    def stop(self) -> None:
-        """停止后台行情轮询线程。"""
+    def stop(self, persist: bool = False) -> None:
+        """停止后台行情轮询线程。
+
+        persist=False (默认): 仅停线程, 不写 preferences — 供停机钩子使用。
+        开关 realtime_quotes_enabled 的语义是「用户持久意愿」, 容器重启/停机
+        不应把它变成「当前未运行」的瞬时状态 (v2.5 修复: 停机写盘导致
+        重启后实时行情静默关闭, 即"开启了也不实时"的第二个成因)。
+        persist=True: 同步写盘 (仅用户显式 disable 时)。
+        """
         self._running = False
         self._enabled = False
         if self._thread:
             self._thread.join(timeout=10)
             self._thread = None
-        self._save_enabled(False)
-        logger.info("行情服务已停止")
+        if persist:
+            self._save_enabled(False)
+        logger.info("行情服务已停止 (persist=%s)", persist)
 
     def enable(self) -> bool:
         """开启自动行情 (不立即启动线程，等下一个交易时段)。
@@ -314,8 +322,8 @@ class QuoteService:
         return True
 
     def disable(self) -> None:
-        """关闭自动行情。"""
-        self.stop()
+        """关闭自动行情 (用户显式操作, 持久化到 preferences)。"""
+        self.stop(persist=True)
         logger.info("行情服务已关闭")
 
     # ================================================================
