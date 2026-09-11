@@ -92,10 +92,12 @@ export function usePerm() {
      *  互通形态探测中 (ready=false) 保守拒绝所有带权限点的判定, 防止登录后
      *  auth-me 未返回瞬间侧边栏全量渲染 18 项菜单 (产品面泄露) 或误挂
      *  admin 面板发 403 请求。ready=false 期间: 菜单/Tab 暂不渲染, 路由守卫
-     *  显示加载态 (RequirePerm), 绝不放行也绝不误拒。 */
+     *  显示加载态 (RequirePerm), 绝不放行也绝不误拒。
+     *  ⚠️ ready 判定必须先于 enabled: 探测中 data=null → enabled=false,
+     *  若先判 enabled 会恒放行, 守卫形同虚设 (v2.5 修复的闪现根因)。 */
     hasPerm: (required: string): boolean => {
-      if (!enabled) return true
       if (!ready) return false
+      if (!enabled) return true
       if (perms.includes('*:*:*')) return true
       return perms.includes(required)
     },
