@@ -21,7 +21,11 @@ _OTHER_KEY = "realtime_quotes_enabled"
 @pytest.fixture
 def prefs_path(tmp_path, monkeypatch):
     path = tmp_path / "preferences.json"
-    monkeypatch.setattr(preferences, "_path", lambda: path)
+    # v2.3 数据命名空间: save/load 走 _user_path/_global_path 双层入口,
+    # 不再经过旧兼容入口 _path —— patch 旧入口不会拦截写盘, 会污染真实
+    # data/user_data/preferences.json (两层同路径去重, 桌面版行为不变)。
+    monkeypatch.setattr(preferences, "_user_path", lambda: path)
+    monkeypatch.setattr(preferences, "_global_path", lambda: path)
     preferences._invalidate_cache()
     yield path
     preferences._invalidate_cache()
@@ -34,8 +38,9 @@ def _read(path) -> dict:
 def test_interval_setter_does_not_clobber_a_concurrent_save(prefs_path, monkeypatch):
     """轮询间隔写入与另一个偏好写入并发时, 两个键都要留下。
 
-    用一个会在第一次调用时挂起的 load 替身制造交错: 间隔 setter 拿到快照后
+    用一个会在第一次调用时挂起的 _load_layer 替身制造交错: 间隔 setter 拿到快照后
     停住, 另一个 save 完整跑完, 然后间隔 setter 继续写盘。
+    (v2.3 后 save() 直接调 _load_layer, 不再经过模块级 load, 拦截点随之迁移。)
     """
     preferences.save({_OTHER_KEY: False})
 
@@ -43,17 +48,17 @@ def test_interval_setter_does_not_clobber_a_concurrent_save(prefs_path, monkeypa
     release_first_load = threading.Event()
     other_save_done = threading.Event()
     load_calls = []
-    real_load = preferences.load
+    real_load_layer = preferences._load_layer
 
-    def _load_pausing_on_first_call() -> dict:
-        snapshot = real_load()
+    def _load_layer_pausing_on_first_call(path) -> dict:
+        snapshot = real_load_layer(path)
         load_calls.append(1)
         if len(load_calls) == 1:
             first_load_entered.set()
             release_first_load.wait(10)
         return snapshot
 
-    monkeypatch.setattr(preferences, "load", _load_pausing_on_first_call)
+    monkeypatch.setattr(preferences, "_load_layer", _load_layer_pausing_on_first_call)
 
     def _set_interval() -> None:
         preferences.set_realtime_quote_interval(9.0)
@@ -64,7 +69,7 @@ def test_interval_setter_does_not_clobber_a_concurrent_save(prefs_path, monkeypa
 
     interval_thread = threading.Thread(target=_set_interval, name="set-interval")
     interval_thread.start()
-    assert first_load_entered.wait(10), "间隔 setter 没有进入 load"
+    assert first_load_entered.wait(10), "间隔 setter 没有进入 _load_layer"
 
     other_thread = threading.Thread(target=_save_other, name="save-other")
     other_thread.start()
@@ -77,7 +82,7 @@ def test_interval_setter_does_not_clobber_a_concurrent_save(prefs_path, monkeypa
     other_thread.join(10)
     assert not interval_thread.is_alive() and not other_thread.is_alive()
 
-    monkeypatch.setattr(preferences, "load", real_load)
+    monkeypatch.setattr(preferences, "_load_layer", real_load_layer)
     preferences._invalidate_cache()
     stored = _read(prefs_path)
     assert stored["realtime_quote_interval"] == 9.0
