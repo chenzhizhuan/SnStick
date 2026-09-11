@@ -59,9 +59,9 @@ def _path() -> Path:
 # 必须全局 (跨请求可见); 纯个人 UI 偏好按 user_id 隔离。清单如下:
 #   部署级: 数据源选择 / 拉取开关 / 各类调度 / 推送渠道与 webhook / regime
 #           批量参数 / mining 调度 / 趢势监控后台开关 / 财务同步游标 /
-#           分时/日K 传输压缩 / pipeline 超时
-#   用户级: 菜单排序隐藏 / 列配置 / 引导标记 / realtime_quotes_enabled 等
-#           个人展示开关 / system_notify_enabled
+#           分时/日K 传输压缩 / pipeline 超时 / 实时行情总开关
+#   用户级: 菜单排序隐藏 / 列配置 / 引导标记 / 个人展示开关 /
+#           system_notify_enabled
 # 新增键时: 后台任务会读的键进 _DEPLOY_KEYS, 否则进用户层 (默认)。
 # 桌面版两层同文件, 分流不可见, 行为零变化。
 _DEPLOY_KEYS = frozenset({
@@ -81,6 +81,8 @@ _DEPLOY_KEYS = frozenset({
     # 实时行情拉取范围 (后台 quote_service 读)
     "realtime_pull_stock", "realtime_pull_etf",
     "realtime_quote_interval",
+    # 实时行情总开关 (后台 quote_service.boot_check 读, 无请求上下文 → 必须部署级)
+    "realtime_quotes_enabled",
     # 推送渠道与 webhook (后台推送/复盘归档读)
     "feishu_webhook_url", "feishu_webhook_secret",
     "wecom_webhook_url", "wecom_bot_id", "wecom_bot_secret", "wecom_bot_enabled",
@@ -111,7 +113,6 @@ _USER_KEYS = frozenset({
     "nav_order", "nav_hidden",
     "watchlist_columns", "screener_result_columns",
     "onboarding_completed",
-    "realtime_quotes_enabled",
     "watchlist_groups_in_nav",
     "minute_intraday_refresh", "minute_intraday_refresh_interval",
     "sse_refresh_pages",
@@ -170,10 +171,17 @@ def load() -> dict:
     """读取 preferences.json 合并视图 (带 mtime 签名缓存)。返回深拷贝, 调用方可自由修改。
 
     合并规则: 全局层为底, 用户层覆盖同键 (仅互通形态存在两层)。
+    部署级键 (后台任务在无请求上下文消费) 强制取全局层: 用户层残留的旧值
+    (v2.3 前 realtime_quotes_enabled 曾按用户级写入) 不再覆盖全局开关, 防止
+    单用户历史偏好劫持全局行为。
     """
     merged: dict = {}
     for path in _layers():
-        merged.update(_load_layer(path))
+        layer = _load_layer(path)
+        # 用户层跳过部署级键 — 部署级键只以全局层为准 (桌面版 g==u 单层不受影响)
+        if path != _global_path():
+            layer = {k: v for k, v in layer.items() if not _is_deploy_key(k)}
+        merged.update(layer)
     return merged
 
 
