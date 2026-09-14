@@ -104,8 +104,14 @@ def test_run_all_returns_fast_first_then_background_fills_cache(
     assert set(results) == {"fast_a", "fast_b", "slow_c"}
     assert all(r.get("computed_at") for r in results.values())
 
-    # 耗时已记录 → 下次按耗时升序 (快策略先算)
+    # 耗时已记录 → 下次按耗时升序 (快策略先算)。
+    # 注意: record_run_timings 在最后一次 write_cache 之后执行, 缓存齐 ≠
+    # 耗时齐 (存量竞态窗口) — 轮询等 timings 齐全再断言, 消除 flaky。
+    deadline = time.time() + 8.0
     timings = strategy_run_queue.load_run_timings(tmp_path)
+    while set(timings) != {"fast_a", "fast_b", "slow_c"} and time.time() < deadline:
+        time.sleep(0.05)
+        timings = strategy_run_queue.load_run_timings(tmp_path)
     assert set(timings) == {"fast_a", "fast_b", "slow_c"}
     assert timings["slow_c"] > timings["fast_a"]
 
@@ -136,6 +142,13 @@ def test_run_all_second_run_orders_by_recorded_timings(
     screener_api.run_all(req, body)
     _wait_executed(2)
     assert engine.executed == ["slow_a", "fast_b"]
+
+    # 等第一轮耗时落盘 (record_run_timings 在缓存之后, 同款竞态窗口)
+    deadline = time.time() + 8.0
+    while time.time() < deadline:
+        if set(strategy_run_queue.load_run_timings(tmp_path)) == {"slow_a", "fast_b"}:
+            break
+        time.sleep(0.05)
 
     # 第二轮: 有耗时记录 → fast_b (快) 升序在前, 且首返带上 fast_b。
     # 若第一轮 handle 还在收尾 (终写缓存/记录耗时), 请求会搭车旧 handle;

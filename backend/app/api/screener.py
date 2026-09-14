@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.db_safe import is_valid_ext_ident, quote_ident
+from app.identity.user_context import current_user_id, user_scope
 from app.services import strategy_cache, strategy_run_queue
 from app.services.screener import ScreenerService
 from app.strategy import config as strategy_config
@@ -509,6 +510,83 @@ def market_snapshot(request: Request):
     return {"as_of": str(as_of), "rows": rows}
 
 
+def _run_all_progressive_job(
+    *,
+    handle: strategy_run_queue.StrategyRunHandle,
+    repo,
+    engine,
+    svc: ScreenerService,
+    as_of,
+    ordered_ids: list[str],
+    timeframe: str,
+    params_map: dict,
+    overrides_map: dict,
+) -> None:
+    """单飞 worker 线程里逐策略执行 + 增量落缓存 (由 _run_all_progressive 在
+    user_scope(uid) 内调用, 确保缓存写入正确的用户目录)。"""
+    data_dir = repo.store.data_dir
+    context = svc.build_strategy_context(
+        engine,
+        as_of,
+        ordered_ids,
+        timeframe=timeframe,
+        params_map=params_map,
+        overrides_map=overrides_map,
+    )
+    # 逐策略 run_all 不会把矩阵回写 context.market → 每个矩阵策略都会重建
+    # 全市场矩阵 (小服务器上单次数秒到十余秒)。这里按字段并集一次建好复用;
+    # FakeEngine 等无该方法的实现跳过 (保持旧行为)。
+    if getattr(context, "market", None) is None:
+        build_matrix = getattr(engine, "build_shared_matrix", None)
+        if callable(build_matrix):
+            matrix = build_matrix(
+                context,
+                [(sid, engine.get(sid)) for sid in ordered_ids],
+                params_map,
+                overrides_map,
+            )
+            if matrix is not None:
+                context = replace(context, market=matrix)
+    all_results: dict[str, dict] = {}
+    elapsed_map: dict[str, float] = {}
+    for sid in ordered_ids:
+        t0 = time.perf_counter()
+        # 逐策略隔离: 单个策略崩溃 (如自定义代码的数据类型错误) 只记
+        # 错误跳过, 不让整批剩余策略陪葬 — 其余策略照常算完落缓存。
+        try:
+            single = engine.run_all(
+                context,
+                params_map=params_map,
+                overrides_map=overrides_map,
+                strategy_ids=[sid],
+                parallel=False,
+            )
+            result = single[sid]
+        except Exception as e:
+            logger.warning("run_all: 策略 %s 执行失败, 跳过: %s", sid, e, exc_info=True)
+            handle.fail_one(sid, str(e))
+            continue
+        payload = {
+            "total": result.total,
+            "as_of": str(as_of),
+            "rows": _safe(asdict(result)).get("rows", []),
+            "computed_at": int(time.time() * 1000),
+        }
+        all_results[sid] = payload
+        elapsed_map[sid] = (time.perf_counter() - t0) * 1000
+        # 逐策略增量落盘 (write_cache 同日按 sid 合并), 前端轮询即可逐个看到
+        try:
+            strategy_cache.write_cache(data_dir, str(as_of), {sid: payload})
+        except Exception:
+            logger.warning("run_all 渐进写入缓存失败: %s", sid, exc_info=True)
+        handle.complete(sid, {k: v for k, v in payload.items() if k != "rows"})
+    # 收尾: 与旧版口径一致的整体重写 + 耗时落盘供下次排序
+    if all_results:
+        with contextlib.suppress(Exception):
+            strategy_cache.write_cache(data_dir, str(as_of), all_results)
+    strategy_run_queue.record_run_timings(data_dir, elapsed_map)
+
+
 def _run_all_progressive(
     *,
     repo,
@@ -527,74 +605,32 @@ def _run_all_progressive(
 
     执行全程在单飞执行器里 (见 services/strategy_run_queue.py): 相同请求
     搭车现有执行, 不同请求排队; HTTP 侧只轮询状态快照到首返时限。
+
+    用户隔离: job 在单飞 worker 线程执行, 新线程不继承请求 contextvar,
+    必须在请求线程捕获 uid 后在 job 内用 user_scope() 显式绑定, 否则
+    缓存会写进 users/local/ 降级目录 (M3-3c 同款线程传播坑)。单飞 key
+    同步加 uid: 避免不同用户同参数搭车同一执行, 把结果写进他人目录。
     """
     data_dir = repo.store.data_dir
-    key = (asset_type, timeframe, str(as_of), tuple(sorted(all_ids)))
+    uid = current_user_id()
+    key = (uid or "local", asset_type, timeframe, str(as_of), tuple(sorted(all_ids)))
     ordered_ids = strategy_run_queue.order_strategy_ids(
         all_ids, strategy_run_queue.load_run_timings(data_dir)
     )
 
     def job(handle: strategy_run_queue.StrategyRunHandle) -> None:
-        context = svc.build_strategy_context(
-            engine,
-            as_of,
-            ordered_ids,
-            timeframe=timeframe,
-            params_map=params_map,
-            overrides_map=overrides_map,
-        )
-        # 逐策略 run_all 不会把矩阵回写 context.market → 每个矩阵策略都会重建
-        # 全市场矩阵 (小服务器上单次数秒到十余秒)。这里按字段并集一次建好复用;
-        # FakeEngine 等无该方法的实现跳过 (保持旧行为)。
-        if getattr(context, "market", None) is None:
-            build_matrix = getattr(engine, "build_shared_matrix", None)
-            if callable(build_matrix):
-                matrix = build_matrix(
-                    context,
-                    [(sid, engine.get(sid)) for sid in ordered_ids],
-                    params_map,
-                    overrides_map,
-                )
-                if matrix is not None:
-                    context = replace(context, market=matrix)
-        all_results: dict[str, dict] = {}
-        elapsed_map: dict[str, float] = {}
-        for sid in ordered_ids:
-            t0 = time.perf_counter()
-            # 逐策略隔离: 单个策略崩溃 (如自定义代码的数据类型错误) 只记
-            # 错误跳过, 不让整批剩余策略陪葬 — 其余策略照常算完落缓存。
-            try:
-                single = engine.run_all(
-                    context,
-                    params_map=params_map,
-                    overrides_map=overrides_map,
-                    strategy_ids=[sid],
-                    parallel=False,
-                )
-                result = single[sid]
-            except Exception as e:
-                logger.warning("run_all: 策略 %s 执行失败, 跳过: %s", sid, e, exc_info=True)
-                handle.fail_one(sid, str(e))
-                continue
-            payload = {
-                "total": result.total,
-                "as_of": str(as_of),
-                "rows": _safe(asdict(result)).get("rows", []),
-                "computed_at": int(time.time() * 1000),
-            }
-            all_results[sid] = payload
-            elapsed_map[sid] = (time.perf_counter() - t0) * 1000
-            # 逐策略增量落盘 (write_cache 同日按 sid 合并), 前端轮询即可逐个看到
-            try:
-                strategy_cache.write_cache(data_dir, str(as_of), {sid: payload})
-            except Exception:
-                logger.warning("run_all 渐进写入缓存失败: %s", sid, exc_info=True)
-            handle.complete(sid, {k: v for k, v in payload.items() if k != "rows"})
-        # 收尾: 与旧版口径一致的整体重写 + 耗时落盘供下次排序
-        if all_results:
-            with contextlib.suppress(Exception):
-                strategy_cache.write_cache(data_dir, str(as_of), all_results)
-        strategy_run_queue.record_run_timings(data_dir, elapsed_map)
+        with (user_scope(uid) if uid is not None else contextlib.nullcontext()):
+            _run_all_progressive_job(
+                handle=handle,
+                repo=repo,
+                engine=engine,
+                svc=svc,
+                as_of=as_of,
+                ordered_ids=ordered_ids,
+                timeframe=timeframe,
+                params_map=params_map,
+                overrides_map=overrides_map,
+            )
 
     handle = strategy_run_queue.MANAGER.get_or_submit(key, ordered_ids, job)
     deadline = time.perf_counter() + first_return_s

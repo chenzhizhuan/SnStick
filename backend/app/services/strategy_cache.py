@@ -10,6 +10,7 @@
   }
 
 文件路径: data/user_data/strategy_cache.json
+(v2.3 数据命名空间 M3-3c: 互通形态下按用户隔离 → data/users/<uid>/strategy_cache.json)
 """
 from __future__ import annotations
 
@@ -21,6 +22,8 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+from app.identity.user_context import user_subdir
 
 
 def _json_default(obj: Any) -> Any:
@@ -43,7 +46,8 @@ _file_lock = threading.Lock()
 
 
 def _cache_path(data_dir: Path) -> Path:
-    return data_dir / "user_data" / _CACHE_FILENAME
+    # v2.3 数据命名空间 (M3-3c): 互通形态按用户根隔离, 桌面版/测试目录零改动
+    return user_subdir(data_dir, _CACHE_FILENAME)
 
 
 def _enriched_parquet_path(data_dir: Path, as_of: str) -> Path:
