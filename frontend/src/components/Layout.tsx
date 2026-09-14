@@ -74,7 +74,8 @@ import type { AuthIdentity } from '@/lib/api'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
 
-const CORE_INDEXES = [
+// 核心四只指数 — 与后端 index_const.py 单一权威对齐 (前端展示层固定清单)
+export const CORE_INDEXES = [
   { symbol: '000001.SH', name: '上证指数' },
   { symbol: '399001.SZ', name: '深证成指' },
   { symbol: '399006.SZ', name: '创业板指' },

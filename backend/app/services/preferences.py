@@ -21,6 +21,8 @@ import re
 import threading
 from pathlib import Path
 
+from app.services.fs_utils import atomic_write_text
+
 from app.identity.user_context import user_root
 
 logger = logging.getLogger(__name__)
@@ -206,8 +208,8 @@ def save(updates: dict) -> dict:
             p.parent.mkdir(parents=True, exist_ok=True)
             current = _load_layer(p)
             current.update(updates)
-            p.write_text(
-                json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
+            atomic_write_text(
+                p, json.dumps(current, indent=2, ensure_ascii=False),
             )
             _invalidate_cache_path(p)
             return current
