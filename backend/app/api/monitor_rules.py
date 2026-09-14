@@ -20,6 +20,30 @@ def _data_dir(request: Request) -> Path:
     return request.app.state.repo.store.data_dir
 
 
+def _current_engine(request: Request, *, create: bool = False):
+    """当前请求用户的监控引擎 (v2.3 用户隔离)。
+
+    互通形态: app.state.monitor_engines = {uid: engine}, 取当前登录用户的引擎;
+    create=True 时若引擎不存在则惰性构建注册 (新注册用户首次保存规则场景,
+    启动遍历枚举不到懒创建目录里的新用户)。
+    桌面/未互通形态: app.state.monitor_engine 单引擎 (兼容旧路径)。
+    取不到时返回 None (调用方自行处理)。
+    """
+    multi = getattr(request.app.state, "monitor_engines", None)
+    if isinstance(multi, dict) and multi:
+        from app.identity.user_context import current_user_id
+        uid = current_user_id()
+        if uid is not None:
+            engine = multi.get(uid)
+            if engine is None and create:
+                builder = getattr(request.app.state, "get_monitor_engine_for", None)
+                if builder is not None:
+                    engine = builder(uid)
+            return engine
+        return None
+    return getattr(request.app.state, "monitor_engine", None)
+
+
 def _reconcile_index_asset_type(rule: dict, repo) -> dict:
     """纠正误存为 stock 的指数规则 (asset_type → index)。
 
@@ -41,8 +65,11 @@ def _reconcile_index_asset_type(rule: dict, repo) -> dict:
 
 
 def _sync_engine(request: Request) -> None:
-    """保存/删除后,把最新规则集 reload 到引擎内存态。"""
-    engine = getattr(request.app.state, "monitor_engine", None)
+    """保存/删除后,把最新规则集 reload 到当前用户的引擎内存态。
+
+    引擎不存在时惰性构建 (新用户首存场景), 保证保存即生效。
+    """
+    engine = _current_engine(request, create=True)
     if engine is not None:
         repo = request.app.state.repo
         rules = [
@@ -455,7 +482,7 @@ def test_ladder(request: Request):
 
     repo = request.app.state.repo
     depth_svc = getattr(request.app.state, "depth_service", None)
-    engine = getattr(request.app.state, "monitor_engine", None)
+    engine = _current_engine(request)
 
     if not depth_svc:
         raise HTTPException(status_code=503, detail="depth 服务未初始化")
@@ -570,7 +597,7 @@ def trigger_ladder(request: Request):
 
     repo = request.app.state.repo
     depth_svc = getattr(request.app.state, "depth_service", None)
-    engine = getattr(request.app.state, "monitor_engine", None)
+    engine = _current_engine(request)
     quote_svc = getattr(request.app.state, "quote_service", None)
 
     if not depth_svc:

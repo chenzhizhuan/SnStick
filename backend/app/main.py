@@ -339,40 +339,104 @@ async def _application_lifespan(app: FastAPI):
     if repo.enriched_ready:
         _schedule_matrix_cache_prewarm()
 
-    # 通用监控规则引擎: 启动时 reload 规则到内存态 (修复重启后告警失效)
+    # 通用监控规则引擎: 启动时 reload 规则到内存态 (修复崩溃后告警失效)
     from app.strategy.monitor import MonitorRuleEngine
     from app.strategy import monitor_rules as mr_store
     from app.services import preferences
     from app.services.sector_monitor import SectorMonitorService
-    monitor_engine = MonitorRuleEngine()
+    from app.identity import pool as identity_pool
+    from app.identity.user_context import (
+        iter_user_roots,
+        user_id_of_root,
+        user_scope,
+    )
+
     sector_monitor_service = SectorMonitorService(repo)
-    monitor_engine.set_strategy_engine(strategy_engine)
-    monitor_engine.set_data_dir(store.data_dir)
-    monitor_engine.set_sector_monitor_service(sector_monitor_service)
-    # 复用 ScreenerService 的历史窗口加载器 (三级缓存, 启动预计算命中 ~0ms),
-    # 让声明 filter_history 的策略 (如反包) 也能在实时监控里跑选股 → 盘中触发通知。
-    monitor_engine.set_history_loader(_screener_svc._load_enriched_history)
-    # ETF 版历史加载器: asset_type=etf 的 strategy 型规则用 (读 kline_etf_enriched)。
-    monitor_engine.set_history_loader_etf(_etf_screener_svc._load_enriched_history)
 
-    # 自动迁移: 把旧 strategy_monitor_ids 同步为 type=strategy 规则 (统一到监控页)
-    try:
-        if preferences.get_strategy_monitor_enabled():
-            ids = preferences.get_strategy_monitor_ids()
-            if ids:
-                names = {s["id"]: s["name"] for s in strategy_engine.list_strategies()}
-                mr_store.migrate_strategy_monitors(store.data_dir, ids, names)
-                logger.info("strategy monitor migrated: %d strategies", len(ids))
-    except Exception as e:  # noqa: BLE001
-        logger.warning("strategy monitor migration failed: %s", e)
+    def _build_monitor_engine() -> MonitorRuleEngine:
+        """构建一个监控引擎并注入共享依赖 (策略引擎/数据目录/板块服务/历史加载器)。"""
+        eng = MonitorRuleEngine()
+        eng.set_strategy_engine(strategy_engine)
+        eng.set_data_dir(store.data_dir)
+        eng.set_sector_monitor_service(sector_monitor_service)
+        eng.set_history_loader(_screener_svc._load_enriched_history)
+        eng.set_history_loader_etf(_etf_screener_svc._load_enriched_history)
+        return eng
 
-    try:
-        rules = mr_store.load_all(store.data_dir)
-        monitor_engine.set_rules(rules)
-        logger.info("monitor engine loaded: %d rules", monitor_engine.rule_count)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("monitor engine load failed: %s", e)
-    app.state.monitor_engine = monitor_engine
+    def _load_rules_into(eng: MonitorRuleEngine, rules: list[dict]) -> None:
+        """装载规则并打印日志 (启动期统一口径)。"""
+        eng.set_rules(rules)
+        logger.info("monitor engine loaded: %d rules", eng.rule_count)
+
+    def _migrate_strategy_rules(preferences_mod, strategy_engine_ref) -> None:
+        """把旧 strategy_monitor_ids 同步为 type=strategy 规则 (统一到监控页)。
+
+        幂等且仅在全局开关开启时执行; 在 user_scope 内调用则迁移当前用户自己的
+        监控池 (strategy_monitor_ids 是用户级键)。
+        """
+        try:
+            if preferences_mod.get_strategy_monitor_enabled():
+                ids = preferences_mod.get_strategy_monitor_ids()
+                if ids:
+                    names = {s["id"]: s["name"] for s in strategy_engine_ref.list_strategies()}
+                    mr_store.migrate_strategy_monitors(store.data_dir, ids, names)
+                    logger.info("strategy monitor migrated: %d strategies", len(ids))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("strategy monitor migration failed: %s", e)
+
+    # 互通形态 (v2.3 §5): 监控规则/告警按用户隔离 (每个用户独立引擎实例, 后台评估
+    # 逐用户 user_scope 执行)。启动时遍历所有用户根, 各自加载规则。
+    if identity_pool.is_enabled():
+        engines: dict[str, MonitorRuleEngine] = {}
+        for root in iter_user_roots():
+            uid = root.name
+            eng = _build_monitor_engine()
+            try:
+                with user_scope(uid):
+                    _migrate_strategy_rules(preferences, strategy_engine)
+                    rules = mr_store.load_all(store.data_dir)
+                    _load_rules_into(eng, rules)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("monitor engine load failed for user %s: %s", uid, e)
+            engines[uid] = eng
+        app.state.monitor_engines = engines
+        # 兼容旧引用: 无用户时 monitor_engine 置 None, 逐用户评估走 monitor_engines。
+        app.state.monitor_engine = None
+        logger.info("monitor engines loaded for %d users", len(engines))
+
+        def _get_or_create_monitor_engine(uid: str) -> MonitorRuleEngine:
+            """惰性构建 (新用户缺口): 用户根目录懒创建, 启动遍历可能枚举不到
+            尚未保存过任何数据的新注册用户 —— 首次保存监控规则时在此动态
+            构建并注册, 引擎随后的后台评估轮询自然覆盖。并发安全: setdefault
+            保证同 uid 只有一个实例胜出, 后建的实例直接丢弃。
+            """
+            existing = engines.get(uid)
+            if existing is not None:
+                return existing
+            eng = _build_monitor_engine()
+            try:
+                with user_scope(uid):
+                    _migrate_strategy_rules(preferences, strategy_engine)
+                    rules = mr_store.load_all(store.data_dir)
+                    _load_rules_into(eng, rules)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("monitor engine lazy-init failed for user %s: %s", uid, e)
+            winner = engines.setdefault(uid, eng)
+            if winner is not eng:
+                logger.info("monitor engine lazy-init raced for user %s, reuse existing", uid)
+            return winner
+
+        app.state.get_monitor_engine_for = _get_or_create_monitor_engine
+    else:
+        # 桌面/未互通形态: 保持单引擎 + 原路径 (零改动铁律)。
+        monitor_engine = _build_monitor_engine()
+        _migrate_strategy_rules(preferences, strategy_engine)
+        try:
+            rules = mr_store.load_all(store.data_dir)
+            _load_rules_into(monitor_engine, rules)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("monitor engine load failed: %s", e)
+        app.state.monitor_engine = monitor_engine
     app.state.sector_monitor_service = sector_monitor_service
 
     # 源码内二次开发启动钩子: 仅暴露稳定只读上下文, 单个扩展失败不影响核心启动。

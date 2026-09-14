@@ -522,7 +522,14 @@ def _candidate_service(request: Request):
 
     manager = _manager(request)
     data_dir = request.app.state.repo.store.data_dir
-    monitor_engine = getattr(request.app.state, "monitor_engine", None)
+    # v2.3 用户隔离: 取当前用户的引擎 (互通形态); 桌面形态兼容单引擎
+    multi = getattr(request.app.state, "monitor_engines", None)
+    if isinstance(multi, dict) and multi:
+        from app.identity.user_context import current_user_id
+        uid = current_user_id()
+        monitor_engine = multi.get(uid) if uid is not None else None
+    else:
+        monitor_engine = getattr(request.app.state, "monitor_engine", None)
     service = MiningCandidateService(
         data_dir,
         manager.store,

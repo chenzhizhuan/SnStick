@@ -84,9 +84,13 @@ class QuoteSubscriber:
     多客户端 (多标签页/多设备) 时告警只会被先醒来的连接消费, 其余永远
     收不到; 共享 Event 的 clear/wait 也存在互相吞信号的竞态。
     改为每连接独立订阅者后, 事件对所有客户端广播。
+
+    v2.3 用户隔离: 订阅者绑定所属用户 id —— 互通形态下告警只推给该用户
+    的连接 (user_id=None 时不过滤, 兼容桌面单机/未登录调试场景)。
     """
 
-    def __init__(self, max_alerts: int = 1000, max_reviews: int = 200) -> None:
+    def __init__(self, user_id: str | None = None, max_alerts: int = 1000, max_reviews: int = 200) -> None:
+        self.user_id = user_id
         self._event = threading.Event()
         self._lock = threading.Lock()
         self._max_alerts = max_alerts
@@ -166,6 +170,10 @@ class QuoteSubscriber:
 # 每 30s 持久化一次足够, 避免 expert 档每秒一轮的全量 preferences 重写磁盘。
 _LAST_FETCH_WRITE_INTERVAL_MS = 30_000.0
 _last_fetch_written_at_ms: float = 0.0
+
+# push_alerts/_broadcast_alerts 的 user_id 参数哨兵: 区分「未传参(按当前上下文
+# 用户过滤)」与「显式 None(不过滤, 广播全部)」两种调用语义。
+_ALERTS_FILTER_SENTINEL = object()
 
 
 def _persist_last_fetch(fetched_at_ms: float) -> None:
@@ -404,9 +412,20 @@ class QuoteService:
     # SSE 订阅管理 — 每个 /stream 连接一个订阅者, 事件广播
     # ================================================================
 
-    def subscribe(self) -> QuoteSubscriber:
-        """注册一个 SSE 订阅者 (连接建立时调用)。"""
-        sub = QuoteSubscriber()
+    def subscribe(self, user_id: str | None = None) -> QuoteSubscriber:
+        """注册一个 SSE 订阅者 (连接建立时调用)。
+
+        user_id: 订阅者所属用户 (互通形态告警按用户过滤)。缺省 None 时
+        尝试从当前请求上下文取 (SSE 端点有登录态); 桌面单机/未互通
+        形态下取不到 → 不过滤, 保持原广播行为。
+        """
+        if user_id is None:
+            try:
+                from app.identity.user_context import current_user_id
+                user_id = current_user_id()
+            except Exception:  # noqa: BLE001
+                user_id = None
+        sub = QuoteSubscriber(user_id=user_id)
         with self._lock:
             self._subscribers.add(sub)
         return sub
@@ -444,12 +463,29 @@ class QuoteService:
         for sub in self._snapshot_subscribers():
             sub.notify_depth()
 
-    def _broadcast_alerts(self, alerts: list[dict]) -> None:
+    def _broadcast_alerts(self, alerts: list[dict], user_id: str | None = _ALERTS_FILTER_SENTINEL) -> None:
+        """广播告警到订阅者。
+
+        user_id 语义 (v2.3 用户隔离):
+          - 未传参 (默认哨兵): 用当前上下文用户 (user_scope 内调用) 过滤;
+            无上下文用户时不过滤 (桌面/全局面向所有连接的告警, 如盘口修正)。
+          - 显式 None: 不过滤 (广播全部订阅者)。
+          - 显式用户 id: 只推给该用户的订阅者。
+        """
+        if user_id is _ALERTS_FILTER_SENTINEL:
+            from app.identity.user_context import current_user_id
+            user_id = current_user_id()
         for sub in self._snapshot_subscribers():
+            if user_id is not None and sub.user_id is not None and sub.user_id != user_id:
+                continue
             sub.push_alerts(alerts)
 
-    def push_alerts(self, alerts: list[dict]) -> None:
-        self._broadcast_alerts(alerts)
+    def push_alerts(self, alerts: list[dict], user_id: str | None = _ALERTS_FILTER_SENTINEL) -> None:
+        """面向所有/指定用户的告警广播 (API 层主动推, 如 alerts.py seed)。
+
+        语义同 _broadcast_alerts 的 user_id 参数。
+        """
+        self._broadcast_alerts(alerts, user_id)
 
     def clear_pending_alerts(self) -> None:
         for sub in self._snapshot_subscribers():
@@ -903,8 +939,12 @@ class QuoteService:
             self._flush_live_enriched(etf_daily_df, etf_quote_extra, asset_type="etf")
         # ---- 指数: 仅有指数监控规则时才写盘 (无规则零成本) ----
         # 指数为按码显式拉取 (部分标的) → merge 不截断分区
-        engine = getattr(self._app_state, "monitor_engine", None) if self._app_state else None
-        if engine and engine.has_asset_rules("index") and self._repo:
+        # v2.3 用户隔离: 任一用户引擎有指数规则即写盘 (数据是全局的, 按用户评估)
+        _index_needed = any(
+            eng and eng.has_asset_rules("index")
+            for eng in self._all_monitor_engines()
+        )
+        if _index_needed and self._repo:
             index_daily_df = self._build_daily(index_records)
             if not index_daily_df.is_empty():
                 try:
@@ -923,18 +963,31 @@ class QuoteService:
     # 工具
     # ================================================================
 
+    def _all_monitor_engines(self) -> list:
+        """全部监控引擎集合 (互通形态 = 所有用户引擎; 桌面 = 单引擎)。
+
+        供全局性判断使用 (指数写盘/拉取标的等数据层决策, 不涉及用户作用域)。
+        """
+        if not self._app_state:
+            return []
+        multi = getattr(self._app_state, "monitor_engines", None)
+        if isinstance(multi, dict) and multi:
+            return list(multi.values())
+        single = getattr(self._app_state, "monitor_engine", None)
+        return [single] if single is not None else []
+
     def _collect_monitor_index_symbols(self) -> set[str]:
-        """启用中的指数监控规则标的 (asset_type=index & scope=symbols)。"""
-        engine = getattr(self._app_state, "monitor_engine", None) if self._app_state else None
-        if not engine:
-            return set()
+        """启用中的指数监控规则标的 (asset_type=index & scope=symbols)。
+
+        v2.3 用户隔离: 聚合所有用户引擎的指数标的 (拉取是全局数据层行为)。
+        """
         out: set[str] = set()
-        for _r in list(engine.rules.values()):
-            if _r.get("enabled", True) and _r.get("asset_type") == "index" and _r.get("scope") == "symbols":
-                out.update(s for s in _r.get("symbols", []) if s)
+        for engine in self._all_monitor_engines():
+            for _r in list(engine.rules.values()):
+                if _r.get("enabled", True) and _r.get("asset_type") == "index" and _r.get("scope") == "symbols":
+                    out.update(s for s in _r.get("symbols", []) if s)
         return out
 
-    @staticmethod
     @staticmethod
     def _build_daily(records: list[dict]) -> pl.DataFrame:
         """将 API records 转为日K格式 DataFrame (OHLCV + quote_ts, 写 kline_daily 用)。"""
@@ -1157,17 +1210,55 @@ class QuoteService:
     # ================================================================
 
     def _evaluate_monitors(self, daily_df: pl.DataFrame, quote_extra: pl.DataFrame | None) -> None:
-        """行情更新后评估统一监控规则引擎,并刷新策略结果缓存。"""
+        """行情更新后评估统一监控规则引擎,并刷新策略结果缓存。
+
+        互通形态 (v2.3 §5): 每个用户独立引擎实例 (app.state.monitor_engines),
+        逐用户 user_scope 评估 —— 规则/告警按用户隔离, 后台线程无请求上下文,
+        必须显式切换作用域后读该用户规则、写该用户告警。
+        桌面/未互通形态: 单引擎 (app.state.monitor_engine), 原逻辑零改动。
+        """
         try:
             # 仅在「交易日 + 连续竞价时段」评估监控 —— 避开集合竞价指示价、盘前/收盘后
             # 缓冲。轮询窗口(_is_trading_hours)更宽是为盘前预热/收盘捕捉, 但告警不应
             # 基于这些非连续竞价价格。
             if not self._is_continuous_trading():
                 return
-            # 获取 enriched 数据 (刚算好的)
+
+            from app.identity.user_context import user_scope
+
+            engines: dict[str, object] = {}
+            if self._app_state:
+                multi = getattr(self._app_state, "monitor_engines", None)
+                if isinstance(multi, dict) and multi:
+                    engines = multi
+                else:
+                    single = getattr(self._app_state, "monitor_engine", None)
+                    if single is not None:
+                        engines = {None: single}
+
+            # 逐用户 (或单用户) 评估
+            for uid, engine in list(engines.items()):
+                try:
+                    if uid is None:
+                        self._evaluate_monitors_for_engine(engine, daily_df, quote_extra)
+                    else:
+                        with user_scope(uid):
+                            self._evaluate_monitors_for_engine(engine, daily_df, quote_extra)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("监控评估失败 (user=%s): %s", uid, e)
+
+        except Exception as e:  # noqa: BLE001
+            logger.warning("监控评估失败: %s", e)
+
+    def _evaluate_monitors_for_engine(
+        self, engine, daily_df: pl.DataFrame, quote_extra: pl.DataFrame | None
+    ) -> None:
+        """对单个引擎执行完整评估: 股票/板块/异动/日期/ETF/指数轮 → 落盘 + SSE + 通知。
+
+        与原单引擎逻辑一致; 由 _evaluate_monitors 在用户作用域内逐引擎调用。
+        """
+        try:
             enriched_today, enriched_date = self.get_enriched_today()
-            # 股票快照就绪 = 非空 + 日期为当日。未就绪时仅跳过股票轮,
-            # ETF/指数轮有各自的空表+日期守卫, 不受影响 (纯指数行情/自选场景可独立评估)。
             stock_ready = (not enriched_today.is_empty()) and (enriched_date == cn_today())
             if not stock_ready:
                 logger.debug("股票快照未就绪(空=%s, 日期=%s), 跳过股票轮",
@@ -1175,144 +1266,125 @@ class QuoteService:
 
             all_alerts: list[dict] = []
             rule_events: list[dict] = []
-            engine = None
 
-            # 通用监控规则评估 (统一引擎: signal/price/market/strategy)
-            if self._app_state:
-                engine = getattr(self._app_state, "monitor_engine", None)
-                if engine and engine.rule_count > 0:
-                    # 预构建 symbol → name 映射 (enriched 已 drop name 列, 引擎触发时回填用)。
-                    # 股票 + ETF + 指数三表合并走 _monitor_name_map -> repo.get_name_map()
-                    # 的进程内 memo, 避免每轮监控对 ~7000 行维表 iter_rows 重建。
+            if not engine or engine.rule_count <= 0:
+                return
+
+            # 预构建 symbol → name 映射 (enriched 已 drop name 列, 引擎触发时回填用)
+            try:
+                name_map = _monitor_name_map(self._app_state.repo)
+                if name_map:
+                    engine.set_name_map(name_map)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("name_map 构建失败 (不影响监控): %s", e)
+            # 股票轮: 快照未就绪时跳过 (ladder 封单也依赖股票快照日期, 一并跳过)
+            if stock_ready:
+                eval_df = enriched_today
+                if engine.has_rule_type("ladder"):
+                    eval_df = self._inject_sealed_vol(enriched_today, enriched_date)
+                if engine.has_rule_type("volume_delta"):
+                    eval_df = self._inject_volume_delta(eval_df)
+                eval_df = self._inject_intraday_signals(eval_df, engine, "stock")
+                rule_events = engine.evaluate(eval_df, asset_type="stock")
+                if engine.consume_strategy_result_updates():
+                    self.notify_strategy_results_updated()
+            if engine.has_rule_type("sector"):
+                rule_events += engine.evaluate_sectors(
+                    enriched_today if stock_ready else pl.DataFrame(),
+                    self.get_index_quotes(),
+                )
+            # 异动边缘规则轮: 30s 限频
+            if engine.has_rule_type("abnormal") and self._repo is not None:
+                _now_ts = time.time()
+                if _now_ts - self._abnormal_last_eval >= 30.0:
+                    self._abnormal_last_eval = _now_ts
                     try:
-                        name_map = _monitor_name_map(self._app_state.repo)
-                        if name_map:
-                            engine.set_name_map(name_map)
-                    except Exception as e:  # noqa: BLE001
-                        logger.debug("name_map 构建失败 (不影响监控): %s", e)
-                    # 股票轮: 快照未就绪时跳过 (ladder 封单也依赖股票快照日期, 一并跳过)
-                    if stock_ready:
-                        eval_df = enriched_today
-                        if engine.has_rule_type("ladder"):
-                            eval_df = self._inject_sealed_vol(enriched_today, enriched_date)
-                        if engine.has_rule_type("volume_delta"):
-                            eval_df = self._inject_volume_delta(eval_df)
-                        eval_df = self._inject_intraday_signals(eval_df, engine, "stock")
-                        rule_events = engine.evaluate(eval_df, asset_type="stock")
-                        if engine.consume_strategy_result_updates():
-                            self.notify_strategy_results_updated()
-                    if engine.has_rule_type("sector"):
-                        rule_events += engine.evaluate_sectors(
-                            enriched_today if stock_ready else pl.DataFrame(),
-                            self.get_index_quotes(),
+                        from app.services import abnormal_moves
+                        _overview = abnormal_moves.build_overview(
+                            self._repo, self,
+                            min_closeness=engine.min_abnormal_closeness(),
+                            limit=1000,
                         )
-                    # 异动边缘规则轮: 快照 (enriched 偏离列 + 实时叠加) 由
-                    # abnormal_moves.build_overview 统一构建, 引擎只做边缘触发判定。
-                    # 30s 限频 —— 快照历史部分 60s 缓存, 无需跟行情轮询同频重算。
-                    if engine.has_rule_type("abnormal") and self._repo is not None:
-                        _now_ts = time.time()
-                        if _now_ts - self._abnormal_last_eval >= 30.0:
-                            self._abnormal_last_eval = _now_ts
-                            try:
-                                from app.services import abnormal_moves
-                                _overview = abnormal_moves.build_overview(
-                                    self._repo, self,
-                                    min_closeness=engine.min_abnormal_closeness(),
-                                    limit=1000,
-                                )
-                                rule_events += engine.evaluate_abnormal(_overview.get("rows") or [])
-                            except Exception as e:  # noqa: BLE001
-                                logger.warning("异动监控规则评估失败 (不影响其他告警): %s", e)
-                    # 日期提醒轮: 纯日历、无行情, 已在盘中; 引擎内按天 cooldown 保证每天一次
-                    if engine.has_rule_type("date"):
-                        try:
-                            rule_events = rule_events + engine.evaluate_date_rules()
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning("日期提醒评估失败 (不影响其他告警): %s", e)
-                    # ETF 规则轮: 股票快照不含 ETF, 用 ETF enriched 快照单独评估。
-                    # 独立 try —— ETF 轮任何异常都不得丢弃本轮已算出的股票告警。
-                    # refresh=False —— 不在轮询线程上触发 ETF 冷缓存的同步重算 (缓存由 ETF 实时
-                    # flush 焐热; 未焐热说明无 ETF 实时数据, 跳过本轮 ETF 评估)。
-                    if engine.has_asset_rules("etf") and self._repo is not None:
-                        try:
-                            etf_enriched, _ = self._repo.get_enriched_latest_asset("etf", refresh=False)
-                            if not etf_enriched.is_empty():
-                                etf_enriched = self._inject_intraday_signals(etf_enriched, engine, "etf")
-                                rule_events = rule_events + engine.evaluate(
-                                    etf_enriched, asset_type="etf", reset_strategy_results=False,
-                                )
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning("ETF 监控评估失败 (不影响股票告警): %s", e)
-                    # 指数规则轮: 复刻 ETF 轮。快照由指数实时 flush 焐热;
-                    # refresh=False 冷缓存不同步重算; 显式日期守卫防陈旧 parquet 误告警
-                    # (ETF 轮靠空表隐式跳过, 指数轮更显式, 行为等价)。
-                    if engine.has_asset_rules("index") and self._repo is not None:
-                        try:
-                            index_enriched, index_date = self._repo.get_enriched_latest_asset("index", refresh=False)
-                            if not index_enriched.is_empty() and index_date == cn_today():
-                                index_enriched = self._inject_intraday_signals(index_enriched, engine, "index")
-                                rule_events = rule_events + engine.evaluate(
-                                    index_enriched, asset_type="index", reset_strategy_results=False,
-                                )
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning("指数监控评估失败 (不影响股票/ETF 告警): %s", e)
-                    if rule_events:
-                        rule_events = self._format_extension_notifications(rule_events)
-                        # 落盘到 alerts.jsonl
-                        try:
-                            from app.services import alert_store
-                            alert_store.append_many(
-                                self._app_state.repo.store.data_dir, rule_events,
-                            )
-                        except Exception as e:  # noqa: BLE001
-                            logger.warning("告警落盘失败: %s", e)
-                        # 转为 SSE 推送格式 (兼容旧 alert schema)
-                        for ev in rule_events:
-                            alert = {
-                                "source": ev["source"],
-                                "type": ev["type"],
-                                "rule_id": ev.get("rule_id"),
-                                "strategy_id": ev.get("strategy_id") if ev["source"] == "strategy" else None,
-                                "symbol": ev["symbol"],
-                                "name": ev["name"],
-                                "message": ev["message"],
-                                "price": ev["price"],
-                                "change_pct": ev["change_pct"],
-                                "signals": ev["signals"],
-                                "severity": ev.get("severity", "info"),
-                                "conditions": ev.get("conditions") or [],
-                                "logic": ev.get("logic") or "and",
-                            }
-                            for key in (
-                                "sector_kind", "sector_key", "sector_name",
-                                "sector_source_field", "sector_value", "sector_level",
-                                "window_change_pct", "coverage_ratio", "valid_count",
-                                "total_count", "up_count", "down_count", "leader",
-                                "abnormal_window", "abnormal_value", "abnormal_threshold",
-                                "abnormal_closeness", "volume_delta", "volume_delta_span",
-                                "volume_delta_amount",
-                            ):
-                                if key in ev:
-                                    alert[key] = ev[key]
-                            all_alerts.append(alert)
+                        rule_events += engine.evaluate_abnormal(_overview.get("rows") or [])
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("异动监控规则评估失败 (不影响其他告警): %s", e)
+            # 日期提醒轮
+            if engine.has_rule_type("date"):
+                try:
+                    rule_events = rule_events + engine.evaluate_date_rules()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("日期提醒评估失败 (不影响其他告警): %s", e)
+            # ETF 规则轮
+            if engine.has_asset_rules("etf") and self._repo is not None:
+                try:
+                    etf_enriched, _ = self._repo.get_enriched_latest_asset("etf", refresh=False)
+                    if not etf_enriched.is_empty():
+                        etf_enriched = self._inject_intraday_signals(etf_enriched, engine, "etf")
+                        rule_events = rule_events + engine.evaluate(
+                            etf_enriched, asset_type="etf", reset_strategy_results=False,
+                        )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("ETF 监控评估失败 (不影响股票告警): %s", e)
+            # 指数规则轮
+            if engine.has_asset_rules("index") and self._repo is not None:
+                try:
+                    index_enriched, index_date = self._repo.get_enriched_latest_asset("index", refresh=False)
+                    if not index_enriched.is_empty() and index_date == cn_today():
+                        index_enriched = self._inject_intraday_signals(index_enriched, engine, "index")
+                        rule_events = rule_events + engine.evaluate(
+                            index_enriched, asset_type="index", reset_strategy_results=False,
+                        )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("指数监控评估失败 (不影响股票/ETF 告警): %s", e)
 
-            # 策略页实时回显: 不写文件 (实时行情每轮更新 enriched, 写文件会被 read_cache
-            # 的 mtime 校验判过期, 反复读不到)。监控引擎本轮已算出的结果存在内存
-            # (latest_strategy_results), 由 /api/screener/cached 端点直接叠加读取。
+            if rule_events:
+                rule_events = self._format_extension_notifications(rule_events)
+                # 落盘到 alerts.jsonl (user_scope 内 → 用户隔离路径)
+                try:
+                    from app.services import alert_store
+                    alert_store.append_many(
+                        self._app_state.repo.store.data_dir, rule_events,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("告警落盘失败: %s", e)
+                # 转为 SSE 推送格式 (兼容旧 alert schema)
+                for ev in rule_events:
+                    alert = {
+                        "source": ev["source"],
+                        "type": ev["type"],
+                        "rule_id": ev.get("rule_id"),
+                        "strategy_id": ev.get("strategy_id") if ev["source"] == "strategy" else None,
+                        "symbol": ev["symbol"],
+                        "name": ev["name"],
+                        "message": ev["message"],
+                        "price": ev["price"],
+                        "change_pct": ev["change_pct"],
+                        "signals": ev["signals"],
+                        "severity": ev.get("severity", "info"),
+                        "conditions": ev.get("conditions") or [],
+                        "logic": ev.get("logic") or "and",
+                    }
+                    for key in (
+                        "sector_kind", "sector_key", "sector_name",
+                        "sector_source_field", "sector_value", "sector_level",
+                        "window_change_pct", "coverage_ratio", "valid_count",
+                        "total_count", "up_count", "down_count", "leader",
+                        "abnormal_window", "abnormal_value", "abnormal_threshold",
+                        "abnormal_closeness", "volume_delta", "volume_delta_span",
+                        "volume_delta_amount",
+                    ):
+                        if key in ev:
+                            alert[key] = ev[key]
+                    all_alerts.append(alert)
 
-            # 广播到所有 SSE 订阅者 (背压保护在订阅者队列内做)
+            # 广播到 SSE 订阅者 (user_scope 内: 该用户的订阅者才收到)
             if all_alerts:
-                # 按 symbol 富化行业/概念 ext 字段, 使 toast + 触发记录统一展示板块标签。
                 self._enrich_alerts_ext(all_alerts)
                 self._broadcast_alerts(all_alerts)
                 logger.info("监控评估完成: %d 条通知", len(all_alerts))
-
-                # 系统通知 (可选通道, 由 preferences 开关控制)。
-                # cooldown 去重已在 MonitorRuleEngine 做过, 这里只负责转发。
                 self._maybe_send_system_notifications(all_alerts)
 
-            # Webhook 推送 (飞书等外部 IM, 由规则 webhook_channels 指定渠道)。
-            # 紧随系统通知, 同样静默降级不阻断主流程。
+            # Webhook 推送 (外部 IM)
             if rule_events:
                 self._maybe_send_webhook(rule_events, engine)
 

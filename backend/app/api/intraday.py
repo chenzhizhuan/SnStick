@@ -130,13 +130,22 @@ async def quote_stream(request: Request):
     """
     qs = _get_quote_service(request)
 
+    # v2.3 用户隔离: 在端点函数体内显式捕获当前用户 —— SSE generator 的迭代
+    # 发生在响应流式发送阶段, 其任务上下文随 Starlette 版本/中间件实现变化,
+    # 显式传入比依赖 contextvar 拷贝语义更稳。桌面形态取不到 → None → 不过滤。
+    try:
+        from app.identity.user_context import current_user_id
+        stream_user_id = current_user_id()
+    except Exception:  # noqa: BLE001
+        stream_user_id = None
+
     async def event_generator():
         if qs is None:
             # 无行情服务: 保持连接 (EventSourceResponse 自带 ping), 不推事件
             while True:
                 await asyncio.sleep(30)
 
-        sub = qs.subscribe()
+        sub = qs.subscribe(user_id=stream_user_id)
         try:
             while True:
                 # 等待任一通道有新信号 (5s 超时保持循环, 便于断线时尽快退出)

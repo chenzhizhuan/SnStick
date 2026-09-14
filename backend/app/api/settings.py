@@ -1085,10 +1085,15 @@ def update_realtime_monitor_config(req: RealtimeMonitorConfigIn, request: Reques
 
     # 策略监控开关/池变化 → 同步迁移为 type=strategy 规则 + reload 引擎
     if req.strategy_monitor_ids is not None or req.strategy_monitor_enabled is not None:
-        monitor_engine = getattr(request.app.state, "monitor_engine", None)
+        # v2.3 用户隔离: 互通形态逐用户引擎全部 reload (规则按用户存储, 需逐用户迁移)
+        multi = getattr(request.app.state, "monitor_engines", None)
+        engines: list = list(multi.values()) if isinstance(multi, dict) and multi else []
+        single = getattr(request.app.state, "monitor_engine", None)
+        if single is not None:
+            engines.append(single)
         strategy_engine = getattr(request.app.state, "strategy_engine", None)
         data_dir = request.app.state.repo.store.data_dir
-        if monitor_engine is not None and strategy_engine is not None:
+        if engines and strategy_engine is not None:
             from app.strategy import monitor_rules as mr_store
             try:
                 if preferences.get_strategy_monitor_enabled():
@@ -1099,7 +1104,8 @@ def update_realtime_monitor_config(req: RealtimeMonitorConfigIn, request: Reques
                     # 关闭策略监控: 停用所有策略规则
                     mr_store.migrate_strategy_monitors(data_dir, [], {})
                 # reload 规则到引擎
-                monitor_engine.set_rules(mr_store.load_all(data_dir))
+                for monitor_engine in engines:
+                    monitor_engine.set_rules(mr_store.load_all(data_dir))
             except Exception:
                 pass
 

@@ -335,7 +335,14 @@ def _cached_with_realtime(request: Request) -> dict:
         cached = {"as_of": None, "results": {}, "updated_at": None}
 
     # 叠加监控引擎内存里的实时结果 (若有), 用新鲜数据覆盖同策略的盘后结果
-    monitor_engine = getattr(request.app.state, "monitor_engine", None)
+    # (v2.3 用户隔离: 取当前用户的引擎)
+    multi = getattr(request.app.state, "monitor_engines", None)
+    if isinstance(multi, dict) and multi:
+        from app.identity.user_context import current_user_id
+        uid = current_user_id()
+        monitor_engine = multi.get(uid) if uid is not None else None
+    else:
+        monitor_engine = getattr(request.app.state, "monitor_engine", None)
     if monitor_engine is not None:
         realtime_results = monitor_engine.latest_strategy_results()
         if realtime_results:

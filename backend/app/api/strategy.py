@@ -65,12 +65,24 @@ def _data_dir(request: Request) -> Path:
     return request.app.state.repo.store.data_dir
 
 
+def _current_monitor_engines(request: Request) -> list:
+    """待失效/重载的监控引擎集合 (v2.3 用户隔离)。
+
+    互通形态: 策略删除/保存影响所有用户的引擎 (策略实体是全局共享的),
+    返回全部用户引擎; 桌面形态: 返回单引擎 (可能为 None)。
+    """
+    multi = getattr(request.app.state, "monitor_engines", None)
+    if isinstance(multi, dict) and multi:
+        return list(multi.values())
+    engine = getattr(request.app.state, "monitor_engine", None)
+    return [engine] if engine is not None else []
+
+
 def _invalidate_strategy_runtime(request: Request) -> None:
     from app.services import strategy_cache
 
     strategy_cache.clear_cache(_data_dir(request))
-    monitor_engine = getattr(request.app.state, "monitor_engine", None)
-    if monitor_engine is not None:
+    for monitor_engine in _current_monitor_engines(request):
         monitor_engine.invalidate_strategy_state()
 
 
@@ -130,9 +142,11 @@ def _cleanup_deleted_strategy(request: Request, strategy_id: str) -> list[str]:
                 monitor_rules.save_one(data_dir, rule)
                 rules_changed = True
 
-        monitor_engine = getattr(request.app.state, "monitor_engine", None)
-        if rules_changed and monitor_engine is not None:
-            monitor_engine.set_rules(monitor_rules.load_all(data_dir))
+        engines = _current_monitor_engines(request)
+        if rules_changed and engines:
+            rules = monitor_rules.load_all(data_dir)
+            for monitor_engine in engines:
+                monitor_engine.set_rules(rules)
     except Exception as e:
         warnings.append(f"关联监控清理失败: {e}")
 
