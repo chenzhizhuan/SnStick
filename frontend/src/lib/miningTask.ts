@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from 'react'
 import { api, type MiningResult, type MiningRun, type MiningRunProgress, type MiningRunStatus } from './api'
+import { userKeyOf } from './storage'
+
+// 用户级 key: 互通形态下重连只认本人任务, 不会重连到其他账号的 run;
+// 桌面版前缀为空, 行为与升级前一致。
 
 export interface MiningTask {
   runId: string | null
@@ -14,6 +18,8 @@ export interface MiningTask {
 }
 
 const ACTIVE_RUN_KEY = 'mining_active_run_id'
+// 实际存取 key (带用户前缀)。各读写点统一走此函数。
+const runKey = () => userKeyOf(ACTIVE_RUN_KEY)
 const TERMINAL_STATES = new Set<MiningRunStatus>([
   'succeeded',
   'succeeded_with_budget_exhausted',
@@ -101,7 +107,7 @@ async function refreshTerminalRun(
       if (result.run_id !== runId) throw new Error('任务结果与运行 ID 不匹配')
     }
     if (current.runId !== runId || connectionToken !== token) return
-    localStorage.removeItem(ACTIVE_RUN_KEY)
+    localStorage.removeItem(runKey())
     update({
       run,
       progress: run.progress ?? current.progress,
@@ -113,7 +119,7 @@ async function refreshTerminalRun(
     })
   } catch (error) {
     if (current.runId !== runId || connectionToken !== token) return
-    localStorage.removeItem(ACTIVE_RUN_KEY)
+    localStorage.removeItem(runKey())
     const run = current.run && fallbackStatus
       ? { ...current.run, status: fallbackStatus, error: fallbackError || current.run.error }
       : current.run
@@ -235,7 +241,7 @@ function connect(runId: string) {
 
 export async function startMining(payload: Parameters<typeof api.miningStart>[0]) {
   closeEvents()
-  localStorage.removeItem(ACTIVE_RUN_KEY)
+  localStorage.removeItem(runKey())
   const token = connectionToken
   update({
     runId: null,
@@ -251,7 +257,7 @@ export async function startMining(payload: Parameters<typeof api.miningStart>[0]
   try {
     const run = await api.miningStart(payload)
     if (connectionToken !== token || current.runId !== null) return
-    localStorage.setItem(ACTIVE_RUN_KEY, run.run_id)
+    localStorage.setItem(runKey(), run.run_id)
     update({
       runId: run.run_id,
       run,
@@ -277,7 +283,7 @@ export async function startMining(payload: Parameters<typeof api.miningStart>[0]
  */
 export async function startAutoMining(payload: Parameters<typeof api.miningAutoStart>[0]) {
   closeEvents()
-  localStorage.removeItem(ACTIVE_RUN_KEY)
+  localStorage.removeItem(runKey())
   const token = connectionToken
   update({
     runId: null,
@@ -295,7 +301,7 @@ export async function startAutoMining(payload: Parameters<typeof api.miningAutoS
     if (connectionToken !== token || current.runId !== null) return
     if (data.started && data.run) {
       const run = data.run
-      localStorage.setItem(ACTIVE_RUN_KEY, run.run_id)
+      localStorage.setItem(runKey(), run.run_id)
       update({
         runId: run.run_id,
         run,
@@ -392,13 +398,13 @@ export async function attachMiningRun(runId: string): Promise<boolean> {
     if (TERMINAL_STATES.has(run.status)) {
       await refreshTerminalRun(runId, run.status, run, token)
     } else {
-      localStorage.setItem(ACTIVE_RUN_KEY, runId)
+      localStorage.setItem(runKey(), runId)
       connect(runId)
     }
     return true
   } catch (error) {
     if (current.runId !== runId || connectionToken !== token) return false
-    localStorage.removeItem(ACTIVE_RUN_KEY)
+    localStorage.removeItem(runKey())
     update({
       isPending: false,
       reconnecting: false,
@@ -409,7 +415,7 @@ export async function attachMiningRun(runId: string): Promise<boolean> {
 }
 
 export function tryReconnectMining(): boolean {
-  const runId = localStorage.getItem(ACTIVE_RUN_KEY)
+  const runId = localStorage.getItem(runKey())
   if (!runId) return false
   void attachMiningRun(runId)
   return true
@@ -417,7 +423,7 @@ export function tryReconnectMining(): boolean {
 
 export function clearMiningTask() {
   closeEvents()
-  localStorage.removeItem(ACTIVE_RUN_KEY)
+  localStorage.removeItem(runKey())
   current = {
     runId: null,
     isPending: false,

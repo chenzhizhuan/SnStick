@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from 'react'
+import { userKeyOf } from './storage'
 
 /**
  * 参数优化任务管理 (SSE 模式 + 重连)。镜像 backtestTask, 结果为排名 dict。
+ * 重连键为用户级: 互通形态只重连本人任务, 不串其他账号。
  */
 
 export interface OptimizeProgress {
@@ -86,6 +88,9 @@ const MAX_RECONNECT = 5
 
 const RECONNECT_KEY = 'optimizer_reconnect'
 const JOB_KEY_KEY = 'optimizer_job_key'
+// 实际存取 key (带用户前缀); 桌面版前缀为空, 行为不变。
+const reconnectKey = () => userKeyOf(RECONNECT_KEY)
+const jobKeyKey = () => userKeyOf(JOB_KEY_KEY)
 
 function emit() {
   listeners.forEach(fn => fn())
@@ -122,15 +127,15 @@ function connectSSE(url: string): void {
       const key = JSON.parse(e.data)?.key
       if (key) {
         currentJobKey = key
-        localStorage.setItem(JOB_KEY_KEY, key)
+        localStorage.setItem(jobKeyKey(), key)
         // 竞态修复: stop 在拿到 key 前被点过 -> 现在补发 cancel 真正停后端任务, 再收尾关闭。
         if (cancelRequested) {
           postCancel(key)
           es.close()
           eventSource = null
           currentJobKey = null
-          localStorage.removeItem(RECONNECT_KEY)
-          localStorage.removeItem(JOB_KEY_KEY)
+          localStorage.removeItem(reconnectKey())
+          localStorage.removeItem(jobKeyKey())
         }
       }
     } catch { /* ignore */ }
@@ -159,8 +164,8 @@ function connectSSE(url: string): void {
     es.close()
     eventSource = null
     currentJobKey = null
-    localStorage.removeItem(RECONNECT_KEY)
-    localStorage.removeItem(JOB_KEY_KEY)
+    localStorage.removeItem(reconnectKey())
+    localStorage.removeItem(jobKeyKey())
   })
 
   es.addEventListener('error', (e: MessageEvent) => {
@@ -177,8 +182,8 @@ function connectSSE(url: string): void {
       es.close()
       eventSource = null
       currentJobKey = null
-      localStorage.removeItem(RECONNECT_KEY)
-      localStorage.removeItem(JOB_KEY_KEY)
+      localStorage.removeItem(reconnectKey())
+      localStorage.removeItem(jobKeyKey())
       return
     }
     // 无 data: 连接异常断开。EventSource 会自动重连, 但设上限避免网络长断时无限 pending。
@@ -188,8 +193,8 @@ function connectSSE(url: string): void {
         es.close()
         eventSource = null
         // 清 localStorage: 否则刷新页面 tryReconnect 会重连到这个已放弃的任务。
-        localStorage.removeItem(RECONNECT_KEY)
-        localStorage.removeItem(JOB_KEY_KEY)
+        localStorage.removeItem(reconnectKey())
+        localStorage.removeItem(jobKeyKey())
         current = { ...current, isPending: false, error: '连接中断, 重连多次失败' }
         emit()
       }
@@ -244,7 +249,7 @@ export function startOptimize(params: StartOptimizeParams): void {
     holding_days: params.holding_days,
   })
 
-  localStorage.setItem(RECONNECT_KEY, qs)
+  localStorage.setItem(reconnectKey(), qs)
   connectSSE(`/api/backtest/optimize/stream?${qs}`)
 }
 
@@ -253,13 +258,13 @@ export function stopOptimize(): void {
   // 有 key 则立即取消并关闭; 无 key 则保持 SSE 打开, 等 job 事件到达时补发 cancel 再关
   // (关闭 SSE 不会停后端 daemon 线程, 必须真正 POST cancel)。5s 兜底防 job 事件永不来。
   cancelRequested = true
-  const jobKey = currentJobKey ?? localStorage.getItem(JOB_KEY_KEY)
+  const jobKey = currentJobKey ?? localStorage.getItem(jobKeyKey())
   if (jobKey) {
     postCancel(jobKey)
     if (eventSource) { eventSource.close(); eventSource = null }
     currentJobKey = null
-    localStorage.removeItem(RECONNECT_KEY)
-    localStorage.removeItem(JOB_KEY_KEY)
+    localStorage.removeItem(reconnectKey())
+    localStorage.removeItem(jobKeyKey())
   } else if (eventSource) {
     // 保持连接等 job 事件; 兜底: 5s 后仍没 key 就强关并清 localStorage,
     // 避免刷新重连到未取消任务。(若期间 job 到达, handler 已清并置 null, 下面条件不成立跳过)
@@ -267,8 +272,8 @@ export function stopOptimize(): void {
     setTimeout(() => {
       if (es === eventSource) {
         es.close(); eventSource = null
-        localStorage.removeItem(RECONNECT_KEY)
-        localStorage.removeItem(JOB_KEY_KEY)
+        localStorage.removeItem(reconnectKey())
+        localStorage.removeItem(jobKeyKey())
       }
     }, 5000)
   }
@@ -284,7 +289,7 @@ export function clearOptimize(): void {
 }
 
 export function tryReconnectOptimize(): boolean {
-  const qs = localStorage.getItem(RECONNECT_KEY)
+  const qs = localStorage.getItem(reconnectKey())
   if (!qs) return false
   const id = ++taskSeq
   current = { id, isPending: true, result: null, progress: null, error: null }

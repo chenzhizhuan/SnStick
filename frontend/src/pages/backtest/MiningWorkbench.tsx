@@ -43,11 +43,14 @@ import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { useToggleRealtimeQuotes } from '@/lib/useSharedMutations'
 import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
+import { userKeyOf } from '@/lib/storage'
 import { FactorCorrelationHeatmap } from './charts/FactorCorrelationHeatmap'
 import { MiningOosChart } from './charts/MiningOosChart'
 import { RegimeComparisonChart } from './charts/RegimeComparisonChart'
 
 const DRAFT_KEY = 'mining_workbench_draft_v1'
+// 用户级: 草稿属于个人工作现场, 互通形态带 u:<uid>: 前缀隔离, 桌面版无前缀
+const draftStorageKey = () => userKeyOf(DRAFT_KEY)
 const TODAY = new Date().toISOString().slice(0, 10)
 const INPUT = 'h-8 w-full rounded-input border border-border bg-surface px-2 text-xs text-foreground outline-none transition-colors focus:border-accent'
 const LABEL = 'mb-1 block text-[10px] font-medium text-secondary'
@@ -118,7 +121,7 @@ const DEFAULT_DRAFT: MiningDraft = {
 
 function loadDraft(): MiningDraft {
   try {
-    const value = JSON.parse(localStorage.getItem(DRAFT_KEY) || '')
+    const value = JSON.parse(localStorage.getItem(draftStorageKey()) || '')
     if (!value || typeof value !== 'object') return DEFAULT_DRAFT
     return { ...DEFAULT_DRAFT, ...value }
   } catch {
@@ -400,7 +403,7 @@ export function MiningWorkbench() {
   const configQuery = useQuery({ queryKey: QK.miningConfig, queryFn: api.miningConfig })
 
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+    localStorage.setItem(draftStorageKey(), JSON.stringify(draft))
   }, [draft])
 
   useEffect(() => {

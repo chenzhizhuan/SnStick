@@ -45,8 +45,33 @@ const queryClient = new QueryClient({
   },
 })
 
+/**
+ * 用户级 localStorage 命名空间 (v2.3 多用户隔离前端侧):
+ *   - 登录身份就绪后设置前缀 `u:<user_id>:`, 用户级 key (策略池/草稿/回测残留/
+ *     last_stock 等) 按账号隔离;
+ *   - 身份变化 (换账号登录 / 登出后换人) → 清旧前缀 + 无前缀历史残留,
+ *     防止账号 A 的浏览器本地状态串到账号 B。
+ * 桌面版/单密码形态: /me 404 → 无前缀, 行为与升级前完全一致。
+ */
+async function initUserKeyNamespace() {
+  try {
+    const { api } = await import('./lib/api')
+    const me = await api.authMe()
+    if (me?.identity?.user_id) {
+      const { setActiveUserKeyPrefix, clearUserScopedKeys } = await import('./lib/storage')
+      const prefix = `u:${me.identity.user_id}:`
+      setActiveUserKeyPrefix(prefix)
+      // 该浏览器上次登录的是其他账号 → 旧数据对当前账号不可见, 直接清
+      clearUserScopedKeys(prefix)
+    }
+  } catch {
+    // 401 (未登录, 登录页流程) / 404 (桌面版) / 网络异常 → 不设前缀, 走默认
+  }
+}
+
 async function bootstrap() {
   await initializeFrontendExtensions()
+  await initUserKeyNamespace()
   const { router } = await import('./router')
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

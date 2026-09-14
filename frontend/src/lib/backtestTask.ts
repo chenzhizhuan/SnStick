@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { StrategyBacktestResult } from './api'
+import { userKeyOf } from './storage'
 
 /**
  * 全局回测任务管理 (SSE 模式 + 任务缓存 + 重连支持)。
@@ -10,6 +11,7 @@ import type { StrategyBacktestResult } from './api'
  * - 切页/刷新保持: 后端按参数 hash 缓存任务, 重连不重启
  *   - 切页: 模块级 store 保持, EventSource 随组件卸载断开, 回来后重连
  *   - 刷新: localStorage 存 job 参数, 刷新后重新连接到同一任务
+ * - 重连键为用户级: 互通形态只重连本人任务, 不串其他账号。
  */
 
 export interface BacktestProgress {
@@ -38,6 +40,8 @@ let taskSeq = 0
 let eventSource: EventSource | null = null
 
 const RECONNECT_KEY = 'backtest_reconnect'
+// 实际存取 key (带用户前缀); 桌面版前缀为空, 行为不变。
+const reconnectKey = () => userKeyOf(RECONNECT_KEY)
 
 function emit() {
   listeners.forEach(fn => fn())
@@ -88,7 +92,7 @@ async function connectSSE(url: string): Promise<void> {
       if (current?.id === id) {
         current = { ...current, isPending: false, error: message, reconnecting: false }
         emit()
-        localStorage.removeItem(RECONNECT_KEY)
+        localStorage.removeItem(reconnectKey())
       }
       return
     }
@@ -136,7 +140,7 @@ async function connectSSE(url: string): Promise<void> {
     }
     es.close()
     eventSource = null
-    localStorage.removeItem(RECONNECT_KEY)
+    localStorage.removeItem(reconnectKey())
   })
 
   es.addEventListener('error', (e: MessageEvent) => {
@@ -153,7 +157,7 @@ async function connectSSE(url: string): Promise<void> {
       }
       es.close()
       eventSource = null
-      localStorage.removeItem(RECONNECT_KEY)
+      localStorage.removeItem(reconnectKey())
       return
     }
     // 无 data: 连接异常断开。EventSource 会自动重连, 但需给出可见状态并有界放弃,
@@ -239,7 +243,7 @@ export function startBacktest(params: {
   })
 
   // 存 reconnect 信息 (刷新后用)
-  localStorage.setItem(RECONNECT_KEY, qs)
+  localStorage.setItem(reconnectKey(), qs)
 
   connectSSE(`/api/backtest/strategy/stream?${qs}`)
 }
@@ -247,7 +251,7 @@ export function startBacktest(params: {
 /** 停止当前回测任务 (调后端 cancel, 后端 cancel_event → 停止计算) */
 export async function stopBacktest(): Promise<void> {
   // 从 reconnect key 提取 job_key (后端按参数 hash 算 job_key)
-  const qs = localStorage.getItem(RECONNECT_KEY)
+  const qs = localStorage.getItem(reconnectKey())
   if (qs) {
     // 解析出参数, 用 fetch 调 cancel
     try {
@@ -271,7 +275,7 @@ export async function stopBacktest(): Promise<void> {
     current = { ...current, isPending: false, error: '已取消', reconnecting: false }
     emit()
   }
-  localStorage.removeItem(RECONNECT_KEY)
+  localStorage.removeItem(reconnectKey())
 }
 
 /** 清除任务状态 (隐藏提示) */
@@ -282,7 +286,7 @@ export function clearBacktest(): void {
 
 /** 恢复: 从 localStorage 读取 reconnect 信息, 重新连接 (刷新后调用) */
 export function tryReconnect(): boolean {
-  const qs = localStorage.getItem(RECONNECT_KEY)
+  const qs = localStorage.getItem(reconnectKey())
   if (!qs) return false
   // 有未完成的任务, 重连
   const id = ++taskSeq

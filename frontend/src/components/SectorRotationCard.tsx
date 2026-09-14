@@ -16,6 +16,7 @@ import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts'
 import { Activity, Database, RefreshCw } from 'lucide-react'
 import { api, type SectorRotationSector } from '@/lib/api'
+import { userKeyOf } from '@/lib/storage'
 import { QK } from '@/lib/queryKeys'
 import { useChartTheme } from '@/lib/theme'
 import { cn } from '@/lib/cn'
@@ -29,6 +30,10 @@ const CUSTOM_NAMES_PREFIX = 'sector_rotation_custom_'
 const DISPLAY_MODE_PREFIX = 'sector_rotation_display_'
 const AUTO_ROWS_PREFIX = 'sector_rotation_auto_rows_'
 const EXCLUDE_PREFIX = 'sector_rotation_exclude_'
+// 用户级 key 包装: 自定义板块名单/排除名单属个人内容, 互通形态带 u:<uid>: 前缀隔离;
+// 桌面版前缀为空, 行为不变。
+const customNamesKey = (kind: string) => userKeyOf(`${CUSTOM_NAMES_PREFIX}${kind}`)
+const excludeKey = (kind: string) => userKeyOf(`${EXCLUDE_PREFIX}${kind}`)
 // 自动活跃榜展示行数可选项; excludeNames === null 表示未自定义 (用后端内置名单)
 const AUTO_ROW_OPTIONS = [5, 10, 15, 20]
 const MAX_EXCLUDE_SECTORS = 100
@@ -183,7 +188,7 @@ export function SectorRotationCard({ kind }: { kind: 'concept' | 'industry' }) {
     parseSectorSource(localStorage.getItem(`${ROWS_MODE_PREFIX}${kind}`)))
   const [customNames, setCustomNames] = useState<string[]>(() => {
     try {
-      const parsed = JSON.parse(localStorage.getItem(`${CUSTOM_NAMES_PREFIX}${kind}`) ?? '[]')
+      const parsed = JSON.parse(localStorage.getItem(customNamesKey(kind)) ?? '[]')
       return Array.isArray(parsed) ? parsed.filter((n: unknown) => typeof n === 'string').slice(0, MAX_CUSTOM_SECTORS) : []
     } catch {
       return []
@@ -196,7 +201,7 @@ export function SectorRotationCard({ kind }: { kind: 'concept' | 'industry' }) {
   })
   const [excludeNames, setExcludeNames] = useState<string[] | null>(() => {
     try {
-      const raw = localStorage.getItem(`${EXCLUDE_PREFIX}${kind}`)
+      const raw = localStorage.getItem(excludeKey(kind))
       if (raw === null) return null
       const parsed = JSON.parse(raw)
       return Array.isArray(parsed) ? parsed.filter((n: unknown) => typeof n === 'string').slice(0, MAX_EXCLUDE_SECTORS) : null
@@ -649,7 +654,7 @@ export function SectorRotationCard({ kind }: { kind: 'concept' | 'industry' }) {
     if (customNames.includes(name)) {
       const next = customNames.filter(item => item !== name)
       setCustomNames(next)
-      localStorage.setItem(`${CUSTOM_NAMES_PREFIX}${kind}`, JSON.stringify(next))
+      localStorage.setItem(customNamesKey(kind), JSON.stringify(next))
       return
     }
     if (customNames.length >= MAX_CUSTOM_SECTORS) {
@@ -668,8 +673,8 @@ export function SectorRotationCard({ kind }: { kind: 'concept' | 'industry' }) {
   // null = 移除自定义, 回到后端内置名单
   const persistExclude = (next: string[] | null) => {
     setExcludeNames(next)
-    if (next === null) localStorage.removeItem(`${EXCLUDE_PREFIX}${kind}`)
-    else localStorage.setItem(`${EXCLUDE_PREFIX}${kind}`, JSON.stringify(next))
+    if (next === null) localStorage.removeItem(excludeKey(kind))
+    else localStorage.setItem(excludeKey(kind), JSON.stringify(next))
   }
   const removeExclude = (name: string) => {
     persistExclude(effectiveExclude.filter(item => item !== name))

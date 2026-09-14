@@ -67,10 +67,21 @@ export function Auth() {
       }
       return api.authLogin(password)
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       // 互通登录成功后丢弃旧的 auth-me 缓存 (可能是登录前的 404 哨兵/401 error),
       // 进面板后 useAuth 重新拉取真实身份与权限集。
       qc.removeQueries({ queryKey: AUTH_ME_KEY })
+      // 用户级 localStorage 命名空间: 拉取本人身份 → 设置 u:<uid>: 前缀并清旧账号残留。
+      // 必须在 navigate 前完成, 否则策略池等用户级状态会读到前一个账号的数据。
+      try {
+        const { setActiveUserKeyPrefix, clearUserScopedKeys } = await import('@/lib/storage')
+        const me = await api.authMe()
+        if (me?.identity?.user_id) {
+          const prefix = `u:${me.identity.user_id}:`
+          setActiveUserKeyPrefix(prefix)
+          clearUserScopedKeys(prefix)
+        }
+      } catch { /* 桌面版/单密码: /me 404 → 无前缀, 与历史行为一致 */ }
       // 成功: 跳回原页面(或首页)
       const redirect = new URLSearchParams(window.location.search).get('redirect') || '/'
       navigate(redirect, { replace: true })
