@@ -346,6 +346,7 @@ async def _application_lifespan(app: FastAPI):
     from app.services.sector_monitor import SectorMonitorService
     from app.identity import pool as identity_pool
     from app.identity.user_context import (
+        LOCAL_USER_DIR,
         iter_user_roots,
         user_id_of_root,
         user_scope,
@@ -390,6 +391,11 @@ async def _application_lifespan(app: FastAPI):
         engines: dict[str, MonitorRuleEngine] = {}
         for root in iter_user_roots():
             uid = root.name
+            # local 是互通形态的后台降级目录 (无请求上下文时的兜底), 不是真实
+            # 用户根 —— 跳过, 避免 user_scope('local') 抛错刷 warning 且占空引擎槽。
+            if uid == LOCAL_USER_DIR:
+                logger.info("skip monitor engine for local fallback dir")
+                continue
             eng = _build_monitor_engine()
             try:
                 with user_scope(uid):

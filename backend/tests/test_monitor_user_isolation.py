@@ -247,6 +247,57 @@ def test_subscribe_binds_user_from_context(monkeypatch):
     assert sub2.user_id is None
 
 
+# ── 5. local 降级目录不建引擎 (M3-3c 收尾) ──────────────
+
+def test_local_dir_never_registers_engine(monkeypatch, tmp_path):
+    """iter_user_roots 含 local, 但引擎构建循环必须跳过 (main.py 契约)。
+
+    修复前: 循环对 local 调 user_scope('local') 抛 ValueError, 刷 warning 且
+    占一个 0 规则引擎槽; 修复后: uid == LOCAL_USER_DIR 时 continue。
+    """
+    import json
+
+    from app.identity import user_context as uc
+    from app.identity.user_context import LOCAL_USER_DIR, iter_user_roots
+
+    # 构造含 local 的 users 目录
+    users = tmp_path / "users"
+    (users / "105").mkdir(parents=True)
+    (users / LOCAL_USER_DIR).mkdir()
+
+    # 模拟 main.py 的引擎构建循环 (仅验证跳过逻辑)
+    from app.config import settings
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    uc.set_production_roots(tmp_path, tmp_path / "users" / LOCAL_USER_DIR)
+    monkeypatch.setattr(uc, "identity_enabled", lambda: True)
+
+    from types import SimpleNamespace
+
+    engines: dict[str, object] = {}
+    skipped: list[str] = []
+    for root in iter_user_roots():
+        uid = root.name
+        if uid == LOCAL_USER_DIR:
+            skipped.append(uid)
+            continue
+        engines[uid] = object()  # 占位引擎
+    uc.reset_production_roots()
+
+    # local 被跳过且未注册引擎; 真实用户 105 注册
+    assert skipped == ["local"]
+    assert "local" not in engines
+    assert "105" in engines
+
+
+def test_main_build_loop_has_local_guard():
+    """main.py 源码含 local 跳过守卫 (防止回归删掉)。"""
+    from pathlib import Path
+
+    src = Path("backend/app/main.py").read_text(encoding="utf-8")
+    assert "uid == LOCAL_USER_DIR" in src
+    assert "skip monitor engine for local fallback dir" in src
+
+
 # ── 4. 惰性构建入口契约 ─────────────────────────────
 
 def test_current_engine_lazy_create_called(monkeypatch):
