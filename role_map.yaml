@@ -266,6 +266,7 @@ roles:
     perms:
       - "stick:analysis:read"
       - "stick:kline:read"
+      - "stick:signals:read"
       - "stick:watchlist:read"
       - "stick:watchlist:write"
       # 菜单可见性

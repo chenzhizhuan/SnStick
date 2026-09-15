@@ -10,9 +10,10 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.identity.permissions import P_SIGNALS_READ, P_SIGNALS_WRITE, require_perm
 from app.strategy import lots as lots_domain
 from app.strategy import monitor_rules
 
@@ -97,12 +98,19 @@ def sync_lot(request: Request, lot: dict) -> None:
 
 
 @router.get("")
-def list_lots(request: Request):
+def list_lots(
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_READ)),
+):
     return {"lots": lots_domain.load_all(_data_dir(request))}
 
 
 @router.post("")
-def upsert_lot(lot_in: LotModel, request: Request):
+def upsert_lot(
+    lot_in: LotModel,
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     """新建/更新一个批次。id 缺省时服务端生成 (紧凑, 保证 {id}_p/_d 规则 id ≤ 40 字符)。"""
     lot = lot_in.model_dump()
     if not lot.get("id"):
@@ -117,7 +125,11 @@ def upsert_lot(lot_in: LotModel, request: Request):
 
 
 @router.delete("/{lot_id}")
-def delete_lot(lot_id: str, request: Request):
+def delete_lot(
+    lot_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     if not monitor_rules.ID_RE.match(lot_id):
         raise HTTPException(status_code=400, detail="批次 id 非法")
     data_dir = _data_dir(request)

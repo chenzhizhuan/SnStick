@@ -9,9 +9,10 @@ from typing import Callable
 
 import anyio
 import polars as pl
-from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 
+from app.identity.permissions import P_WATCHLIST_READ, P_WATCHLIST_WRITE, require_perm
 from app.db_safe import is_valid_ext_ident, quote_ident
 from app.services import watchlist
 from app.services.watchlist_csv import import_watchlist_codes, import_watchlist_csv
@@ -109,12 +110,19 @@ def _with_names(rows: list[dict], request: Request) -> list[dict]:
 
 
 @router.get("")
-def list_all(request: Request):
+def list_all(
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_READ)),
+):
     return {"symbols": _with_names(watchlist.list_symbols(), request)}
 
 
 @router.post("")
-def add_one(req: AddRequest, request: Request):
+def add_one(
+    req: AddRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     try:
         rows = watchlist.add(req.symbol, req.note, req.group_id)
     except ValueError as e:
@@ -123,7 +131,11 @@ def add_one(req: AddRequest, request: Request):
 
 
 @router.post("/batch")
-def add_batch(req: BatchAddRequest, request: Request):
+def add_batch(
+    req: BatchAddRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     try:
         rows, added = watchlist.add_batch(
             req.symbols,
@@ -137,12 +149,17 @@ def add_batch(req: BatchAddRequest, request: Request):
 
 
 @router.get("/groups")
-def list_groups():
+def list_groups(
+    _: None = Depends(require_perm(P_WATCHLIST_READ)),
+):
     return {"groups": watchlist.list_groups()}
 
 
 @router.post("/groups")
-def create_group(req: GroupNameRequest):
+def create_group(
+    req: GroupNameRequest,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     try:
         groups, group = watchlist.create_group(req.name, req.color)
     except ValueError as e:
@@ -151,7 +168,10 @@ def create_group(req: GroupNameRequest):
 
 
 @router.put("/groups/reorder")
-def reorder_groups(req: GroupReorderRequest):
+def reorder_groups(
+    req: GroupReorderRequest,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """重排分组前后顺序 (json 数组顺序即定义顺序, 侧边栏/标签栏/分组视图共用)。"""
     try:
         groups = watchlist.reorder_groups(req.ordered_ids)
@@ -161,7 +181,11 @@ def reorder_groups(req: GroupReorderRequest):
 
 
 @router.put("/groups/{group_id}")
-def rename_group(group_id: str, req: GroupNameRequest):
+def rename_group(
+    group_id: str,
+    req: GroupNameRequest,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     try:
         groups = watchlist.rename_group(group_id, req.name, req.color)
     except KeyError as e:
@@ -172,7 +196,11 @@ def rename_group(group_id: str, req: GroupNameRequest):
 
 
 @router.delete("/groups/{group_id}")
-def delete_group(group_id: str, request: Request):
+def delete_group(
+    group_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     try:
         groups, rows = watchlist.delete_group(group_id)
     except KeyError as e:
@@ -181,7 +209,11 @@ def delete_group(group_id: str, request: Request):
 
 
 @router.post("/groups/{group_id}/clear")
-def clear_group(group_id: str, request: Request):
+def clear_group(
+    group_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """清空分组成员:把该分组内所有股票转为未分组,保留分组定义。"""
     try:
         rows = watchlist.clear_group(group_id)
@@ -191,14 +223,20 @@ def clear_group(group_id: str, request: Request):
 
 
 @router.get("/ocr-status")
-def ocr_status():
+def ocr_status(
+    _: None = Depends(require_perm(P_WATCHLIST_READ)),
+):
     """当前 OCR 引擎是否可用（前端可据此提示安装依赖）。"""
     provider = get_ocr_provider()
     return {"provider": provider.name, "available": provider.available()}
 
 
 @router.post("/import-image")
-async def import_from_image(request: Request, file: UploadFile = File(...)):
+async def import_from_image(
+    request: Request,
+    file: UploadFile = File(...),
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """从自选截图识别股票代码，返回候选列表（不自动写入自选）。"""
     content_type = (file.content_type or "").split(";")[0].strip().lower()
     filename = (file.filename or "").lower()
@@ -249,7 +287,11 @@ def _run_candidate_import(parse: Callable[[], dict], empty_msg: str) -> dict:
 
 
 @router.post("/import-csv")
-async def import_from_csv(request: Request, file: UploadFile = File(...)):
+async def import_from_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """从 CSV / TXT 导入自选候选列表（不自动写入自选）。
 
     兼容同花顺/东财/通达信导出（逗号或 Tab 分隔、UTF-8 或 GBK 编码）。目标分组
@@ -281,7 +323,11 @@ async def import_from_csv(request: Request, file: UploadFile = File(...)):
 
 
 @router.post("/import-codes")
-def import_from_codes(req: ImportCodesRequest, request: Request):
+def import_from_codes(
+    req: ImportCodesRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """从粘贴的证券代码导入自选候选列表（不自动写入自选）。"""
     text = req.text.strip()
     if not text:
@@ -296,13 +342,22 @@ def import_from_codes(req: ImportCodesRequest, request: Request):
 
 
 @router.post("/{symbol}/top")
-def move_one_to_top(symbol: str, request: Request):
+def move_one_to_top(
+    symbol: str,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     rows = watchlist.move_to_top(symbol)
     return {"symbols": _with_names(rows, request)}
 
 
 @router.put("/{symbol}/group")
-def assign_group(symbol: str, req: GroupAssignRequest, request: Request):
+def assign_group(
+    symbol: str,
+    req: GroupAssignRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """互斥设定分组(仅保留此组; None=移出全部分组)。多组操作用 members 端点。"""
     try:
         rows = watchlist.set_group(symbol, req.group_id)
@@ -314,7 +369,12 @@ def assign_group(symbol: str, req: GroupAssignRequest, request: Request):
 
 
 @router.post("/groups/{group_id}/members/{symbol}")
-def add_member(group_id: str, symbol: str, request: Request):
+def add_member(
+    group_id: str,
+    symbol: str,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """把标的加入分组(多组成员关系: 不影响其他分组)。"""
     try:
         rows = watchlist.add_to_group(symbol, group_id)
@@ -326,7 +386,12 @@ def add_member(group_id: str, symbol: str, request: Request):
 
 
 @router.delete("/groups/{group_id}/members/{symbol}")
-def remove_member(group_id: str, symbol: str, request: Request):
+def remove_member(
+    group_id: str,
+    symbol: str,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """把标的移出分组(仅摘本组标签; 标的仍在自选, 可能落入未分组)。"""
     try:
         rows = watchlist.remove_from_group(symbol, group_id)
@@ -338,13 +403,19 @@ def remove_member(group_id: str, symbol: str, request: Request):
 
 
 @router.delete("/{symbol}")
-def remove_one(symbol: str, request: Request):
+def remove_one(
+    symbol: str,
+    request: Request,
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     rows = watchlist.remove(symbol)
     return {"symbols": _with_names(rows, request)}
 
 
 @router.delete("")
-def clear_all():
+def clear_all(
+    _: None = Depends(require_perm(P_WATCHLIST_WRITE)),
+):
     """清空自选列表。"""
     count = watchlist.clear()
     return {"removed": count}
@@ -379,6 +450,7 @@ _WATCHLIST_COLS = [
 def watchlist_enriched(
     request: Request,
     ext_columns: str | None = Query(None, description="逗号分隔的 ext 列: config_id.field_name"),
+    _: None = Depends(require_perm(P_WATCHLIST_READ)),
 ):
     """自选股 enriched 数据 — 直接从 enriched 最新日读取, 无即时计算。
 

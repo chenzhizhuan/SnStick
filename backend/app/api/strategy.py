@@ -14,9 +14,16 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from app.identity.permissions import (
+    P_SCREENER_RUN,
+    P_STRATEGY_READ,
+    P_STRATEGY_WRITE,
+    require_perm,
+)
 
 from app.backtest.minute_trigger import MINUTE_EXIT_TRIGGER_SIGNALS
 from app.identity.user_context import user_strategies_dir
@@ -324,6 +331,7 @@ def list_strategies(
     asset_type: str | None = None,
     timeframe: str | None = None,
     include_research: bool = False,
+    _: None = Depends(require_perm(P_STRATEGY_READ)),
 ):
     engine = _get_engine(request)
     data_dir = _data_dir(request)
@@ -347,7 +355,11 @@ def list_strategies(
 
 
 @router.get("/{strategy_id}")
-def get_strategy(strategy_id: str, request: Request):
+def get_strategy(
+    strategy_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_READ)),
+):
     engine = _get_engine(request)
     s = _get_public_strategy(engine, strategy_id)
     overrides = strategy_config.load_override(_data_dir(request), strategy_id)
@@ -358,7 +370,11 @@ def get_strategy(strategy_id: str, request: Request):
 
 
 @router.post("/run")
-def run_strategy(req: RunRequest, request: Request):
+def run_strategy(
+    req: RunRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_SCREENER_RUN)),
+):
     engine = _get_engine(request)
     _get_public_strategy(engine, req.strategy_id)
     data_dir = _data_dir(request)
@@ -406,7 +422,11 @@ def run_strategy(req: RunRequest, request: Request):
 
 
 @router.post("/run-all")
-def run_all(req: RunAllRequest, request: Request):
+def run_all(
+    req: RunAllRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_SCREENER_RUN)),
+):
     engine = _get_engine(request)
     data_dir = _data_dir(request)
 
@@ -456,7 +476,11 @@ def run_all(req: RunAllRequest, request: Request):
 
 
 @router.post("/config")
-def save_config(req: SaveConfigRequest, request: Request):
+def save_config(
+    req: SaveConfigRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     engine = _get_engine(request)
     _get_public_strategy(engine, req.strategy_id)
 
@@ -469,7 +493,11 @@ def save_config(req: SaveConfigRequest, request: Request):
 
 
 @router.patch("/config")
-def patch_config(req: SaveConfigRequest, request: Request):
+def patch_config(
+    req: SaveConfigRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     engine = _get_engine(request)
     _get_public_strategy(engine, req.strategy_id)
     data_dir = _data_dir(request)
@@ -534,7 +562,11 @@ def _strip_defaults(strategy_id: str, overrides: dict, engine) -> dict:
 
 
 @router.delete("/config/{strategy_id}")
-def reset_config(strategy_id: str, request: Request):
+def reset_config(
+    strategy_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     _get_public_strategy(_get_engine(request), strategy_id)
     strategy_config.delete_override(_data_dir(request), strategy_id)
     return {"ok": True}
@@ -826,7 +858,10 @@ def _save_strategy_code(req: StrategyCodeSaveRequest, request: Request, *, legac
 
 
 @router.get("/ai/status")
-def ai_status(request: Request):
+def ai_status(
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_READ)),
+):
     """Check whether the selected AI provider is configured."""
     from app import secrets_store
     from app.services.ai_provider import ai_configured, current_ai_model, current_ai_provider
@@ -843,7 +878,11 @@ def ai_status(request: Request):
 
 
 @router.get("/{strategy_id}/source")
-def get_strategy_source(strategy_id: str, request: Request):
+def get_strategy_source(
+    strategy_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_READ)),
+):
     """获取策略源文件内容（用于 AI 修改）"""
 
     # 先查 StrategyEngine 获取文件路径
@@ -858,7 +897,10 @@ def get_strategy_source(strategy_id: str, request: Request):
 
 
 @router.post("/ai/test")
-async def ai_test(request: Request):
+async def ai_test(
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     """Send a small prompt through the selected AI provider."""
     from app.services.ai_provider import current_ai_model, current_ai_provider, generate_ai_text
 
@@ -894,7 +936,11 @@ def _build_prompt(req: BuildRequest) -> str:
 
 
 @router.post("/build")
-async def build_strategy(req: BuildRequest, request: Request):
+async def build_strategy(
+    req: BuildRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     """两步策略构建。
     step1: name + description + direction + rules → 完整策略
     step2: current_code + instruction → 修改任意部分
@@ -916,7 +962,11 @@ async def build_strategy(req: BuildRequest, request: Request):
 
 
 @router.post("/build/stream")
-async def build_strategy_stream(req: BuildRequest, request: Request):
+async def build_strategy_stream(
+    req: BuildRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     try:
         prompt = _build_prompt(req)
     except ValueError as e:
@@ -948,7 +998,11 @@ async def build_strategy_stream(req: BuildRequest, request: Request):
 
 
 @router.post("/ai/generate")
-async def ai_generate(req: AIGenerateRequest, request: Request):
+async def ai_generate(
+    req: AIGenerateRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     try:
         gen = AIStrategyGenerator()
         result = await gen.generate(req.prompt)
@@ -960,7 +1014,11 @@ async def ai_generate(req: AIGenerateRequest, request: Request):
 
 
 @router.post("/code/validate")
-def validate_strategy_code(req: StrategyCodeValidateRequest, request: Request):
+def validate_strategy_code(
+    req: StrategyCodeValidateRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     try:
         prepared = _prepare_strategy_code(req)
         return {"valid": True, "error": None, **prepared}
@@ -969,7 +1027,11 @@ def validate_strategy_code(req: StrategyCodeValidateRequest, request: Request):
 
 
 @router.post("/code/save")
-def save_strategy_code(req: StrategyCodeSaveRequest, request: Request):
+def save_strategy_code(
+    req: StrategyCodeSaveRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     try:
         return _save_strategy_code(req, request)
     except Exception as e:
@@ -1096,7 +1158,11 @@ def _save_composite_strategy(req: StrategyCompositeSaveRequest, request: Request
 
 
 @router.post("/composite/save")
-def save_composite_strategy(req: StrategyCompositeSaveRequest, request: Request):
+def save_composite_strategy(
+    req: StrategyCompositeSaveRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     try:
         return _save_composite_strategy(req, request)
     except Exception as e:
@@ -1104,7 +1170,11 @@ def save_composite_strategy(req: StrategyCompositeSaveRequest, request: Request)
 
 
 @router.post("/ai/save")
-async def ai_save(req: AISaveRequest, request: Request):
+async def ai_save(
+    req: AISaveRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     try:
         save_req = StrategyCodeSaveRequest(
             code=req.code,
@@ -1122,7 +1192,11 @@ async def ai_save(req: AISaveRequest, request: Request):
 
 
 @router.post("/{strategy_id}/publish")
-def publish_ai_strategy(strategy_id: str, request: Request):
+def publish_ai_strategy(
+    strategy_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     """把 research_only 的 AI 草稿策略翻转为公开(research_only=False)。
 
     门 = 人的显式动作: 只有 AI 来源且仍处于草稿态的策略才能被发布。
@@ -1161,7 +1235,11 @@ def publish_ai_strategy(strategy_id: str, request: Request):
 
 
 @router.delete("/{strategy_id}")
-def delete_strategy(strategy_id: str, request: Request):
+def delete_strategy(
+    strategy_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     """删除自定义策略 — 清除源文件、运行时注册和关联状态。内置策略不可删除。"""
 
     engine = _get_engine(request)
@@ -1221,7 +1299,10 @@ def delete_strategy(strategy_id: str, request: Request):
 
 
 @router.post("/reload")
-def reload_strategies(request: Request):
+def reload_strategies(
+    request: Request,
+    _: None = Depends(require_perm(P_STRATEGY_WRITE)),
+):
     engine = _get_engine(request)
     try:
         engine.reload()

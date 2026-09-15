@@ -5,8 +5,9 @@ import random
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from app.identity.permissions import P_SETTINGS_WRITE, P_SIGNALS_READ, P_SIGNALS_WRITE, require_perm
 from app.services import alert_store
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
@@ -26,6 +27,7 @@ def list_alerts(
     source: str | None = None,
     type: str | None = None,
     ext_columns: str | None = None,
+    _: None = Depends(require_perm(P_SIGNALS_READ)),
 ):
     """查询触发记录 (时间倒序)。
 
@@ -49,14 +51,21 @@ def list_alerts(
 
 
 @router.delete("")
-def clear_alerts(request: Request):
+def clear_alerts(
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     """清空全部触发记录。"""
     n = alert_store.clear(_data_dir(request))
     return {"ok": True, "cleared": n}
 
 
 @router.delete("/{ts}")
-def delete_alert(ts: int, request: Request):
+def delete_alert(
+    ts: int,
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     """删除单条触发记录 (按 ts 毫秒时间戳)。"""
     deleted = alert_store.delete_one(_data_dir(request), ts)
     if not deleted:
@@ -95,7 +104,12 @@ _DEMO_TEMPLATES = [
 
 
 @router.post("/seed")
-def seed_demo_alerts(request: Request, count: int = 12, recent: bool = True):
+def seed_demo_alerts(
+    request: Request,
+    count: int = 12,
+    recent: bool = True,
+    _: None = Depends(require_perm(P_SETTINGS_WRITE)),
+):
     """生成演示触发记录 (Dev 页用)。
 
     Args:

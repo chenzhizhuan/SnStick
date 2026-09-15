@@ -6,9 +6,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.identity.permissions import P_SIGNALS_READ, P_SIGNALS_WRITE, require_perm
 from app.strategy import custom_signals
 from app.strategy.intraday_features import INTRADAY_FEATURES
 
@@ -72,7 +73,9 @@ class AIGenerateRequest(BaseModel):
 
 
 @router.get("/options")
-def get_options():
+def get_options(
+    _: None = Depends(require_perm(P_SIGNALS_READ)),
+):
     """返回可选字段与运算符，供前端下拉框使用。"""
     # 字段带中文标签（取自 ENRICHED_COLUMNS，回退为字段名本身）
     from app.indicators.pipeline import ENRICHED_COLUMNS, ENRICHED_COLUMNS_BY_CATEGORY
@@ -161,7 +164,10 @@ def get_options():
 
 
 @router.get("")
-def list_signals(request: Request):
+def list_signals(
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_READ)),
+):
     sigs = custom_signals.load_all(_data_dir(request))
     return {"signals": sigs}
 
@@ -170,7 +176,11 @@ def list_signals(request: Request):
 
 
 @router.post("")
-def save_signal(req: SignalModel, request: Request):
+def save_signal(
+    req: SignalModel,
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     sig = req.model_dump()
     try:
         custom_signals.validate(sig)
@@ -185,7 +195,10 @@ def save_signal(req: SignalModel, request: Request):
 
 
 @router.post("/ai/generate")
-async def ai_generate_signal(req: AIGenerateRequest):
+async def ai_generate_signal(
+    req: AIGenerateRequest,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     """AI 根据自然语言描述生成自定义信号条件。
 
     不落盘：只返回 {name, conditions} 供前端回填表单，由用户确认后走
@@ -220,7 +233,11 @@ async def ai_generate_signal(req: AIGenerateRequest):
 
 
 @router.delete("/{signal_id}")
-def delete_signal(signal_id: str, request: Request):
+def delete_signal(
+    signal_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     if not custom_signals.ID_RE.match(signal_id):
         raise HTTPException(status_code=400, detail="信号 id 非法")
     deleted = custom_signals.delete_one(_data_dir(request), signal_id)
@@ -234,7 +251,11 @@ def delete_signal(signal_id: str, request: Request):
 
 
 @router.post("/intraday/replay")
-def intraday_replay(req: IntradayReplayRequest, request: Request):
+def intraday_replay(
+    req: IntradayReplayRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     """用本地历史分钟K回放盘中信号的触发时点。
 
     只读本地分钟分区, 不消耗盘中数据能力 — 用户可先在历史区间验证信号,

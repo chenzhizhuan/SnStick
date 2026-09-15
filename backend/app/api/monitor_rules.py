@@ -7,9 +7,10 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.identity.permissions import P_SETTINGS_WRITE, P_SIGNALS_READ, P_SIGNALS_WRITE, require_perm
 from app.strategy import monitor_rules
 from app.strategy.intraday_signals import INTRADAY_SIGNAL_LABELS, uses_intraday_signals
 
@@ -146,7 +147,10 @@ class RuleModel(BaseModel):
 
 # ── 字段选项 ─────────────────────────────────────────────
 @router.get("/options")
-def get_options(request: Request):
+def get_options(
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_READ)),
+):
     """返回可选字段、信号列、运算符、枚举,供前端表单使用。"""
     from app.indicators.pipeline import ENRICHED_COLUMNS
     from app.services.kline_sync import intraday_monitor_support
@@ -227,7 +231,10 @@ def get_options(request: Request):
 
 # ── 列表 ───────────────────────────────────────────────
 @router.get("")
-def list_rules(request: Request):
+def list_rules(
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_READ)),
+):
     repo = request.app.state.repo
     rules = [
         _reconcile_index_asset_type(r, repo)
@@ -286,7 +293,11 @@ def list_rules(request: Request):
 
 # ── 新建 / 更新 ────────────────────────────────────────
 @router.post("")
-def save_rule(req: RuleModel, request: Request):
+def save_rule(
+    req: RuleModel,
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     rule = monitor_rules.normalize(req.model_dump())
     rule = _reconcile_index_asset_type(rule, request.app.state.repo)
     # 连板梯队封单监控 (type=ladder) 依赖五档盘口数据, 需 Pro+ (DEPTH5_BATCH 能力)。
@@ -375,7 +386,11 @@ def save_rule(req: RuleModel, request: Request):
 
 # ── 删除 ───────────────────────────────────────────────
 @router.delete("/{rule_id}")
-def delete_rule(rule_id: str, request: Request):
+def delete_rule(
+    rule_id: str,
+    request: Request,
+    _: None = Depends(require_perm(P_SIGNALS_WRITE)),
+):
     if not monitor_rules.ID_RE.match(rule_id):
         raise HTTPException(status_code=400, detail="规则 id 非法")
     # 批次派生规则由「持仓提醒」页托管, 删除需在持仓页操作 (级联清理派生规则)
@@ -445,7 +460,10 @@ _DEMO_STRATEGY_RULES: list[dict] = [
 
 
 @router.post("/seed")
-def seed_demo_rules(request: Request):
+def seed_demo_rules(
+    request: Request,
+    _: None = Depends(require_perm(P_SETTINGS_WRITE)),
+):
     """生成演示监控规则 (Dev 页用)。覆盖 signal/price/market/strategy 四类。"""
     ts = int(_time.time() * 1000)
     created = []
@@ -472,7 +490,10 @@ def seed_demo_rules(request: Request):
 
 # ── 封单监控模拟触发 (Dev 调试用) ─────────────────────
 @router.post("/test-ladder")
-def test_ladder(request: Request):
+def test_ladder(
+    request: Request,
+    _: None = Depends(require_perm(P_SETTINGS_WRITE)),
+):
     """模拟触发所有 ladder 规则, 返回命中结果 (不落盘、不推送飞书)。
 
     用当前 depth_service 的封单数据 + enriched 最新日 close 构造 mock DataFrame,
@@ -586,7 +607,10 @@ def test_ladder(request: Request):
 
 
 @router.post("/trigger-ladder")
-def trigger_ladder(request: Request):
+def trigger_ladder(
+    request: Request,
+    _: None = Depends(require_perm(P_SETTINGS_WRITE)),
+):
     """真实触发一次 ladder 预警 (落盘 + 飞书推送 + SSE), 供 Dev 调试验证完整效果。
 
     与 test-ladder 区别: 本端点会真的把预警写入 alerts.jsonl、推送飞书、触发 SSE,

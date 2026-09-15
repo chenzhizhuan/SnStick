@@ -12,8 +12,10 @@ from dataclasses import asdict, replace
 from datetime import date, datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
+
+from app.identity.permissions import P_SCREENER_READ, P_SCREENER_RUN, require_perm
 
 from app.config import settings
 from app.db_safe import is_valid_ext_ident, quote_ident
@@ -233,6 +235,7 @@ def strategies(
     request: Request,
     asset_type: str = Query("stock"),
     timeframe: str = Query("1d"),
+    _: None = Depends(require_perm(P_SCREENER_READ)),
 ):
     """兼容策略清单端点；唯一数据源为 StrategyEngine。"""
     data_dir = request.app.state.repo.store.data_dir
@@ -259,7 +262,11 @@ def strategies(
 
 
 @router.post("/run")
-def run_custom(req: CustomRequest, request: Request):
+def run_custom(
+    req: CustomRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_SCREENER_RUN)),
+):
     repo = request.app.state.repo
     svc = ScreenerService(repo, asset_type=req.asset_type)
     as_of = req.as_of or svc.latest_date()
@@ -279,7 +286,11 @@ def run_custom(req: CustomRequest, request: Request):
 
 
 @router.post("/run_preset")
-def run_preset(req: PresetRequest, request: Request):
+def run_preset(
+    req: PresetRequest,
+    request: Request,
+    _: None = Depends(require_perm(P_SCREENER_RUN)),
+):
     repo = request.app.state.repo
     svc = ScreenerService(repo, asset_type=req.asset_type)
     as_of = req.as_of or svc.latest_date()
@@ -362,6 +373,7 @@ def _cached_with_realtime(request: Request) -> dict:
 def get_cached(
     request: Request,
     ext_columns: Optional[str] = Query(None, description="逗号分隔: config_id.field_name"),
+    _: None = Depends(require_perm(P_SCREENER_READ)),
 ):
     """读取策略结果缓存, 并叠加监控引擎本轮实时算出的结果。
 
@@ -381,7 +393,10 @@ def get_cached(
 
 
 @router.get("/cached-summary")
-def get_cached_summary(request: Request):
+def get_cached_summary(
+    request: Request,
+    _: None = Depends(require_perm(P_SCREENER_READ)),
+):
     """返回策略卡片所需的轻量摘要，不序列化股票明细。"""
     cached = _cached_with_realtime(request)
     results = cached.get("results") or {}
@@ -422,6 +437,7 @@ def get_cached_result(
     strategy_id: str,
     request: Request,
     ext_columns: Optional[str] = Query(None, description="逗号分隔: config_id.field_name"),
+    _: None = Depends(require_perm(P_SCREENER_READ)),
 ):
     """按需返回单个策略的完整明细及其今日失效行。"""
     cached = _cached_with_realtime(request)
@@ -476,7 +492,10 @@ def get_cached_result(
 
 
 @router.get("/market-snapshot")
-def market_snapshot(request: Request):
+def market_snapshot(
+    request: Request,
+    _: None = Depends(require_perm(P_SCREENER_READ)),
+):
     """最新全市场轻量行情快照，供板块/概念聚合分析使用。"""
     import polars as pl
 
@@ -660,7 +679,11 @@ def _run_all_progressive(
 
 
 @router.post("/run_all")
-def run_all(request: Request, body: Optional[dict] = None):
+def run_all(
+    request: Request,
+    body: Optional[dict] = None,
+    _: None = Depends(require_perm(P_SCREENER_RUN)),
+):
     """批量运行指定策略；注册、路由和执行均由 StrategyEngine 负责。"""
     from datetime import date as date_type
 
@@ -802,6 +825,7 @@ def limit_ladder(
     as_of: Optional[date] = None,
     direction: str = Query("up", description="up=涨停梯队 | down=跌停梯队"),
     ext_columns: Optional[str] = Query(None, description="逗号分隔: config_id.field_name"),
+    _: None = Depends(require_perm(P_SCREENER_READ)),
 ):
     """连板/连跌梯队 — 按连板数分组, 含三状态。
     返回: tiers = [{ boards, count, stocks: [{symbol,name,change_pct,status,...}] }]
