@@ -12,6 +12,7 @@ import { DatePicker } from '@/components/DatePicker'
 import { DateShortcuts } from '@/components/DateShortcuts'
 import { StockPreviewDialog, toNavItems } from '@/components/StockPreviewDialog'
 import { boardTag } from '@/components/stock-table/primitives'
+import { usePerm } from '@/lib/useAuth'
 
 const emptyDraft = (): Lot => ({
   id: '',
@@ -46,6 +47,10 @@ function CostPnL({ close, cost }: { close?: number; cost: number }) {
 export function Lots() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  // 「去查看」指向 /monitor, 与其路由守卫同权限点 (防御性: 能进 Lots 页的角色
+  // 目前都有 signals:read, 但角色配置可变, 保持一致以免未来点击后 403)
+  const { hasPerm } = usePerm()
+  const canEnterMonitor = hasPerm('stick:signals:read')
   const [editing, setEditing] = useState<Lot | null>(null) // null=关闭
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [previewSymbol, setPreviewSymbol] = useState<string | null>(null)
@@ -229,9 +234,11 @@ export function Lots() {
 
           <div className="flex items-center justify-center gap-1 text-[11px] text-muted">
             生成的止盈止损 / 到期提醒规则已同步至监控中心
-            <button onClick={() => navigate('/monitor')} className="inline-flex items-center gap-0.5 text-accent hover:text-accent/80 cursor-pointer">
-              去查看 <ArrowUpRight className="h-3 w-3" />
-            </button>
+            {canEnterMonitor && (
+              <button onClick={() => navigate('/monitor')} className="inline-flex items-center gap-0.5 text-accent hover:text-accent/80 cursor-pointer">
+                去查看 <ArrowUpRight className="h-3 w-3" />
+              </button>
+            )}
           </div>
         </div>
       </div>

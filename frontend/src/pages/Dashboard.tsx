@@ -18,6 +18,7 @@ import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 import { boardTag } from '@/components/stock-table/primitives'
+import { usePerm } from '@/lib/useAuth'
 
 function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -103,6 +104,9 @@ function MonitorWidget({ onStockClick, activeSymbol }: {
   activeSymbol?: string
 }) {
   const navigate = useNavigate()
+  // 与 /monitor 路由守卫同权限点: 无权限时板块告警点击不跳转 (避免点击后 403)
+  const { hasPerm } = usePerm()
+  const canEnterMonitor = hasPerm('stick:signals:read')
   const alerts = useQuery({
     queryKey: ['alerts', ''],
     queryFn: () => api.alertsList({ days: 7, limit: 10 }),
@@ -140,9 +144,9 @@ function MonitorWidget({ onStockClick, activeSymbol }: {
               {/* 第一行: 代码 + 名称 + 价格 + 涨跌幅 (点击代码/名称弹日K) */}
               <div className="flex items-center gap-1.5">
                 <button
-                  onClick={() => isSector ? navigate('/monitor') : ev.symbol && onStockClick(ev, alertNav)}
-                  title={isSector ? '在监控中心查看板块告警' : ev.symbol ? `查看 ${ev.symbol} 日K` : undefined}
-                  className={`inline-flex items-center gap-1 min-w-0 shrink-0 rounded hover:bg-elevated/60 transition-colors -mx-0.5 px-0.5 ${isSector || ev.symbol ? 'cursor-pointer' : 'cursor-default'}`}
+                  onClick={() => isSector ? (canEnterMonitor && navigate('/monitor')) : ev.symbol && onStockClick(ev, alertNav)}
+                  title={isSector ? (canEnterMonitor ? '在监控中心查看板块告警' : undefined) : ev.symbol ? `查看 ${ev.symbol} 日K` : undefined}
+                  className={`inline-flex items-center gap-1 min-w-0 shrink-0 rounded hover:bg-elevated/60 transition-colors -mx-0.5 px-0.5 ${isSector && canEnterMonitor ? 'cursor-pointer' : isSector ? 'cursor-default' : ev.symbol ? 'cursor-pointer' : 'cursor-default'}`}
                 >
                   <span className="font-mono text-[10px] font-medium text-foreground/80 hover:text-accent">{ev.symbol?.replace(/\.(SH|SZ|BJ)$/, '')}</span>
                   {ev.symbol && (() => {
@@ -585,6 +589,11 @@ function rankNav(rank?: OverviewMarket['concept_rank']): NavItem[] {
 
 export function Dashboard() {
   const qc = useQueryClient()
+  // 「进入监控中心」按钮显示与 /monitor 路由守卫同权限点 (stick:signals:read):
+  // 单密码形态 (桌面版/未互通) hasPerm 恒 true, 按钮始终显示, 行为零改动;
+  // 互通形态下无权限账号不渲染按钮, 杜绝「看见按钮→点击→403」体验矛盾。
+  const { hasPerm } = usePerm()
+  const canEnterMonitor = hasPerm('stick:signals:read')
   const [selectedDate, setSelectedDate] = useState<string | undefined>()
   const [manualFetching, setManualFetching] = useState(false)
   const [previewStock, setPreviewStock] = useState<{
@@ -930,9 +939,11 @@ export function Dashboard() {
                 <h2 className="text-xs font-semibold text-foreground">监控中心</h2>
                 <span className="font-mono text-[10px] text-muted">实时信号</span>
               </div>
-              <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="进入监控中心">
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </Link>
+              {canEnterMonitor && (
+                <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="进入监控中心">
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              )}
             </div>
             <MonitorWidget
               activeSymbol={previewStock?.source === 'alert' ? previewStock.symbol : undefined}

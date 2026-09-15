@@ -10,6 +10,7 @@ import { playNotificationSound } from '@/lib/notificationSound'
 import { speakAlerts } from '@/lib/voiceBroadcast'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
+import { usePerm } from '@/lib/useAuth'
 
 /** 通知渠道分发 — 所有副作用渠道在此汇合, 新增渠道只改这里 */
 function dispatchSideEffects(alerts: AlertEvent[]) {
@@ -102,6 +103,9 @@ const SOURCE_BADGE: Record<string, { label: string; cls: string }> = {
 export function AlertToastContainer() {
   const [items, setItems] = useState<Item[]>([])
   const navigate = useNavigate()
+  // 与 /monitor 路由守卫同权限点: 无权限点击不跳转 (单密码形态恒放行)
+  const { hasPerm } = usePerm()
+  const canEnterMonitor = hasPerm('stick:signals:read')
   const { data: prefs } = usePreferences()
   const extFields = prefs?.monitor_ext_fields ?? {
     concept: { field: 'ext_gn_ths.所属概念' },
@@ -114,10 +118,10 @@ export function AlertToastContainer() {
   }, [])
   useEffect(sub, [sub])
 
-  // 点击通知 → 跳转监控中心 + 关闭当前通知
+  // 点击通知 → 跳转监控中心 + 关闭当前通知 (无监控权限则仅关闭)
   const handleClick = (id: number) => {
     dismiss(id)
-    navigate('/monitor')
+    if (canEnterMonitor) navigate('/monitor')
   }
 
   if (!items.length) return null
