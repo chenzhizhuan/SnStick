@@ -6,9 +6,10 @@
  *
  * 用户命名空间 (v2.3 多用户隔离前端侧):
  *   - 桌面版 / 单密码形态: 用户级 key 与全局 key 相同, 零改动。
- *   - 互通形态: 用户级 key 动态加前缀 `u:<user_id>:`, 账号 A 的策略池/草稿/
- *     回测残留不会出现在账号 B 的页面上; 登录身份变化时清空旧前缀数据
- *     (main.tsx 统一处理)。
+ *   - 互通形态: 用户级 key 动态加前缀 `u:<user_id>:`, 跨账号隔离靠前缀
+ *     天然实现 —— 账号 B 只读写 `u:<B>:` 前缀的 key, 账号 A 的策略池/草稿/
+ *     回测残留永久保留在其自身前缀下, 不删不串 (换账号登录不丢数据)。
+ *   - 登录时仅一次性打扫升级前无前缀写入的历史残留 (main.tsx 统一处理)。
  */
 
 /** 当前用户级 key 前缀 ('u:<uid>:' 或 '' = 桌面版/未登录)。 */
@@ -19,8 +20,10 @@ export function setActiveUserKeyPrefix(prefix: string) {
   _userPrefix = prefix || ''
 }
 
-/** 已知用户级裸 key 常量 (不走 storage 注册表, 直接读写的模块)。
- *  身份切换时一并清理, 防止旧账号残留串给新账号。 */
+/** 升级前(无前缀形态)写入的裸 key。互通形态现已全部走 userKeyOf 带前缀读写,
+ *  这些裸 key 仅存在于升级部署前的浏览器里, 成为一次性升级残留,
+ *  登录时打扫 (clearLegacyUserKeys); 桌面版仍以裸 key 存活数据, 但桌面版
+ *  (单密码 /me 404) 不调用清理, 零影响。 */
 const RAW_USER_KEYS = [
   'mining_workbench_draft_v1',
   'mining_active_run_id',
@@ -30,34 +33,21 @@ const RAW_USER_KEYS = [
 ]
 
 /**
- * 清除"其他账号"的用户级数据 (身份变化时调用)。
+ * 打扫升级前无前缀写入的用户级历史残留 (登录/启动时调用)。
  *
- * - 保留: 当前前缀 `u:<uid>:` 下所有 key (本人的策略池/草稿/回测残留);
- *         所有非 `u:` 开头的浏览器级偏好 (主题/列配置/告警声音等, 各账号共享)。
- * - 清除: 其他账号前缀 `u:<other_uid>:` 下的 key;
- *         升级前无前缀写入的用户级历史残留 (如 'strategy-pool')。
+ * v2.3.1: 不再删除任何 `u:` 前缀 key —— 跨账号隔离完全靠前缀天然实现:
+ * 账号 B 只读写 `u:<B>:` 前缀的 key, 永远读不到账号 A 的 `u:<A>:` 数据;
+ * A 登出后 A 的数据保留, A 重新登录数据还在。删除其他账号前缀 key 既无
+ * 隔离收益, 又会静默销毁他人浏览器本地数据。
  *
- * 桌面版 (prefix='') : 只做无前缀用户级残留清理, 不碰任何 u: 前缀 key
- *                      (单用户形态不存在跨账号问题), 也不碰浏览器级偏好。
+ * - 保留: 一切 `u:` 前缀 key (含其他账号);
+ *         非 RAW_USER_KEYS 的浏览器级偏好 (主题/列配置/告警声音等, 各账号共享)。
+ * - 清除: 仅 RAW_USER_KEYS 中升级前无前缀写入的裸 key (互通形态下
+ *         新写入均带前缀, 裸 key 必为升级前死数据)。
  */
-export function clearUserScopedKeys(prefix: string) {
+export function clearLegacyUserKeys() {
   try {
-    const current = prefix || ''
-    const dead: string[] = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k === null) continue
-      if (k.startsWith('u:')) {
-        // 用户级 key: 保留本人前缀, 清其他账号
-        if (current && k.startsWith(current)) continue
-        if (!current) continue   // 桌面版: 互通未启用, u: 前缀 key 不该存在, 保守不动
-        dead.push(k)
-      } else if (RAW_USER_KEYS.includes(k)) {
-        // 无前缀用户级残留 (升级前旧数据): 清
-        dead.push(k)
-      }
-    }
-    for (const k of new Set(dead)) localStorage.removeItem(k)
+    for (const k of RAW_USER_KEYS) localStorage.removeItem(k)
   } catch { /* ignore */ }
 }
 

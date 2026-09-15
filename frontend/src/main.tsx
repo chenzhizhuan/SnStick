@@ -49,8 +49,9 @@ const queryClient = new QueryClient({
  * 用户级 localStorage 命名空间 (v2.3 多用户隔离前端侧):
  *   - 登录身份就绪后设置前缀 `u:<user_id>:`, 用户级 key (策略池/草稿/回测残留/
  *     last_stock 等) 按账号隔离;
- *   - 身份变化 (换账号登录 / 登出后换人) → 清旧前缀 + 无前缀历史残留,
- *     防止账号 A 的浏览器本地状态串到账号 B。
+ *   - v2.3.1: 隔离完全靠前缀天然实现, 不删除任何 u: 前缀 key (包括其他账号的)。
+ *     账号 B 只读写 `u:<B>:` 前缀, 永远读不到 A 的 `u:<A>:` 数据; A 登出再登回,
+ *     数据还在。仅一次性打扫升级前无前缀写入的裸 key 残留。
  * 桌面版/单密码形态: /me 404 → 无前缀, 行为与升级前完全一致。
  */
 async function initUserKeyNamespace() {
@@ -58,11 +59,9 @@ async function initUserKeyNamespace() {
     const { api } = await import('./lib/api')
     const me = await api.authMe()
     if (me?.identity?.user_id) {
-      const { setActiveUserKeyPrefix, clearUserScopedKeys } = await import('./lib/storage')
-      const prefix = `u:${me.identity.user_id}:`
-      setActiveUserKeyPrefix(prefix)
-      // 该浏览器上次登录的是其他账号 → 旧数据对当前账号不可见, 直接清
-      clearUserScopedKeys(prefix)
+      const { setActiveUserKeyPrefix, clearLegacyUserKeys } = await import('./lib/storage')
+      setActiveUserKeyPrefix(`u:${me.identity.user_id}:`)
+      clearLegacyUserKeys()
     }
   } catch {
     // 401 (未登录, 登录页流程) / 404 (桌面版) / 网络异常 → 不设前缀, 走默认

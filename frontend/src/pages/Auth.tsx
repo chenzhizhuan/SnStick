@@ -71,15 +71,16 @@ export function Auth() {
       // 互通登录成功后丢弃旧的 auth-me 缓存 (可能是登录前的 404 哨兵/401 error),
       // 进面板后 useAuth 重新拉取真实身份与权限集。
       qc.removeQueries({ queryKey: AUTH_ME_KEY })
-      // 用户级 localStorage 命名空间: 拉取本人身份 → 设置 u:<uid>: 前缀并清旧账号残留。
+      // 用户级 localStorage 命名空间: 拉取本人身份 → 设置 u:<uid>: 前缀。
       // 必须在 navigate 前完成, 否则策略池等用户级状态会读到前一个账号的数据。
+      // v2.3.1: 不删任何 u: 前缀 key — 其他账号数据永久保留在其自身前缀下,
+      //         跨账号隔离靠前缀天然实现; 仅打扫升级前无前缀的裸 key 残留。
       try {
-        const { setActiveUserKeyPrefix, clearUserScopedKeys } = await import('@/lib/storage')
+        const { setActiveUserKeyPrefix, clearLegacyUserKeys } = await import('@/lib/storage')
         const me = await api.authMe()
         if (me?.identity?.user_id) {
-          const prefix = `u:${me.identity.user_id}:`
-          setActiveUserKeyPrefix(prefix)
-          clearUserScopedKeys(prefix)
+          setActiveUserKeyPrefix(`u:${me.identity.user_id}:`)
+          clearLegacyUserKeys()
         }
       } catch { /* 桌面版/单密码: /me 404 → 无前缀, 与历史行为一致 */ }
       // 成功: 跳回原页面(或首页)
