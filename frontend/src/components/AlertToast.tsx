@@ -5,6 +5,7 @@ import { Bell, TrendingUp, TrendingDown, X } from 'lucide-react'
 import type { AlertEvent } from '@/lib/api'
 import { fmtPct, fmtPrice } from '@/lib/format'
 import { cnSignal } from '@/lib/signals'
+import { useCustomSignalNames } from '@/lib/useCustomSignalNames'
 import { cn } from '@/lib/cn'
 import { playNotificationSound } from '@/lib/notificationSound'
 import { speakAlerts } from '@/lib/voiceBroadcast'
@@ -107,6 +108,7 @@ export function AlertToastContainer() {
   const { hasPerm } = usePerm()
   const canEnterMonitor = hasPerm('stick:signals:read')
   const { data: prefs } = usePreferences()
+  const customNames = useCustomSignalNames()
   const extFields = prefs?.monitor_ext_fields ?? {
     concept: { field: 'ext_gn_ths.所属概念' },
     industry: { field: 'ext_hy_ths.所属同花顺行业' },
@@ -208,7 +210,7 @@ export function AlertToastContainer() {
                   {ev.signals && ev.signals.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1 pl-0.5">
                       {ev.signals.map(signal => (
-                        <span key={signal} className="rounded bg-accent/8 px-1 py-px text-[9px] text-accent/80">{cnSignal(signal)}</span>
+                        <span key={signal} className="rounded bg-accent/8 px-1 py-px text-[9px] text-accent/80">{cnSignal(signal, customNames)}</span>
                       ))}
                     </div>
                   )}
