@@ -42,7 +42,10 @@ from app.backtest.minute_replay import (
     minute_panel_start,
     minute_replay_feature_plan,
 )
-from app.backtest.minute_trigger import unsupported_minute_exit_signals
+from app.backtest.minute_trigger import (
+    build_minute_entry_reference,
+    unsupported_minute_exit_signals,
+)
 from app.config import settings
 from app.indicators.pipeline import (
     ENRICHED_STORAGE_COLS,
@@ -1030,7 +1033,7 @@ class StrategyBacktestService:
         start_id = int(time_ids[0])
         stop_id = int(time_ids[-1]) + 1
         reference_price = (
-            rolling_mean(market_data.close, 5)[start_id:stop_id]
+            build_minute_entry_reference(market_data.close)[start_id:stop_id]
             if first.minute_fill
             else None
         )
@@ -1373,7 +1376,7 @@ class StrategyBacktestService:
             panel_rows = int(np.isfinite(market_data.close[start_id:stop_id]).sum())
             panel_columns = len(feature_plan.matrix_columns)
             reference_price = (
-                rolling_mean(market_data.close, 5)[start_id:stop_id]
+                build_minute_entry_reference(market_data.close)[start_id:stop_id]
                 if matcher_config.minute_fill
                 else None
             )
@@ -1477,7 +1480,7 @@ class StrategyBacktestService:
                 panel_rows = int(np.isfinite(market_data.close[start_id:stop_id]).sum())
                 panel_columns = len(feature_plan.matrix_columns)
                 reference_price = (
-                    rolling_mean(market_data.close, 5)[start_id:stop_id]
+                    build_minute_entry_reference(market_data.close)[start_id:stop_id]
                     if matcher_config.minute_fill
                     else None
                 )
