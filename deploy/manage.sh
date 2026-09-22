@@ -277,7 +277,12 @@ done
 echo "--- identity 连通 (AGTI 账号互通) ---"
 docker exec snstick-app python -c "import socket; s=socket.socket(); s.settimeout(3); s.connect(('$AGTI_HOST', $AGTI_PORT)); print('容器内 -> $AGTI_HOST:$AGTI_PORT 可达')" 2>/dev/null \
   || warn "容器内 -> $AGTI_HOST:$AGTI_PORT 不可达 (检查端口/防火墙; 若 ufw 拦了 docker 网段: ufw allow from 172.17.0.0/16 to any port $AGTI_PORT)"
-docker logs snstick-app 2>&1 | grep -E 'identity pool ready|ERROR' | tail -5 || true
+docker logs snstick-app --since 2h 2>&1 \
+  | grep -E 'identity pool ready|ERROR|CRITICAL' \
+  | grep -v 'watchdog probe failed (' | tail -5 || true
+# 注: --since 2h 只看近期日志, 避免每次重跑把历史旧 ERROR 翻出来回放;
+# 单次 watchdog probe failed (1/2) 是预热期锁竞争的良性噪音, 已过滤;
+# 真正的进程僵死以 CRITICAL "backend wedged" 出现, 仍会被捕获显示。
 
 # 清理悬空旧镜像 (升级后旧版无 tag 残留; 与 SnSclaw manage.sh 同款行为)
 docker image prune -f >/dev/null 2>&1 || true
