@@ -38,6 +38,9 @@ backend/app/static/
 .vscode/
 *.swp
 *.swo
+
+# ===== 部署密钥 (目标机 .env, 含 DSN/API key, 严禁入库) =====
+deploy/.env
 .DS_Store
 
 # ===== Project data (Parquet/DuckDB) =====
