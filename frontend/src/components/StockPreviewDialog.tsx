@@ -43,31 +43,6 @@ interface Props {
   onNavigate?: (symbol: string, name?: string) => void
 }
 
-/** 切股导航列表项 */
-export interface NavItem { symbol: string; name?: string }
-
-/** 把 symbol+name 的列表转成切股导航列表项 (统一 name 归一化为 undefined, 免去各处重复 map + as 断言) */
-export function toNavItems<T extends { symbol: string; name?: string | null }>(xs: T[]): NavItem[] {
-  return xs.map(x => ({ symbol: x.symbol, name: x.name ?? undefined }))
-}
-
-/** 首↔尾循环的索引换算: go(delta) 与 邻近预取 共用, 保证换行规则单源 */
-function wrapNavIndex(navIdx: number, delta: number, navTotal: number): number {
-  return (navIdx + delta + navTotal) % navTotal
-}
-
-/** 榜单里同一标的可能多次出现 (多概念/行业 leader、监控重复触发), 去重以免切股/计数空跳; 保留首次出现。 */
-function uniqueNavItems(xs: NavItem[]): NavItem[] {
-  const seen = new Set<string>()
-  const out: NavItem[] = []
-  for (const n of xs) {
-    if (seen.has(n.symbol)) continue
-    seen.add(n.symbol)
-    out.push(n)
-  }
-  return out
-}
-
 // ===== 板块标识（与 Screener 列表一致）=====
 
 // 预设快捷范围（只保留半年和1年）

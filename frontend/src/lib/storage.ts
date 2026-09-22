@@ -3,7 +3,63 @@
  *
  * - key 在此注册，各页面只通过 storage.xxx.get/set 调用。
  * - 类型安全，不再散落 try/catch。
+ *
+ * 用户命名空间 (v2.3 多用户隔离前端侧):
+ *   - 桌面版 / 单密码形态: 用户级 key 与全局 key 相同, 零改动。
+ *   - 互通形态: 用户级 key 动态加前缀 `u:<user_id>:`, 跨账号隔离靠前缀
+ *     天然实现 —— 账号 B 只读写 `u:<B>:` 前缀的 key, 账号 A 的策略池/草稿/
+ *     回测残留永久保留在其自身前缀下, 不删不串 (换账号登录不丢数据)。
+ *   - 登录时仅一次性打扫升级前无前缀写入的历史残留 (main.tsx 统一处理)。
  */
+
+/** 当前用户级 key 前缀 ('u:<uid>:' 或 '' = 桌面版/未登录)。 */
+let _userPrefix = ''
+
+/** 设置当前用户前缀 (登录后身份快照就绪时调用; '' = 桌面版/单密码形态)。 */
+export function setActiveUserKeyPrefix(prefix: string) {
+  _userPrefix = prefix || ''
+}
+
+/** 升级前(无前缀形态)写入的裸 key。互通形态现已全部走 userKeyOf 带前缀读写,
+ *  这些裸 key 仅存在于升级部署前的浏览器里, 成为一次性升级残留,
+ *  登录时打扫 (clearLegacyUserKeys); 桌面版仍以裸 key 存活数据, 但桌面版
+ *  (单密码 /me 404) 不调用清理, 零影响。 */
+const RAW_USER_KEYS = [
+  'mining_workbench_draft_v1',
+  'mining_active_run_id',
+  'walkforward_reconnect', 'walkforward_job_key',
+  'optimizer_reconnect', 'optimizer_job_key',
+  'backtest_reconnect',
+]
+
+/**
+ * 打扫升级前无前缀写入的用户级历史残留 (登录/启动时调用)。
+ *
+ * v2.3.1: 不再删除任何 `u:` 前缀 key —— 跨账号隔离完全靠前缀天然实现:
+ * 账号 B 只读写 `u:<B>:` 前缀的 key, 永远读不到账号 A 的 `u:<A>:` 数据;
+ * A 登出后 A 的数据保留, A 重新登录数据还在。删除其他账号前缀 key 既无
+ * 隔离收益, 又会静默销毁他人浏览器本地数据。
+ *
+ * - 保留: 一切 `u:` 前缀 key (含其他账号);
+ *         非 RAW_USER_KEYS 的浏览器级偏好 (主题/列配置/告警声音等, 各账号共享)。
+ * - 清除: 仅 RAW_USER_KEYS 中升级前无前缀写入的裸 key (互通形态下
+ *         新写入均带前缀, 裸 key 必为升级前死数据)。
+ */
+export function clearLegacyUserKeys() {
+  try {
+    for (const k of RAW_USER_KEYS) localStorage.removeItem(k)
+  } catch { /* ignore */ }
+}
+
+/** 生成用户级实际 key: 桌面版无前缀; 互通形态 `u:<uid>:<key>`。 */
+function userKey(key: string) {
+  return _userPrefix ? `${_userPrefix}${key}` : key
+}
+
+/** 对外暴露用户级 key 拼接 (useLastStock 等裸 localStorage 模块复用)。 */
+export function userKeyOf(key: string) {
+  return userKey(key)
+}
 
 function kv<T>(key: string) {
   return {
@@ -19,6 +75,25 @@ function kv<T>(key: string) {
     },
     remove() {
       try { localStorage.removeItem(key) } catch { /* ignore */ }
+    },
+  }
+}
+
+/** 用户级 kv — 互通形态 key 带用户前缀, 桌面版与 kv() 完全等价。 */
+function userKv<T>(key: string) {
+  return {
+    get(fallback: T): T {
+      try {
+        const raw = localStorage.getItem(userKey(key))
+        if (raw !== null) return JSON.parse(raw) as T
+      } catch { /* ignore */ }
+      return fallback
+    },
+    set(val: T) {
+      try { localStorage.setItem(userKey(key), JSON.stringify(val)) } catch { /* ignore */ }
+    },
+    remove() {
+      try { localStorage.removeItem(userKey(key)) } catch { /* ignore */ }
     },
   }
 }
@@ -41,10 +116,11 @@ export const storage = {
   /** 查询轮询 / SSE 配置 */
   queryConfig:          kv<unknown>('tf-stocks-query-config'),
 
-  /** 策略池 (screener) — 统一池 (日线+分钟共用, 执行按各自声明周期路由) */
-  strategyPool:         kv<string[]>('strategy-pool'),
+  /** 策略池 (screener) — 统一池 (日线+分钟共用, 执行按各自声明周期路由)。
+   *  用户级: 互通形态跨账号隔离 (A 的池不串给 B)。 */
+  strategyPool:         userKv<string[]>('strategy-pool'),
   /** 旧分钟隔离池 — 仅作一次性迁移读取源, 迁移完成后移除该 key */
-  strategyPoolMinute:   kv<string[]>('strategy-pool-1m'),
+  strategyPoolMinute:   userKv<string[]>('strategy-pool-1m'),
 
   /** 自选列表列配置 */
   watchlistColumns:     kv<unknown[]>('watchlist_columns'),
@@ -115,26 +191,25 @@ export const storage = {
   /** 连板梯队 封单显示模式: vol=按成交量(手), amount=按金额(元) */
   limitLadderSealMode:  kv<'vol' | 'amount'>('limit-ladder-seal-mode'),
 
-  /** 策略创建草稿（新建专用） */
-  strategyDraft: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-draft'),
+  /** 策略创建草稿（新建专用）。用户级: 草稿内容属于个人工作现场。 */
+  strategyDraft: userKv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-draft'),
 
+  /** 策略修改草稿（AI修改专用，不影响创建按钮）。用户级。 */
+  strategyModify: userKv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-modify'),
   /** 新建策略默认基础过滤参数 (策略页「默认基础参数」设置; null=未自定义, 用内置默认) */
   defaultStrategyBasicFilter: kv<DefaultStrategyBasicFilter | null>('default-strategy-basic-filter'),
 
-  /** 策略修改草稿（AI修改专用，不影响创建按钮） */
-  strategyModify: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-modify'),
+  /** 策略构建器草稿（旧版兼容，逐渐废弃）。用户级。 */
+  strategyBuilderDraft: userKv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-builder-draft'),
 
-  /** 策略构建器草稿（旧版兼容，逐渐废弃） */
-  strategyBuilderDraft: kv<{ name: string; description: string; direction: string; style?: string; rules: string; code: string; step: number; strategyId: string; source?: 'ai' | 'custom' } | null>('strategy-builder-draft'),
-
-  /** 已保存策略的原始规则（策略ID → 规则文本） */
-  strategyRules: kv<Record<string, string>>('strategy-rules'),
+  /** 已保存策略的原始规则（策略ID → 规则文本）。用户级。 */
+  strategyRules: userKv<Record<string, string>>('strategy-rules'),
 
   /** 策略回测快捷区间按钮配置 */
   strategyBacktestQuickRanges: kv<unknown>('strategy-backtest-quick-ranges'),
 
-  /** 策略回测最后一次成功结果和参数 */
-  strategyBacktestLast: kv<{
+  /** 策略回测最后一次成功结果和参数。用户级: 回测残留属于个人工作现场。 */
+  strategyBacktestLast: userKv<{
     selectedStrategy: string | null
     symbols: string
     assetType?: 'stock' | 'etf'
