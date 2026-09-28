@@ -16,6 +16,7 @@ import {
   useQuoteStatus,
   useVersion,
 } from '@/lib/useSharedQueries'
+import { useUpdateCheck } from '@/lib/updateCheck'
 import {
   useToggleRealtimeQuotes,
 } from '@/lib/useSharedMutations'
@@ -39,6 +40,7 @@ import {
   Gauge,
   Sparkles,
   Layers2,
+  Wallet,
   Layers3,
   Zap,
   Landmark,
@@ -96,24 +98,25 @@ const NAV_GROUPS = [
 type NavGroupKey = (typeof NAV_GROUPS)[number]['key']
 
 const nav = [
-  { to: '/',                label: '看板',     icon: LayoutDashboard, group: 'overview', perm: undefined },
-  { to: '/watchlist',  label: '自选',   icon: Star,           group: 'overview', perm: 'stick:menu:watchlist' },
-  { to: '/screener',   label: '策略', icon: ScanSearch,      group: 'strategy', perm: 'stick:menu:screener' },
-  { to: '/factors',    label: '因子', icon: Sigma,            group: 'strategy', perm: 'stick:menu:factors' },
-  { to: '/backtest',   label: '回测', icon: History,         group: 'strategy', perm: 'stick:menu:backtest' },
-  { to: '/lots',       label: '持仓提醒', icon: Layers2,     group: 'strategy', perm: 'stick:menu:lots' },
-  { to: '/signals',    label: '信号库',   icon: Zap,           group: 'strategy', perm: 'stick:menu:signals' },
-  { to: '/stock-analysis',    label: '个股分析', icon: TrendingUp, group: 'market', perm: 'stick:menu:stock-analysis' },
-  { to: '/limit-ladder', label: '连板梯队', icon: Flame,       group: 'market', perm: 'stick:menu:limit-ladder' },
-  { to: '/concept-analysis', label: '概念分析', icon: Layers3,   group: 'market', perm: 'stick:menu:concept-analysis' },
-  { to: '/industry-analysis', label: '行业分析', icon: Landmark, group: 'market', perm: 'stick:menu:industry-analysis' },
-  { to: '/financials', label: '财务分析', icon: FileText,       group: 'market', perm: 'stick:menu:financials' },
-  { to: '/monitor', label: '监控中心', icon: RadioTower,        group: 'monitor', perm: 'stick:menu:monitor' },
-  { to: '/regime', label: '市场环境', icon: Gauge,             group: 'monitor', perm: 'stick:menu:regime' },
-  { to: '/abnormal', label: '异动监控', icon: Siren,           group: 'monitor', perm: 'stick:menu:abnormal' },
-  { to: '/review',      label: '复盘',   icon: BookOpenCheck,  group: 'data', perm: 'stick:menu:review' },
-  { to: '/indices', label: '指数', icon: BarChart3,             group: 'data', perm: 'stick:menu:indices' },
-  { to: '/data',       label: '数据',     icon: Database,       group: 'data', perm: 'stick:menu:data' },
+  { to: '/',                label: '看板',     icon: LayoutDashboard },
+  { to: '/watchlist',  label: '自选',   icon: Star },
+  { to: '/screener',   label: '策略',   icon: ScanSearch },
+  { to: '/factors',    label: '因子', icon: Sigma },
+  { to: '/backtest',   label: '回测', icon: History },
+  { to: '/stock-analysis',    label: '个股分析', icon: TrendingUp },
+  { to: '/limit-ladder', label: '连板梯队', icon: Flame },
+  { to: '/concept-analysis', label: '概念分析', icon: Layers3 },
+  { to: '/industry-analysis', label: '行业分析', icon: Landmark },
+  { to: '/financials', label: '财务分析', icon: FileText },
+  { to: '/monitor', label: '监控中心', icon: RadioTower },
+  { to: '/regime', label: '市场环境', icon: Gauge },
+  { to: '/abnormal', label: '异动监控', icon: Siren },
+  { to: '/lots',       label: '持仓提醒', icon: Layers2 },
+  { to: '/paper',      label: '模拟盘',   icon: Wallet },
+  { to: '/signals',    label: '信号库',   icon: Zap },
+  { to: '/review',      label: '复盘',   icon: BookOpenCheck },
+  { to: '/indices', label: '指数', icon: BarChart3 },
+  { to: '/data',       label: '数据',   icon: Database },
 ] as const
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
@@ -480,6 +483,9 @@ export function Layout() {
   const { data: settingsState } = useSettings()
   const { data: matrix } = useCapabilityMatrix()
   const { data: versionData } = useVersion()
+  // 更新检查 (单例 store): 启动静默查一次 GitHub Releases, 供左下角版本号徽标
+  const update = useUpdateCheck()
+  const hasUpdate = update.status === 'found'
   const { data: prefs } = usePreferences()
   // 数据源列表 (用于实时行情状态显示当前数据源名称)
   const { data: dataSources } = useQuery({
