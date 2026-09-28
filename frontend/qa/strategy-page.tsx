@@ -22,7 +22,7 @@ function Preview() {
   const [dark, setDark] = useState(true)
   return <MemoryRouter><QueryClientProvider client={client}><MotionConfig reducedMotion="user">
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, padding: '16px 32px', borderBottom: '1px solid hsl(var(--border))', flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Logo size={42}/><strong>赢在子午线</strong></div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Logo size={42}/><strong>顺势而为</strong></div>
       <span className="text-xs text-muted">真实策略页面 · 离线样例数据 · 不连接业务服务</span>
       <button className="rounded-btn border border-border px-3 py-2 text-xs" onClick={() => { setDark(!dark); document.documentElement.classList.toggle('dark', !dark) }}>{dark ? '浅色主题' : '深色主题'}</button>
     </div>

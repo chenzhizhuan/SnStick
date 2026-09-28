@@ -13,7 +13,7 @@ AIGC:
 
 > 版本：3.0 · 靛蓝深空（Indigo Deep Console）
 > 视觉基准：Model-Flow AI 平台界面参考系（12 张，`docs/design/reference/`）
-> 适用：SnStick / 赢在子午线 A 股量化工作台
+> 适用：SnStick / 顺势而为 A 股量化工作台
 > 改造边界：保留业务功能、参数、数据与操作逻辑；本规范描述目标风格，与当前实现（v2.0）的差距见 §11。
 
 ## 目录

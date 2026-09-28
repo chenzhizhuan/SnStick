@@ -41,7 +41,7 @@ function Preview() {
       </div>
       <div className="sn-workstation" style={{display:'grid', gridTemplateColumns: width ? '1fr' : '224px minmax(0,1fr)', minHeight:'calc(100vh - 60px)'}}>
         <aside className="sn-navigation" style={{padding:16, display:width?'none':'block'}}>
-          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:24}}><Logo size={40}/><strong>赢在子午线</strong></div>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:24}}><Logo size={40}/><strong>顺势而为</strong></div>
           <nav style={{display:'grid',gap:6}}>{['看板','自选','策略','回测','挖掘','持仓提醒','个股分析','连板梯队','概念分析','行业分析','财务分析','监控中心','市场环境','异动监控','复盘','指数','数据'].map(name => <a key={name} href="#" aria-current={name==='策略'?'page':undefined} onClick={e=>{e.preventDefault();setNotice('仅组件样式样例，导航未连接业务')}} className="rounded-btn px-3 py-2 text-sm">{name}</a>)}</nav>
         </aside>
         <main className="sn-content">

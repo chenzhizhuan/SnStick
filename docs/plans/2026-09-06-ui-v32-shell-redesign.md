@@ -40,7 +40,7 @@ v3.x 只改了皮肤（token/材质/颜色），骨架（传统左侧边栏 + �
 
 ## 3. 顶栏（新增，48px）
 
-- 左：Logo 28px + 「赢在子午线」16px/600 + 版本 pill（`rounded bg-elevated px-1.5 text-[10px] font-mono`，useVersion 数据）
+- 左：Logo 28px + 「顺势而为」16px/600 + 版本 pill（`rounded bg-elevated px-1.5 text-[10px] font-mono`，useVersion 数据）
 - 右：`DataSourceHealthBadge` + `AIConfigBadge`（从侧栏品牌块迁来，紧凑化）+ `ThemeToggle` + 桌面折叠按钮（三态循环）；移动端显示菜单按钮（Menu icon → 开抽屉）
 - 背景 surface、底边框、无阴影；移动端抽屉打开时顶栏照常
 
