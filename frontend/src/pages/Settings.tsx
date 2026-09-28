@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BarChart3, Database, KeyRound, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck, KeyRound } from 'lucide-react'
+import { BarChart3, Database, KeyRound, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck } from 'lucide-react'
 import { SettingsAIPanel } from './settings/AI'
 import { SettingsApiTokensPanel } from './settings/ApiTokens'
 import { SettingsMonitoringPanel } from './settings/Monitoring'

@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from app.identity.permissions import P_PAPER_READ, P_PAPER_WRITE, require_perm
 from app.strategy import paper
 
 logger = logging.getLogger(__name__)
@@ -90,19 +91,19 @@ def _last_close(data_dir: Path, symbol: str, asset_type: str) -> float | None:
 
 
 @router.get("/accounts")
-def list_accounts(request: Request):
+def list_accounts(request: Request, _: None = Depends(require_perm(P_PAPER_READ))):
     """账户列表 (带最新净值摘要, 供前端切换器)。"""
     return {"accounts": paper.list_accounts(_data_dir(request))}
 
 
 @router.get("/account")
-def get_account(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def get_account(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_READ))):
     acc = paper.get_account(_data_dir(request), _acc(request, account))
     return {"account": acc}
 
 
 @router.post("/account")
-def create_account(request: Request, body: AccountModel):
+def create_account(request: Request, body: AccountModel, _: None = Depends(require_perm(P_PAPER_WRITE))):
     try:
         acc = paper.create_account(
             _data_dir(request),
@@ -120,7 +121,7 @@ def create_account(request: Request, body: AccountModel):
 
 
 @router.get("/overview")
-def overview(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def overview(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_READ))):
     """总览: 现金 + 持仓估值 + 账户状态。
 
     盘中(交易时段且实时快照就绪)用当日实时 raw_close 估算 (estimating=true),
@@ -151,7 +152,7 @@ def overview(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
 
 
 @router.post("/orders")
-def create_order(request: Request, body: OrderModel, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def create_order(request: Request, body: OrderModel, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_WRITE))):
     data_dir = _data_dir(request)
     acc_id = _acc(request, account)
     asset_type = _resolve_asset_type(request, body.symbol)
@@ -170,7 +171,7 @@ def create_order(request: Request, body: OrderModel, account: str = Query(paper.
 
 
 @router.get("/orders")
-def list_orders(request: Request, status: str | None = None, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def list_orders(request: Request, status: str | None = None, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_READ))):
     orders = paper.load_orders(_data_dir(request), _acc(request, account))
     if status:
         orders = [o for o in orders if o["status"] == status]
@@ -179,7 +180,7 @@ def list_orders(request: Request, status: str | None = None, account: str = Quer
 
 
 @router.delete("/orders/{order_id}")
-def cancel_order(request: Request, order_id: str, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def cancel_order(request: Request, order_id: str, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_WRITE))):
     order, err = paper.cancel_order(_data_dir(request), order_id, _acc(request, account))
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -187,31 +188,31 @@ def cancel_order(request: Request, order_id: str, account: str = Query(paper.DEF
 
 
 @router.get("/trades")
-def list_trades(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def list_trades(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_READ))):
     fills = paper.load_fills(_data_dir(request), _acc(request, account))
     fills.sort(key=lambda f: f.get("seq", 0), reverse=True)
     return {"fills": fills}
 
 
 @router.get("/positions")
-def list_positions(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def list_positions(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_READ))):
     data_dir = _data_dir(request)
     ov = paper.overview(data_dir, account_id=_acc(request, account))
     return {"holdings": ov.get("holdings", []), "initialized": ov.get("initialized", False)}
 
 
 @router.get("/nav")
-def list_nav(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def list_nav(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_READ))):
     return {"nav": paper.load_nav(_data_dir(request), _acc(request, account))}
 
 
 @router.get("/stats")
-def get_stats(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def get_stats(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_READ))):
     return paper.stats(_data_dir(request), _acc(request, account))
 
 
 @router.get("/compare")
-def compare_accounts(request: Request):
+def compare_accounts(request: Request, _: None = Depends(require_perm(P_PAPER_READ))):
     """横向对比全部账户: 概览 + 回合统计 + 定版净值 (供对比表与净值叠加图)。
 
     净值给全量定版序列, 前端做归一化 (起点=1) 后多账户叠加。
@@ -250,14 +251,14 @@ def compare_accounts(request: Request):
 
 
 @router.post("/rebuild")
-def rebuild(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def rebuild(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_WRITE))):
     """由成交台账重建物化持仓与现金 (修复兜底)。"""
     positions = paper.rebuild_positions(_data_dir(request), _acc(request, account))
     return {"symbols": len(positions)}
 
 
 @router.post("/freeze")
-def freeze(request: Request, frozen: bool = True, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def freeze(request: Request, frozen: bool = True, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_WRITE))):
     """冻结/解冻账户: 冻结后拒绝新订单, 持仓只读。"""
     data_dir = _data_dir(request)
     acc_id = _acc(request, account)
@@ -270,7 +271,7 @@ def freeze(request: Request, frozen: bool = True, account: str = Query(paper.DEF
 
 
 @router.post("/settings")
-def update_settings(request: Request, body: SettingsModel, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def update_settings(request: Request, body: SettingsModel, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_WRITE))):
     """更新账户设置 (涨跌停排队等开关)。"""
     try:
         acc = paper.update_settings(_data_dir(request), _acc(request, account), **body.model_dump())
@@ -293,13 +294,13 @@ class AutoRuleModel(BaseModel):
 
 
 @router.get("/auto_rules")
-def list_auto_rules(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def list_auto_rules(request: Request, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_READ))):
     from app.strategy import paper_auto
     return {"rules": paper_auto.load_auto_rules(_data_dir(request), _acc(request, account))}
 
 
 @router.post("/auto_rules")
-def create_auto_rule(request: Request, body: AutoRuleModel, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def create_auto_rule(request: Request, body: AutoRuleModel, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_WRITE))):
     from app.strategy import paper_auto
     try:
         rule = paper_auto.create_auto_rule(_data_dir(request), body.model_dump(), _acc(request, account))
@@ -309,7 +310,7 @@ def create_auto_rule(request: Request, body: AutoRuleModel, account: str = Query
 
 
 @router.post("/auto_rules/{rule_id}/enabled")
-def set_auto_rule_enabled(request: Request, rule_id: str, enabled: bool, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def set_auto_rule_enabled(request: Request, rule_id: str, enabled: bool, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_WRITE))):
     from app.strategy import paper_auto
     rule = paper_auto.set_enabled(_data_dir(request), rule_id, enabled, _acc(request, account))
     if rule is None:
@@ -318,7 +319,7 @@ def set_auto_rule_enabled(request: Request, rule_id: str, enabled: bool, account
 
 
 @router.delete("/auto_rules/{rule_id}")
-def delete_auto_rule(request: Request, rule_id: str, account: str = Query(paper.DEFAULT_ACCOUNT_ID)):
+def delete_auto_rule(request: Request, rule_id: str, account: str = Query(paper.DEFAULT_ACCOUNT_ID), _: None = Depends(require_perm(P_PAPER_WRITE))):
     from app.strategy import paper_auto
     if not paper_auto.delete_auto_rule(_data_dir(request), rule_id, _acc(request, account)):
         raise HTTPException(status_code=404, detail=f"规则不存在: {rule_id}")

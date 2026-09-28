@@ -102,25 +102,25 @@ const NAV_GROUPS = [
 type NavGroupKey = (typeof NAV_GROUPS)[number]['key']
 
 const nav = [
-  { to: '/',                 label: '看板',     icon: IconDashboard },
-  { to: '/watchlist',        label: '自选',     icon: IconWatchlist },
-  { to: '/screener',         label: '策略',     icon: IconStrategy },
-  { to: '/factors',          label: '因子',     icon: IconFactors },
-  { to: '/backtest',         label: '回测',     icon: IconBacktest },
-  { to: '/stock-analysis',   label: '个股分析', icon: IconStockFocus },
-  { to: '/limit-ladder',     label: '连板梯队', icon: IconLadder },
-  { to: '/concept-analysis', label: '概念分析', icon: IconConcept },
-  { to: '/industry-analysis', label: '行业分析', icon: IconIndustry },
-  { to: '/financials',       label: '财务分析', icon: IconFinancials },
-  { to: '/monitor',          label: '监控中心', icon: IconMonitor },
-  { to: '/regime',           label: '市场环境', icon: IconRegime },
-  { to: '/abnormal',         label: '异动监控', icon: IconAlert },
-  { to: '/lots',             label: '持仓提醒', icon: IconLots },
-  { to: '/paper',            label: '模拟盘',   icon: IconPaper },
-  { to: '/signals',          label: '信号库',   icon: IconSignals },
-  { to: '/review',           label: '复盘',     icon: IconReview },
-  { to: '/indices',          label: '指数',     icon: IconIndices },
-  { to: '/data',             label: '数据',     icon: IconData },
+  { to: '/',                 label: '看板',     icon: IconDashboard, group: 'overview', perm: undefined },
+  { to: '/watchlist',        label: '自选',     icon: IconWatchlist, group: 'overview', perm: 'stick:menu:watchlist' },
+  { to: '/screener',         label: '策略',     icon: IconStrategy, group: 'strategy', perm: 'stick:menu:screener' },
+  { to: '/factors',          label: '因子',     icon: IconFactors, group: 'strategy', perm: 'stick:menu:factors' },
+  { to: '/backtest',         label: '回测',     icon: IconBacktest, group: 'strategy', perm: 'stick:menu:backtest' },
+  { to: '/stock-analysis',   label: '个股分析', icon: IconStockFocus, group: 'market', perm: 'stick:menu:stock-analysis' },
+  { to: '/limit-ladder',     label: '连板梯队', icon: IconLadder, group: 'market', perm: 'stick:menu:limit-ladder' },
+  { to: '/concept-analysis', label: '概念分析', icon: IconConcept, group: 'market', perm: 'stick:menu:concept-analysis' },
+  { to: '/industry-analysis', label: '行业分析', icon: IconIndustry, group: 'market', perm: 'stick:menu:industry-analysis' },
+  { to: '/financials',       label: '财务分析', icon: IconFinancials, group: 'market', perm: 'stick:menu:financials' },
+  { to: '/monitor',          label: '监控中心', icon: IconMonitor, group: 'monitor', perm: 'stick:menu:monitor' },
+  { to: '/regime',           label: '市场环境', icon: IconRegime, group: 'monitor', perm: 'stick:menu:regime' },
+  { to: '/abnormal',         label: '异动监控', icon: IconAlert, group: 'monitor', perm: 'stick:menu:abnormal' },
+  { to: '/lots',             label: '持仓提醒', icon: IconLots, group: 'strategy', perm: 'stick:menu:lots' },
+  { to: '/paper',            label: '模拟盘',   icon: IconPaper, group: 'strategy', perm: 'stick:menu:paper' },
+  { to: '/signals',          label: '信号库',   icon: IconSignals, group: 'strategy', perm: 'stick:menu:signals' },
+  { to: '/review',           label: '复盘',     icon: IconReview, group: 'data', perm: 'stick:menu:review' },
+  { to: '/indices',          label: '指数',     icon: IconIndices, group: 'data', perm: 'stick:menu:indices' },
+  { to: '/data',             label: '数据',     icon: IconData, group: 'data', perm: 'stick:menu:data' },
 ] as const
 
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
@@ -283,6 +283,8 @@ function UserMenu({
   version,
   canViewSettings,
   navigate,
+  hasUpdate,
+  updateInfo,
 }: {
   identity: AuthIdentity | null
   onLogout: () => void
@@ -291,6 +293,8 @@ function UserMenu({
   version?: string
   canViewSettings: boolean
   navigate: (to: string) => void
+  hasUpdate?: boolean
+  updateInfo?: { latest: string; url: string } | null
 }) {
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -379,8 +383,30 @@ function UserMenu({
                       <Settings className="h-3.5 w-3.5 shrink-0 text-muted" />
                       <span className="font-medium">设置</span>
                       {version && (
-                        <span className="ml-auto font-mono text-[10px] text-muted/70 select-none">
+                        <span className="ml-auto flex items-center gap-1 font-mono text-[10px] text-muted/70 select-none">
                           {version}
+                          {hasUpdate && updateInfo && (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              title={`发现新版本 ${updateInfo.latest}，点击前往检查更新`}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                navigate('/settings?tab=system')
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  navigate('/settings?tab=system')
+                                }
+                              }}
+                              className="inline-flex items-center rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold text-accent cursor-pointer hover:bg-accent/25"
+                            >
+                              NEW
+                            </span>
+                          )}
                         </span>
                       )}
                     </button>
@@ -702,7 +728,8 @@ export function Layout() {
   // 合并内置页面 + 可见的扩展分析菜单
   type NavIcon = (props: BrandIconProps) => ReactNode
   // v3.2: group 用于侧栏分组渲染; 分析菜单归「市场分析」, 扩展菜单兑底「数据与复盘」
-  type NavItem = { to: string; label: string; icon: typeof Gauge; badge?: string; group?: NavGroupKey }
+  // perm: 互通形态下该菜单的权限点 (与 role_map.yaml 一致); 单密码形态恒放行
+  type NavItem = { to: string; label: string; icon: NavIcon; badge?: string; group?: NavGroupKey; perm?: string }
   // 权限过滤 (M3-4): 互通形态下无权限的菜单不显示; 单密码形态恒放行
   const { hasPerm, ready } = usePerm()
   const { identity } = useAuth()
@@ -859,6 +886,8 @@ export function Layout() {
             version={version}
             canViewSettings={canViewSettings}
             navigate={navigate}
+            hasUpdate={hasUpdate}
+            updateInfo={update.info}
           />
         </div>
       </header>

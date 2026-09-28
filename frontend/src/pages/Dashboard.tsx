@@ -19,18 +19,26 @@ import { AddWidgetPanel } from '@/components/dashboard/AddWidgetPanel'
 import { useDashboardLayout } from '@/components/dashboard/useDashboardLayout'
 import { DEFAULT_LAYOUT, widgetDef, type WidgetCtx } from '@/components/dashboard/registry'
 import { cloneItems, GRID_COLS, type WidgetType } from '@/components/dashboard/layout'
-import { usePerm } from '@/lib/useAuth'
+import type { ReactNode } from 'react'
+
+/** KPI 统计条单元 (v3.2 ref-04 范式) */
+function KpiCell({ label, value, sub, tone = 'neutral' }: { label: ReactNode; value: ReactNode; sub?: string; tone?: 'bull' | 'bear' | 'accent' | 'neutral' }) {
+  const isPlain = typeof value === 'string' || typeof value === 'number'
+  const color = tone === 'bull' ? 'text-bull' : tone === 'bear' ? 'text-bear' : tone === 'accent' ? 'text-accent' : 'text-foreground'
+  return (
+    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface/80 px-2 py-1 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-all hover:border-accent/30 hover:shadow-[0_2px_8px_hsl(var(--accent)/0.15)]">
+      <div className="flex items-center gap-1 text-[11px] text-muted">{label}</div>
+      <div className={`mt-1 truncate font-mono text-lg font-semibold leading-none tabular-nums ${isPlain ? color : 'text-foreground'}`}>{value}</div>
+      {sub && <div className="mt-1 truncate text-[10px] text-muted">{sub}</div>}
+    </div>
+  )
+}
 
 /** 打开个股预览的来源榜 (用于行高亮与切股导航列表) */
 type PreviewSource = 'gain' | 'loss' | 'amount' | 'active' | 'concept' | 'industry' | 'alert'
 
 export function Dashboard() {
   const qc = useQueryClient()
-  // 「进入监控中心」按钮显示与 /monitor 路由守卫同权限点 (stick:signals:read):
-  // 单密码形态 (桌面版/未互通) hasPerm 恒 true, 按钮始终显示, 行为零改动;
-  // 互通形态下无权限账号不渲染按钮, 杜绝「看见按钮→点击→403」体验矛盾。
-  const { hasPerm } = usePerm()
-  const canEnterMonitor = hasPerm('stick:signals:read')
   const [selectedDate, setSelectedDate] = useState<string | undefined>()
   const [manualFetching, setManualFetching] = useState(false)
   const [previewStock, setPreviewStock] = useState<{

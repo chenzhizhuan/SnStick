@@ -2048,14 +2048,14 @@ class ApiTokenCreateIn(BaseModel):
 
 
 @router.get("/api-tokens")
-def api_tokens_list(request: Request) -> dict:
+def api_tokens_list(request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     from app.services import api_tokens as svc
 
     return {"tokens": svc.list_tokens(request.app.state.repo.store.data_dir)}
 
 
 @router.post("/api-tokens")
-def api_tokens_create(body: ApiTokenCreateIn, request: Request) -> dict:
+def api_tokens_create(body: ApiTokenCreateIn, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     """创建 Token — 明文只在本次响应出现一次, 前端弹窗提示立即保存。"""
     from app.services import api_tokens as svc
 
@@ -2067,7 +2067,7 @@ def api_tokens_create(body: ApiTokenCreateIn, request: Request) -> dict:
 
 
 @router.delete("/api-tokens/{token_id}")
-def api_tokens_revoke(token_id: str, request: Request) -> dict:
+def api_tokens_revoke(token_id: str, request: Request, _: None = Depends(require_perm(P_SETTINGS_WRITE))) -> dict:
     from app.services import api_tokens as svc
 
     if not svc.revoke_token(request.app.state.repo.store.data_dir, token_id):

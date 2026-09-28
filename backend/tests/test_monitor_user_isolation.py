@@ -293,7 +293,9 @@ def test_main_build_loop_has_local_guard():
     """main.py 源码含 local 跳过守卫 (防止回归删掉)。"""
     from pathlib import Path
 
-    src = Path("backend/app/main.py").read_text(encoding="utf-8")
+    # 兼容从仓库根 (开发) 和 backend/ (CI working-directory) 两种运行路径
+    candidates = [Path("backend/app/main.py"), Path("app/main.py")]
+    src = next(p for p in candidates if p.exists()).read_text(encoding="utf-8")
     assert "uid == LOCAL_USER_DIR" in src
     assert "skip monitor engine for local fallback dir" in src
 

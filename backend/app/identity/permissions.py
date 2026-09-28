@@ -59,6 +59,8 @@ P_DATA_READ = "stick:data:read"
 P_DATA_WRITE = "stick:data:write"
 P_SETTINGS_READ = "stick:settings:read"
 P_SETTINGS_WRITE = "stick:settings:write"
+P_PAPER_READ = "stick:paper:read"
+P_PAPER_WRITE = "stick:paper:write"
 P_ADMIN_VIEW = "stick:admin:view"
 P_ADMIN_MANAGE = "stick:admin:manage"
 
@@ -83,6 +85,7 @@ P_MENU_ABNORMAL = "stick:menu:abnormal"
 P_MENU_REVIEW = "stick:menu:review"
 P_MENU_INDICES = "stick:menu:indices"
 P_MENU_DATA = "stick:menu:data"
+P_MENU_PAPER = "stick:menu:paper"
 
 _ADMIN_WILDCARD = "*:*:*"
 
