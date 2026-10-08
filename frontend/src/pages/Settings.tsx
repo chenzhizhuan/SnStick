@@ -3,10 +3,11 @@
  *
  * 通过 URL query param ?tab=xxx 同步 Tab 状态。
  */
-import { useState } from 'react'
+import { Suspense, lazy, useState, type ComponentType } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { BarChart3, Database, KeyRound, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck } from 'lucide-react'
+// 面板按 tab 按需加载: 8 个面板源码 270KB+, 同步打包会让设置页 chunk 膨胀
 import { SettingsAIPanel } from './settings/AI'
 import { SettingsApiTokensPanel } from './settings/ApiTokens'
 import { SettingsMonitoringPanel } from './settings/Monitoring'
@@ -20,8 +21,6 @@ import { SettingsRolesPanel } from './settings/Roles'
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/cn'
 import { usePerm } from '@/lib/useAuth'
-
-import type { ComponentType } from 'react'
 
 // ===== Tab 定义 =====
 
@@ -134,9 +133,11 @@ export function Settings() {
             transition={{ duration: 0.15 }}
             className="min-w-0 flex-1"
           >
-            {activeTab.key === 'monitoring'
-            ? <SettingsMonitoringPanel highlight={highlight} />
-            : <activeTab.panel highlight={highlight} />}
+            <Suspense fallback={<div className="py-12 text-center text-xs text-muted">加载中…</div>}>
+              {activeTab.key === 'monitoring'
+                ? <SettingsMonitoringPanel highlight={highlight} />
+                : <activeTab.panel highlight={highlight} />}
+            </Suspense>
           </motion.div>
         </div>
       </div>
