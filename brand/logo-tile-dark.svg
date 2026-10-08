@@ -1,4 +1,4 @@
-<!-- Tick Stock Panel · 场景底卡 — 深色圆角卡 + 亮紫渐变主标
+<!-- SnStick · 场景底卡 — 深色圆角卡 + 亮紫渐变主标
      规格: 64 网格; 圆角 12.5%; 描边 #232838; 对应 logo-tile-dark-*.png -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="SnStick">
   <defs>
