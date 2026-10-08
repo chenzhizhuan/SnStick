@@ -28,10 +28,10 @@ import { usePreferences, useSettings } from '@/lib/useSharedQueries'
 import { QK } from '@/lib/queryKeys'
 import { Logo } from '@/components/Logo'
 
-// ===== 引导页:5 步向导 =====
-// 0. 声明  1. 欢迎  2. 数据源与 Key  3. 能力路由检测  4. 完成 → 写标记 → 进面板
+// ===== 引导页:4 步向导 =====
+// 0. 欢迎  1. 数据源与 Key  2. 能力路由检测  3. 完成 → 写标记 → 进面板
 
-const STEPS = ['声明', '欢迎', '数据源', '能力路由', '完成'] as const
+const STEPS = ['欢迎', '数据源', '能力路由', '完成'] as const
 
 const BRAND = '#1260FF'
 
@@ -54,8 +54,10 @@ export function Onboarding() {
   const [step, setStep] = useState(0)
 
   // 完成向导 —— 写后端标记,使守卫放行
+  // retry: 2 —— 点「进入面板」时如遇瞬时网络抖动自动重试,减少误弹回
   const complete = useMutation({
     mutationFn: api.completeOnboarding,
+    retry: 2,
     onSuccess: (data) => {
       // 用接口返回值同步更新缓存,确保跳转时守卫立即看到 onboarding_completed: true
       // (避免 invalidate 后台重取未返回时, 守卫用旧缓存 false 误重定向回引导页)
@@ -66,7 +68,13 @@ export function Onboarding() {
       navigate('/', { replace: true })
     },
     onError: () => {
-      // 标记失败不应阻塞用户进入面板,仍放行
+      // 标记失败不应阻塞用户进入面板: 乐观写缓存 true 放行, 不 invalidate
+      // (invalidate 的后台重取会立刻用后端旧值 false 覆盖乐观值, 再次误弹回)。
+      // 用户已明确选择完成, 守卫放行符合意图; 后端标记若确未写成, 下次会话
+      // 真实状态会再引导, 不在本次会话卡死用户。
+      qc.setQueryData(QK.settings, (old: any) =>
+        old ? { ...old, onboarding_completed: true } : old,
+      )
       navigate('/', { replace: true })
     },
   })
@@ -103,7 +111,7 @@ export function Onboarding() {
             size={24}
             className="shrink-0"
           />
-          <span className="text-sm font-semibold tracking-tight">SnStick</span>
+          <span className="text-sm font-semibold tracking-tight">赢在子午线 · Quant Terminal</span>
         </div>
         {/* 步骤进度条 —— 胶囊式 */}
         <div className="flex items-center gap-1.5">
@@ -134,7 +142,7 @@ export function Onboarding() {
 
       {/* 步骤内容 (数据源步骤含编辑器, 加宽容器) */}
       <main className="relative z-10 flex-1 flex items-center justify-center px-6 py-10">
-        <div className={`w-full ${step === 2 ? 'max-w-3xl' : 'max-w-xl'}`}>
+        <div className={`w-full ${step === 1 ? 'max-w-3xl' : 'max-w-xl'}`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={step}
@@ -143,13 +151,12 @@ export function Onboarding() {
               exit={{ opacity: 0, x: -24 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             >
-              {step === 0 && <DisclaimerStep onNext={() => setStep(1)} />}
-              {step === 1 && <WelcomeStep onNext={() => setStep(2)} onSkip={finish} />}
-              {step === 2 && (
-                <DataSourceStep onNext={() => setStep(3)} onBack={() => setStep(1)} />
+              {step === 0 && <WelcomeStep onNext={() => setStep(1)} onSkip={finish} />}
+              {step === 1 && (
+                <DataSourceStep onNext={() => setStep(2)} onBack={() => setStep(0)} />
               )}
-              {step === 3 && <ResultStep onNext={() => setStep(4)} onBack={() => setStep(2)} />}
-              {step === 4 && <FinishStep onNext={finish} onBack={() => setStep(3)} pending={complete.isPending} />}
+              {step === 2 && <ResultStep onNext={() => setStep(3)} onBack={() => setStep(1)} />}
+              {step === 3 && <FinishStep onNext={finish} onBack={() => setStep(2)} pending={complete.isPending} />}
             </motion.div>
           </AnimatePresence>
         </div>
@@ -158,55 +165,7 @@ export function Onboarding() {
   )
 }
 
-// ===== Step 0: 声明 =====
-
-function DisclaimerStep({ onNext }: { onNext: () => void }) {
-  return (
-    <div className="text-center">
-      <motion.div
-        initial={{ scale: 0.85, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="mx-auto w-fit rounded-2xl p-4 border border-warning/40"
-        style={{ background: 'linear-gradient(135deg, hsl(var(--warning) / 0.15), transparent)' }}
-      >
-        <AlertCircle className="h-8 w-8 text-warning" />
-      </motion.div>
-
-      <h1 className="mt-6 text-2xl font-bold text-foreground tracking-tight">使用前请知悉</h1>
-
-      <div className="mt-5 rounded-card border border-border bg-surface/80 backdrop-blur-sm p-5 text-left">
-        <div className="flex items-start gap-2.5">
-          <ShieldCheck className="h-4 w-4 text-accent shrink-0 mt-0.5" />
-          <div className="space-y-2.5 text-sm text-secondary leading-relaxed">
-            <p>
-              本项目为<strong className="text-warning">个人开源项目</strong>,由个人独立维护,与任何商业数据服务
-              <span className="text-warning">无官方关联</span>。数据能力依赖第三方数据服务提供。
-            </p>
-            <p>
-              仅供学习研究使用,不构成任何投资建议。股市有风险,使用本项目产生的任何盈亏由使用者自行承担。
-            </p>
-            <p>
-              本项目基于 MIT 协议开源。使用本项目时,请遵守所用数据源的服务条款;第三方接口插件存在版权与反爬风险,使用需自行评估合规责任。
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 flex items-center justify-center">
-        <button
-          onClick={onNext}
-          className="inline-flex items-center gap-2 px-6 h-11 rounded-xl bg-accent text-white text-sm font-semibold shadow-lg shadow-accent/20 hover:bg-accent/90 hover:shadow-accent/30 transition-all"
-        >
-          我已了解,继续
-          <ArrowRight className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ===== Step 1: 欢迎 =====
+// ===== Step 0: 欢迎 =====
 
 function WelcomeStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
   return (
@@ -223,7 +182,7 @@ function WelcomeStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
       </motion.div>
 
       <h1 className="mt-6 text-3xl font-bold text-foreground tracking-tight">
-        欢迎使用 TSP
+        欢迎使用 赢在子午线 · Quant Terminal
       </h1>
       <p className="mt-3 text-sm text-secondary leading-relaxed max-w-md mx-auto">
         一个本地化的 A 股量化分析面板 —— 行情、选股、回测、监控、财务一体化。
@@ -271,7 +230,7 @@ function WelcomeStep({ onNext, onSkip }: { onNext: () => void; onSkip: () => voi
   )
 }
 
-// ===== Step 2: 配置第三方数据源 (默认内置源; 可添加自有数据源) =====
+// ===== Step 1: 配置第三方数据源 (默认内置源; 可添加自有数据源) =====
 
 /** datasets 标签的中文名 (与设置页数据集口径一致) */
 const DATASET_LABELS: Record<string, string> = {
@@ -546,7 +505,7 @@ function DataSourceStep({ onNext, onBack }: { onNext: () => void; onBack: () => 
   )
 }
 
-// ===== Step 3: 能力路由检测结果 =====
+// ===== Step 2: 能力路由检测结果 =====
 // 以能力路由矩阵呈现: 每个标准化数据集一行, 展示当前生效源与可用性,
 // 不再以 TickFlow 档位为中心 —— 多源下各数据集独立路由, 矩阵即真相。
 // 进入本步时按默认优先级自动设置路由: 前者可用的能力归前者, 没有则顺延下一个可用源。
@@ -728,7 +687,7 @@ function LinkMark() {
   return <span className="shrink-0">调整: 设置 → 数据源</span>
 }
 
-// ===== Step 4: 完成 =====
+// ===== Step 3: 完成 =====
 
 function FinishStep({ onNext, onBack, pending }: { onNext: () => void; onBack: () => void; pending: boolean }) {
   const settings = useSettings()

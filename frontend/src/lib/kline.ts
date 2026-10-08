@@ -70,8 +70,9 @@ export function klineMinuteQueryOptions(symbol: string, date?: string, live?: bo
   }
 }
 
-/** 收盘分钟标签: 连续竞价全天最后一根分钟K的时间。 */
-const CLOSE_MINUTE = '15:00'
+/** 收盘分钟标签: 连续竞价全天最后一根分钟K的时间 (开始时刻语义 — 15:00 bar 覆盖
+ * [14:59,15:00), 前端已统一把源"结束时刻"标签换算为"开始时刻", 见 minuteSemantics.ts)。 */
+const CLOSE_MINUTE = '14:59'
 
 /** 全天真正定版时刻: 15:00 收盘后仍可按收盘价成交 (盘后固定价) 至 15:30,
  * 其间成交量/额仍可能变化 —— 与后端 quote_service 定版重试窗口终点
@@ -101,12 +102,12 @@ function rowMinute(r: { datetime?: string } | undefined): string {
  * - 无数据 (source=none) → 停
  * - 响应日期 < 北京今天 → 停: 历史日的本地分钟K不可变 (周末"最新"会被
  *   后端回退到上一交易日, 同样命中此规则)
- * - 当日: 收盘根 (≥15:00 的K) 已出现 **且** 已过 15:30 → 停。
- *   完整性**只认收盘根, 不按根数** —— 实测本系统全天 241 根 (首根 09:30
- *   竞价根 + 15:00 收盘根), 按根数阈值会在第 240 根 (14:59) 到位时误停,
- *   恰好错过 15:00 收盘根; 收盘根判据还天然兼容盘中缺根与部分交易日。
- *   而 15:00 收盘根出现后**不能立即停**: 盘后按收盘价成交可持续到 15:30,
- *   其间量/额仍可能更新 (当前数据源分钟K止于 15:00, 此窗口为防御性保留,
+ * - 当日: 收盘根 (≥14:59 的K) 已出现 **且** 已过 15:30 → 停。
+ *   完整性**只认收盘根, 不按根数** —— 实测本系统全天 240 根 (首根 09:30
+ *   竞价+首分钟合并根 + 14:59 收盘根, 换算后语义), 按根数阈值会在第 239 根 (14:58)
+ *   到位时误停, 恰好错过 14:59 收盘根; 收盘根判据还天然兼容盘中缺根与部分交易日。
+ *   而 14:59 收盘根出现后**不能立即停**: 盘后按收盘价成交可持续到 15:30,
+ *   其间量/额仍可能更新 (数据源分钟K止于 15:00 结束时刻根, 换算后为 14:59, 此窗口为防御性保留,
  *   与后端"15:30 才允许定版/重建"的边界一致)。
  * - 其余 (当日 15:30 前) → 按间隔继续
  */
@@ -134,5 +135,50 @@ export function klineMinuteRangeQueryOptions(symbol: string, days: number) {
       const prevKey = prevQuery?.queryKey as readonly unknown[] | undefined
       return prevKey?.[1] === symbol ? prev : undefined
     },
+  }
+}
+
+// ===== 图表工作台分钟 range 轮询停表 (P3 实时优化) =====
+// 与 minuteRefetchInterval 同口径的"数据不可变即停", 适配 minute-range 响应结构
+// (sessions 多日数组)。停表后跨开盘的唤醒由低频心跳兜底 (周中盘前 5 分钟一跳)。
+
+/** 北京时间星期几 (0=周日..6=周六)。cnToday 已是北京墙钟日期, 直接按 UTC 日历日解析
+ * 取星期 — 纯日历运算, 不涉时区偏移 (用 +08:00 解析再 getUTCDay 会退到 UTC 日出错)。 */
+function cnDayOfWeek(): number {
+  return new Date(`${cnToday()}T00:00:00Z`).getUTCDay()
+}
+
+/** 盘前/节假日心跳间隔: 停表场景中仍保留低频探测, 开盘后 5 分钟内自动恢复实时。 */
+const IDLE_POLL_MS = 300_000
+
+/**
+ * 图表工作台分钟 range 轮询停表 — 数据不可变时停或降频, 消除无效请求:
+ *
+ * - source=none → 停 (无数据源)
+ * - 最新 session 日期 < 北京今天 (数据不含当日):
+ *   - 周六/周日 → 停 (确定非交易日)
+ *   - 周中 → 5 分钟心跳 (盘前等开盘 / 节假日探测, 开盘后自动恢复 15s 实时)
+ * - 最新 session 日期 = 今天:
+ *   - 收盘根(≥14:59)已出现且已过 15:30 → 停 (当日完整定版)
+ *   - 其余 (盘中/午休/收盘前) → 按 ms 正常轮询
+ */
+export function chartMinuteRangeRefetchInterval(ms: number) {
+  return (query: any): number | false => {
+    const d = query.state.data
+    if (!d) return ms
+    if (d.source === 'none') return false
+    const sessions = (d.sessions ?? []) as { date?: string; rows?: { datetime?: string }[] }[]
+    const lastSession = sessions[sessions.length - 1]
+    if (!lastSession) return false
+    const sessionDate = String(lastSession.date ?? '').slice(0, 10)
+    const today = cnToday()
+    const now = cnNowHHMM()
+    if (sessionDate < today) {
+      if ([0, 6].includes(cnDayOfWeek())) return false
+      return IDLE_POLL_MS
+    }
+    const closeBarArrived = (lastSession.rows ?? []).some(r => rowMinute(r) >= CLOSE_MINUTE)
+    if (closeBarArrived && now >= MARKET_ALL_OVER) return false
+    return ms
   }
 }

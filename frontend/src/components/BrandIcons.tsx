@@ -41,6 +41,17 @@ export const IconDashboard = make(
   </>,
 )
 
+/** 图表 — L 形坐标轴 + 双蜡烛升势 (图表工作台; 不用方括号外框, 与自选星标区分) */
+export const IconChart = make(
+  <>
+    <path d="M4.5 3.5V20.5H20.5" />
+    <line x1="9.5" y1="9.5" x2="9.5" y2="17.5" strokeWidth="1.5" strokeOpacity="0.75" />
+    <rect x="7.9" y="11.5" width="3.2" height="4" fill="currentColor" stroke="none" />
+    <line x1="15.5" y1="6" x2="15.5" y2="13.5" strokeWidth="1.5" strokeOpacity="0.75" />
+    <rect x="13.9" y="7.5" width="3.2" height="4.2" fill="currentColor" stroke="none" />
+  </>,
+)
+
 /** 自选 — 方括号 + 收藏星 */
 export const IconWatchlist = make(
   <>

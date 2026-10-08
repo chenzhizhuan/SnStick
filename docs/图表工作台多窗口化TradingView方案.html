@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>伪 TradingView 图表工作台方案 v2 — 参考实现对照补全版</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { min-height: 100%; }
+body {
+  position: relative;
+  font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", "Noto Sans SC", sans-serif;
+  color: #1f2d3d;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 24px;
+  background: linear-gradient(160deg, #f8fafc 0%, #ffffff 45%, #cfe0f5 100%);
+  min-height: 100vh;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 45% 35% at 12% 8%, rgba(255,255,255,0.55) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 30% at 88% 90%, rgba(255,255,255,0.45) 0%, transparent 55%);
+}
+body > * { position: relative; z-index: 1; }
+.title {
+  position: relative; overflow: hidden; padding: 56px 40px; text-align: center;
+  background: linear-gradient(135deg, #1e3a5f 0%, #3b82f6 50%, #4f8ef7 100%);
+  color: #ffffff; border-radius: 16px; margin-bottom: 24px; box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+}
+.title::before {
+  content: ''; position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 18% 82%, rgba(255,255,255,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 40% at 82% 18%, rgba(255,255,255,0.08) 0%, transparent 55%);
+  pointer-events: none;
+}
+.title > * { position: relative; z-index: 1; }
+.title h1 { font-size: 30px; font-weight: 800; margin: 0 0 14px 0; letter-spacing: 1px; color: #ffffff; }
+.title .accent-line { width: 48px; height: 3px; background: rgba(255,255,255,0.85); margin: 0 auto 18px; border-radius: 2px; }
+.title p { font-size: 15px; color: rgba(255,255,255,0.85); margin: 0; line-height: 1.7; }
+.title .meta { display: inline-flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+.title .tag { font-size: 12px; color: #ffffff; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.30); padding: 3px 10px; border-radius: 20px; }
+h1.heading { font-size: 26px; color: #0f1e33; margin: 36px 0 16px 0; font-weight: 700; border-left: 4px solid #3b82f6; padding-left: 16px; }
+h2.heading { font-size: 21px; color: #0f1e33; margin: 28px 0 12px; padding-bottom: 8px; border-bottom: 2px solid #c9d6f3; font-weight: 600; }
+h3 { font-size: 17px; color: #0f1e33; margin: 18px 0 8px; font-weight: 700; }
+.paragraph { font-size: 15px; color: #1f2d3d; line-height: 1.85; margin: 0 0 16px 0; text-indent: 2em; }
+.list { margin: 0 0 16px 0; padding-left: 24px; font-size: 15px; color: #1f2d3d; line-height: 1.85; }
+.list li { margin-bottom: 8px; }
+.list li::marker { color: #3b82f6; }
+.doc-section { background: #ffffff; border-radius: 14px; padding: 24px 28px; margin: 0 0 16px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.05); }
+.doc-section.alt { background: #e6edf6; box-shadow: none; }
+.callout { margin: 0 0 16px 0; padding: 16px 24px; background: #e8f0fe; border-left: 4px solid #3b82f6; border-radius: 8px; }
+.callout[data-variant="warning"] { background: #FFF3E0; border-left-color: #d97706; }
+.callout[data-variant="quote"] { background: #f0fdfa; border-left-color: #14b8a6; }
+.callout[data-variant="success"] { background: #E8F5E9; border-left-color: #16a34a; }
+.callout p { font-size: 15px; color: #1f2d3d; margin: 0; line-height: 1.8; }
+.callout .t { font-weight: 700; color: #0f1e33; display: block; margin-bottom: 4px; }
+.table-wrap { background: #ffffff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.05); overflow: hidden; margin: 0 0 16px 0; }
+.table-caption { padding: 12px 16px; background: linear-gradient(135deg, #c9d6f3, #e8f0fe); color: #0f1e33; font-size: 14px; font-weight: 600; text-align: center; border-bottom: 1px solid #dbe4ef; }
+table.table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+table.table thead th { padding: 11px 12px; text-align: left; background: #c9d6f3; color: #0f1e33; font-weight: 700; border-bottom: 2px solid #dbe4ef; word-break: break-word; }
+table.table tbody td { padding: 11px 12px; border-bottom: 1px solid #dbe4ef; color: #1f2d3d; word-break: break-word; }
+table.table tbody tr:last-child td { border-bottom: none; }
+table.table tbody tr:hover { background: #e8f0fe; }
+.stat-grid { display: flex; gap: 16px; margin: 0 0 16px 0; flex-wrap: wrap; }
+.stat { flex: 1; min-width: 150px; text-align: center; padding: 22px; background: #ffffff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); border-top: 3px solid #3b82f6; }
+.stat .num { font-size: 26px; color: #3b82f6; font-weight: 800; line-height: 1.1; }
+.stat .label { font-size: 12px; color: #5b6b80; margin-top: 6px; }
+.code { background: #1e293b; color: #e2e8f0; padding: 16px 24px; border-radius: 8px; font-size: 13px; line-height: 1.6; overflow-x: auto; margin: 0 0 16px 0; font-family: 'Cascadia Code', 'Fira Code', 'SF Mono', 'Source Code Pro', Consolas, monospace; white-space: pre-wrap; }
+.card-grid { display: flex; gap: 16px; margin: 0 0 16px 0; flex-wrap: wrap; }
+.card { flex: 1; min-width: 220px; background: #ffffff; padding: 22px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); border-top: 3px solid #3b82f6; }
+.card h3 { font-size: 17px; color: #0f1e33; margin: 0 0 8px 0; font-weight: 700; }
+.card p { font-size: 14px; color: #5b6b80; margin: 0; line-height: 1.7; }
+.card .k { font-size: 12px; color: #2563eb; font-weight: 700; display: inline-block; margin-bottom: 6px; }
+.divider { margin: 32px 0; text-align: center; user-select: none; }
+.divider .line { display: inline-block; width: 36px; height: 1px; vertical-align: middle; background: linear-gradient(to right, transparent, #e8f0fe); }
+.divider .line:last-child { background: linear-gradient(to left, transparent, #e8f0fe); }
+.divider .diamond { display: inline-block; width: 8px; height: 8px; margin: 0 12px; vertical-align: middle; transform: rotate(45deg); background: #3b82f6; border-radius: 1px; box-shadow: 0 0 0 2px #f4f7fb; }
+.end_page { margin-top: 24px; padding: 56px 24px; text-align: center; background: linear-gradient(135deg, #c9d6f3 0%, #e8f0fe 100%); border-radius: 16px; }
+.end_page h1 { font-size: 28px; color: #0f1e33; margin: 0 0 16px 0; font-weight: 800; }
+.end_page p { font-size: 15px; color: #5b6b80; margin: 0; line-height: 1.8; }
+@media screen and (max-width: 600px) {
+  body { padding: 16px !important; }
+  h1 { font-size: 22px !important; }
+  h2 { font-size: 18px !important; }
+  h3 { font-size: 16px !important; }
+  .stat-grid, .card-grid { flex-direction: column; }
+}
+@media print {
+  body { padding: 0 !important; margin: 0 !important; background: #f4f7fb; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  body::before { display: none; }
+  .title, .end_page { border-radius: 0; box-shadow: none; }
+  .doc-section, .card, .stat, .table-wrap { box-shadow: none; border: 1px solid #dbe4ef; }
+  section { break-inside: auto !important; }
+}
+</style>
+</head>
+<body class="mode-doc" data-palette="ink-blue">
+
+<section class="title">
+  <h1>伪 TradingView 图表工作台方案 v2</h1>
+  <div class="accent-line"></div>
+  <p>基于既有落地方案的参考实现对照评审 — 以 lc-chart（lightweight-charts 5.2.1 双周期多副图实现）与其数据接口文档为参照，梳理出 10 项补全</p>
+  <div class="meta">
+    <span class="tag">v2 补全版</span>
+    <span class="tag">指标扩展</span>
+    <span class="tag">信号标记</span>
+    <span class="tag">范围快捷栏</span>
+    <span class="tag">实时协议</span>
+  </div>
+</section>
+
+<h1 class="heading">一、评审结论总览</h1>
+<div class="doc-section">
+  <p class="paragraph">既有方案（产品定义、分屏联动、聚合引擎、markLine 绘图、布局持久化、权限接入）整体闭环成立，锚定现有代码资产的部分核对无误。对照参考实现逐项过完后，结论是：<strong>方案主干不动，需补 10 项，其中 3 组（指标扩展、信号标记、时间范围栏）建议直接并入 P0</strong>——均为低成本、高感知的「伪得更彻底」项。</p>
+  <div class="stat-grid">
+    <div class="stat"><div class="num">10</div><div class="label">补全项总数</div></div>
+    <div class="stat"><div class="num">4 项</div><div class="label">建议进 P0</div></div>
+    <div class="stat"><div class="num">+1.5 天</div><div class="label">对 P0-P2 工时的影响</div></div>
+    <div class="stat"><div class="num">0</div><div class="label">需推翻重做的设计</div></div>
+  </div>
+  <div class="table-wrap">
+    <table class="table" data-caption="方案模块 × 参考实现对照结论">
+      <thead><tr><th style="width:22%;">方案模块</th><th style="width:34%;">参考实现中的对应物</th><th style="width:44%;">结论</th></tr></thead>
+      <tbody>
+        <tr><td>周期切换 / 聚合</td><td>lc-chart 仅 15m/1h 双周期，Mock 数据不自洽</td><td>方案更全且天然自洽（1m 原料重采样），已覆盖</td></tr>
+        <tr><td>分屏 / 十字光标联动</td><td>双列布局 + subscribeCrosshairMove 时间同步</td><td>方案已覆盖且更全（缩放/symbol 联动 + 二分换算）</td></tr>
+        <tr><td>绘图工具 / 对象树</td><td>参考实现无此能力</td><td>方案领先，无需补</td></tr>
+        <tr><td>副图指标</td><td>MA / BOLL(含中轨+填充) / MACD / RSI / <strong>OBV / CCI</strong></td><td><strong>需补 4 项</strong>：OBV、CCI、BOLL 中轨+填充、RSI 零轴形态</td></tr>
+        <tr><td>信号标记</td><td><strong>MA5×MA10 金叉死叉标记 + RSI 顶背离徽章</strong></td><td><strong>方案缺失，需补</strong>（SnStick 有现成 markers 基础设施）</td></tr>
+        <tr><td>可见范围快捷选择</td><td>底栏 9 档：1天/5天/1月/3月/6月/YTD/1年/5年/全部</td><td><strong>方案缺失，需补</strong>（TV 同款交互）</td></tr>
+        <tr><td>顶部 OHLC 信息栏</td><td>header 开高低收 + 每列角标 OHLC</td><td>EChartsCandlestick 信息栏已有，已覆盖</td></tr>
+        <tr><td>实时协议</td><td>WS 消息：tick / kline-update(isFinal) / indicator-update</td><td>方案 P3 有框架，<strong>需补协议细节</strong>（isFinal、增量、重连）</td></tr>
+        <tr><td>涨跌停价</td><td>文档 P2：可前端按规则算或后端下发</td><td><strong>方案未提</strong>，priceLines 基础设施现成，低成本补</td></tr>
+        <tr><td>移动端 / 加载错误态</td><td>文档落地路线阶段 4：移动端适配、加载态/错误态</td><td>方案未提，需补（小项）</td></tr>
+        <tr><td>交易日历</td><td>文档 P1：建议后端 /api/trading-hours</td><td>方案硬编码 A 股时段，<strong>需注明边界</strong>（说明性）</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <aside class="callout" data-variant="success">
+    <span class="t">本次评审最关键的发现</span>
+    <p>信号标记（金叉/死叉、顶背离）在 SnStick 里几乎零成本落地——EChartsCandlestick 已有 <code>markers</code>（ChartMarker：buy/sell/neutral，含 above/color 扩展）与 <code>priceLines</code> 两个现成 Props，信号检测只需产出 ChartMarker[]，无需动渲染层。这是「伪得更彻底」性价比最高的一项。</p>
+  </aside>
+</div>
+
+<h1 class="heading">二、补全 A：指标库扩展（并入 P0）</h1>
+<div class="doc-section">
+  <p class="paragraph">已核对 SnStick 后端 <code>indicators/pipeline.py</code>：现有 MA / EMA(5-60) / MACD / RSI(6,14,24 Wilder) / KDJ / BOLL，<strong>没有 OBV 副图与 CCI</strong>（<code>obv_trend_20d</code> 是因子库的有界趋势因子，不是 OBV 能量潮序列）。参考实现的 OBV/CCI 均为前端计算——与方案「前端指标库」的定位一致，直接在 <code>chart/indicators.ts</code> 扩展即可，纯函数 + 单测，无后端改动。</p>
+  <div class="table-wrap">
+    <table class="table" data-caption="指标扩展清单（chart/indicators.ts 增量）">
+      <thead><tr><th style="width:14%;">指标</th><th style="width:12%;">参数</th><th style="width:26%;">口径</th><th style="width:26%;">渲染落点</th><th style="width:22%;">验收基准</th></tr></thead>
+      <tbody>
+        <tr><td>OBV 能量潮</td><td>—</td><td>累加：close↑ 加 vol，close↓ 减 vol，平盘不变</td><td>新增 SUB_CHARTS 副图（线图，无 MA 叠加）</td><td>与东财/同花顺 OBV 曲线形态一致</td></tr>
+        <tr><td>CCI</td><td>(14)</td><td>TP=(H+L+C)/3；CCI=(TP-MA(TP,14))/(0.015×平均绝对偏差)</td><td>新增 SUB_CHARTS 副图（±100 参考线）</td><td>与东财 CCI(14) 数值核对</td></tr>
+        <tr><td>BOLL 中轨 + 填充</td><td>(20,2)</td><td>中轨 = MA20（复用现有 ma20 字段，不再单算）</td><td>主图叠加：上下轨间 markArea 浅色填充带</td><td>填充带不遮挡 K 线（透明度 ≤0.12）</td></tr>
+        <tr><td>RSI 零轴形态</td><td>(14)</td><td>RSI-50 映射为零轴震荡器（参考实现副图2 同款）</td><td>RSI 副图加显示形态开关：0-100 / 零轴</td><td>两形态可切换，零轴刻度对齐</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul class="list">
+    <li><strong>OHLC 类型扩展</strong>：前端指标字段增加 <code>obv / cci</code>（KlineRow 不动，仅 chart/indicators.ts 的 EnrichedBar 扩展）。</li>
+    <li><strong>口径优先级不变</strong>：日 K 仍优先后端 enriched 字段；聚合周期前端算，公式同参。</li>
+    <li><strong>顶栏指标开关</strong>：ChartTopbar 增补 OBV/CCI 两个 Pill（SUB_CHARTS 自动带出，无额外 UI 工作）。</li>
+  </ul>
+</div>
+
+<h1 class="heading">三、补全 B：信号标记层（并入 P0）</h1>
+<div class="doc-section">
+  <p class="paragraph">参考实现的两类信号直接映射到现有 ChartMarker 基础设施，渲染层零改动，只需要一个纯函数检测器 + pane 装配处把信号 merge 进 markers。</p>
+  <div class="card-grid" data-cols="2">
+    <div class="card"><span class="k">信号 1</span><h3>MA5 × MA10 金叉 / 死叉</h3><p>逐 bar 比较：prev(ma5)≤prev(ma10) 且 cur(ma5)&gt;cur(ma10) → 金叉；反向 → 死叉。金叉映射 ChartMarker(kind: 'buy')，死叉映射 'sell'。参考实现只保留最近 12 个，我们按「可见窗口内全部 + 最近 N 兜底」策略，避免长历史标记过密。</p></div>
+    <div class="card"><span class="k">信号 2</span><h3>RSI 顶背离徽章</h3><p>价格创窗口新高 + RSI(14) 未同步新高 → 顶部标注徽章（above: true，紫色 color 覆盖）。参考实现用自定义 series 画徽章；ECharts 用 markPoint/markers 即可。可对称扩展底背离。</p></div>
+  </div>
+  <h3>信号检测器（新增 chart/signals.ts，纯函数）</h3>
+<pre class="code" data-lang="typescript">export interface ChartSignal extends ChartMarker { _sig: 'ma-cross' | 'rsi-divergence' }
+
+export function detectSignals(
+  bars: OHLC[],
+  opts: { maCross: boolean; rsiDivergence: boolean; window?: number }
+): ChartSignal[]
+// ma-cross:    遍历 i∈[1,n)，ma5/ma10 前后值比较 → buy/sell marker
+// rsi-divergence: 滚动窗口 w 内 close 创新高但 rsi_14 低于窗口内 rsi 峰值
+//                → neutral marker (above: true, label: '背离', color: '#7C3AED')
+// 装配点: ChartPane 中 [...markers, ...detectSignals(data, paneCfg.signals)]</pre>
+  <ul class="list">
+    <li>信号开关进 PaneConfig（<code>signals: { maCross, rsiDivergence }</code>），默认关（TV 也是按需开启）。</li>
+    <li>对象树（P2）把信号作为一类对象列出，可整体显隐。</li>
+    <li>实时接入后（P3）：增量 bar 只需检测最后两根，不全量重扫。</li>
+  </ul>
+</div>
+
+<h1 class="heading">四、补全 C：时间范围快捷栏（并入 P0）</h1>
+<div class="doc-section">
+  <p class="paragraph">TV 底部与参考实现底栏同款的「可见范围快捷选择」：1天 / 5天 / 1月 / 3月 / 6月 / YTD / 1年 / 5年 / 全部。落在 ChartTopbar 周期组右侧（Pill 组样式一致），实现走既有 dataZoom 通道：</p>
+<pre class="code" data-lang="typescript">const RANGES: { key: string; label: string; bars?: number | 'all' | 'ytd' }[] = [
+  { key: '1d',  label: '1天', bars: 240 },   // 分钟周期: 1 交易日根数; 日K: 1 根
+  { key: '5d',  label: '5天', bars: 5 },     // bars 按 pane 周期换算根数
+  { key: '1m',  label: '1月', bars: 22 },
+  { key: '3m',  label: '3月', bars: 66 }, { key: '6m', label: '6月', bars: 132 },
+  { key: 'ytd', label: 'YTD', bars: 'ytd' },  // 年初至今年根数, 按交易日历换算
+  { key: '1y',  label: '1年', bars: 250 }, { key: '5y', label: '5年', bars: 1250 },
+  { key: 'all', label: '全部', bars: 'all' },
+]
+// 选中 → 换算该周期根数 → chart.dispatchAction({ type: 'dataZoom', start, end })
+// 分钟周期范围按「交易日 × 每日根数」换算 (1d=1 交易日, 1m=22 交易日 …)</pre>
+  <ul class="list">
+    <li>与既有 <code>visibleBars</code> prop 的关系：范围栏是一次性 dispatch，用户手动缩放后高亮自动清除（回到「自定义」态）。</li>
+    <li>联动开启时范围切换同样广播时间区间（复用缩放联动算法，t0/t1 由范围锚点得出）。</li>
+    <li>分屏 pane 各自独立（与周期同理，不做全局范围联动，避免跨周期换算歧义）。</li>
+  </ul>
+</div>
+
+<h1 class="heading">五、补全 D：涨跌停价格线（并入 P1）</h1>
+<div class="doc-section">
+  <p class="paragraph">参考文档将涨跌停价列为 P2 数据项；SnStick 已有涨停梯队页面（LimitUpLadder），涨跌停规则计算现成可复用。图表工作台只需在主图挂两条水平价格线：<code>priceLines</code> prop 直接可用（涨停红 / 跌停绿，dashed），开关进 PaneConfig，默认开。</p>
+  <ul class="list">
+    <li>规则：主板 ±10%、创业板/科创板 ±20%、ST ±5%、北交所 ±30%——按 symbol 前缀 + 名称后缀判断，与后端涨停判定口径对齐。</li>
+    <li>仅日 K 与「当日」分钟周期显示（历史日期的涨停线无意义）。</li>
+    <li>对象树中可显隐该组价格线。</li>
+  </ul>
+</div>
+
+<h1 class="heading">六、补全 E：实时协议细化（并入 P3）</h1>
+<div class="doc-section">
+  <p class="paragraph">方案 P3 实时已有框架（useQuoteStream + mergeLatestKlineRow）。参考文档的 WS 协议语义可完整映射到 SSE 通道，补三点协议细节：</p>
+  <div class="table-wrap">
+    <table class="table" data-caption="参考协议 → SnStick SSE 映射">
+      <thead><tr><th style="width:20%;">参考消息</th><th style="width:38%;">语义</th><th style="width:42%;">SnStick 落地</th></tr></thead>
+      <tbody>
+        <tr><td>kline-update + isFinal</td><td>未走完的最后一根 K 随 tick 演进，走完固化不再变</td><td>SSE tick 合并进「当前周期桶」：分钟桶未收盘前反复重写最后一根，收盘边界（10:30/11:30/13:15…按周期对齐）固化</td></tr>
+        <tr><td>indicator-update</td><td>指标增量只推最新值</td><td>前端只重算最后一根指标（enrichChartIndicators 增量版），不全量重扫</td></tr>
+        <tr><td>心跳 / 断线重连</td><td>ping/pong 保活 + 指数退避重连</td><td>沿用现有 SSE 全局通道的失效/重连机制，pane 级加「暂停实时」开关防多窗高频刷新</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <aside class="callout" data-variant="warning">
+    <span class="t">注意</span>
+    <p>时间必须对齐到周期边界（15m 对齐到 9:45/10:00…），与 minuteResample 的切桶口径一致——聚合周期的实时演进直接复用切桶逻辑，天然对齐。</p>
+  </aside>
+</div>
+
+<h1 class="heading">七、其余补全项（F–J，小项与边界说明）</h1>
+<div class="doc-section">
+  <div class="table-wrap">
+    <table class="table" data-caption="小项与边界补全清单">
+      <thead><tr><th style="width:16%;">项</th><th style="width:10%;">阶段</th><th style="width:44%;">内容</th><th style="width:30%;">落点</th></tr></thead>
+      <tbody>
+        <tr><td>F. 移动端</td><td>P1</td><td>&lt;768px 分屏退化为单列纵排，工具栏收进底部抽屉</td><td>复用 DashboardGrid 移动端纵排先例</td></tr>
+        <tr><td>G. 加载/错误态</td><td>P0</td><td>数据加载骨架屏、接口错误横幅 + 重试（参考实现有 err-banner 先例）</td><td>ChartPane 内联状态条</td></tr>
+        <tr><td>H. 交易日历边界</td><td>说明</td><td>minuteResample 硬编码 A 股 09:30-11:30/13:00-15:00 时段，当前标的池内够用；夜盘/港股等扩展时需后端交易日历接口</td><td>方案风险节注明，不改代码</td></tr>
+        <tr><td>I. lwc 版本备注</td><td>说明</td><td>参考实现用 lightweight-charts <strong>v5.2.1</strong>（panes API 支持独立副图窗格），SnStick 锁 v4.2.0——若后续启用「TV 官方渲染后端」选项，需升级 v5 才具备对等 panes 能力</td><td>技术路线节补充注脚</td></tr>
+        <tr><td>J. 多周期自洽验收</td><td>P0 验收</td><td>「15m 聚合出 1h」的数据自洽性是方案既有优势（1m 原料单一来源），验收标准显式加一条：分屏多周期 OHLCV 互相勾稽一致</td><td>验收标准节</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h1 class="heading">八、更新后的文件清单与工时</h1>
+<div class="doc-section">
+  <p class="paragraph">在原方案「新增 11 + 改动 6」基础上，本次补全带来的增量如下（无推翻项）：</p>
+  <div class="table-wrap">
+    <table class="table" data-caption="补全项增量文件清单">
+      <thead><tr><th style="width:34%;">文件</th><th style="width:14%;">类型</th><th style="width:38%;">内容</th><th style="width:14%;">归属阶段</th></tr></thead>
+      <tbody>
+        <tr><td>chart/indicators.ts</td><td>改动</td><td>+OBV、+CCI、+BOLL 填充数据、+RSI 零轴映射；+增量版 enrich（P3 用）</td><td>P0 / P3</td></tr>
+        <tr><td>chart/signals.ts（+测试）</td><td>新增</td><td>金叉死叉 + 顶背离检测器 → ChartSignal[]</td><td>P0</td></tr>
+        <tr><td>chart/ranges.ts</td><td>新增</td><td>9 档范围定义 + 各周期根数换算</td><td>P0</td></tr>
+        <tr><td>chart/ChartTopbar.tsx</td><td>改动</td><td>+范围 Pill 组（周期组右侧）</td><td>P0</td></tr>
+        <tr><td>chart/ChartPane.tsx</td><td>改动</td><td>信号 merge 进 markers；涨跌停 priceLines 装配；加载/错误态</td><td>P0 / P1</td></tr>
+        <tr><td>EChartsCandlestick.tsx</td><td>改动</td><td>SUB_CHARTS 注册 OBV/CCI 副图；BOLL 填充 markArea；涨跌停价格线样式</td><td>P0 / P1</td></tr>
+        <tr><td>chart/limitPrice.ts</td><td>新增</td><td>按 symbol 规则算当日涨停/跌停价（复用涨停判定口径）</td><td>P1</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="table-wrap">
+    <table class="table" data-caption="工时影响（在原 P0-P2 共 6-8 天基础上）">
+      <thead><tr><th style="width:26%;">阶段</th><th style="width:18%;">原工时</th><th style="width:18%;">补全增量</th><th style="width:38%;">增量内容</th></tr></thead>
+      <tbody>
+        <tr><td>P0</td><td>2 天</td><td>+1 天</td><td>指标 4 项 + 信号检测器 + 范围栏 + 加载错误态</td></tr>
+        <tr><td>P1</td><td>2-3 天</td><td>+0.5 天</td><td>涨跌停线 + 移动端纵排</td></tr>
+        <tr><td>P2</td><td>2-3 天</td><td>±0</td><td>对象树纳入信号/价格线（原工时已含对象树）</td></tr>
+        <tr><td>P3</td><td>2 天+</td><td>+0.5 天</td><td>isFinal 固化边界 + 指标增量重算</td></tr>
+        <tr><td><strong>合计</strong></td><td><strong>6-8 天</strong></td><td><strong>+1.5~2 天</strong></td><td>P0-P2 完整可用约 7.5-9.5 天</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h1 class="heading">九、更新后的 P0 验收标准</h1>
+<div class="doc-section">
+  <ul class="list">
+    <li>任意股票切换 1m~日 K 六周期，MACD/RSI/KDJ/BOLL 全周期可用，数值与东财核对一致（既有）。</li>
+    <li><strong>新增：OBV/CCI 副图可开，数值与东财一致；BOLL 填充带不遮挡 K 线；RSI 零轴形态可切换。</strong></li>
+    <li><strong>新增：开信号开关后，金叉/死叉标记与东财均线交叉点对齐；顶背离徽章位置正确。</strong></li>
+    <li><strong>新增：范围栏 9 档切换后可见根数正确（分钟周期按交易日换算，YTD 按交易日历）。</strong></li>
+    <li>分屏多周期 OHLCV 互相勾稽一致（1m 原料聚合自洽性显式验收）。</li>
+    <li>个股分析页零回归：tsc + 既有测试全绿（既有，不变）。</li>
+  </ul>
+</div>
+
+<div class="divider"><span class="line"></span><span class="diamond"></span><span class="line"></span></div>
+
+<section class="title end_page">
+  <h1>补全完成，方案 v2 闭环</h1>
+  <p>主干维持既有设计，10 项补全已分级并入：P0 补 4 项、P1 补 2 项、P3 补 1 项、3 项为边界说明与验收强化。<br>待确认的决策点：信号开关默认值（建议关）、BOLL 填充默认透明度、范围栏是否联动广播。</p>
+</section>
+
+</body>
+</html>

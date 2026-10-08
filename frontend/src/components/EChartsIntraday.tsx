@@ -104,6 +104,20 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
     }
   }
 
+  // 收盘点补值 (分钟语义换算后): 原 15:00 收盘根已换算为 14:59 → 15:00 槽空,
+  // 把 14:59 收盘值复制到 15:00 槽, 分时曲线/均价线收盘价横住到 15:00 (TV 同款)。
+  // 量柱不补: 该分钟的量已在 14:59 槽上, 复制会出现两根同高量柱 (视觉 bug)。
+  // 11:30 午休槽不补: 119(11:29)-120(11:30)-121(13:00) 相邻有值会跨午休连线,
+  // 留空槽正好维持分时图午休断线语义。
+  const closeSlot = FULL_DAY_TIMES.length - 1
+  const preCloseSlot = closeSlot - 1
+  if (closes[preCloseSlot] != null && closes[closeSlot] == null) {
+    closes[closeSlot] = closes[preCloseSlot]
+    highs[closeSlot] = highs[preCloseSlot]
+    lows[closeSlot] = lows[preCloseSlot]
+    avgData[closeSlot] = avgData[preCloseSlot]
+  }
+
   const areaStyle: any = {
     color: {
       type: 'linear',
@@ -205,7 +219,9 @@ function buildOption(data: MinuteKlineRow[], prevClose: number | undefined, avgP
   }
 
   // x 轴标签: 9:30, 10:30, 11:30/13:00, 14:00, 15:00
-  // 11:30(idx 120) 和 13:00(idx 121) 相邻会重叠, 合并为一个标签
+  // x 轴为 FULL_DAY_TIMES 全天时间槽 (242 槽: 09:30..11:30 + 13:00..15:00);
+  // 11:30(idx 120) 与 13:00(idx 121) 相邻会重叠, 合并为一个标签。
+  // idx 181 = 14:00 (13:00 起第 60 格), idx 241 = 15:00 (末槽)。
   const xAxisLabelMap: Record<number, string> = {
     0: '9:30',
     60: '10:30',

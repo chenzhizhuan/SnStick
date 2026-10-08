@@ -86,6 +86,7 @@ P_MENU_REVIEW = "stick:menu:review"
 P_MENU_INDICES = "stick:menu:indices"
 P_MENU_DATA = "stick:menu:data"
 P_MENU_PAPER = "stick:menu:paper"
+P_MENU_CHART = "stick:menu:chart"
 
 _ADMIN_WILDCARD = "*:*:*"
 

@@ -92,6 +92,8 @@ export interface ChartRange {
 
 interface Props {
   rows: KlineRow[]
+  /** 当前标的 (换股检测用: 换股时清用户缩放窗口回默认, 工作台同款语义) */
+  symbol?: string
   levels?: Record<LevelType, PriceLevel[]>
   /** 带状曲线指标(布林带/Keltner/ATR)的每日序列 —— 画成跟随时间漂移的曲线 */
   series?: LevelSeries
@@ -113,6 +115,7 @@ const VOL_PANE_H = 90
 
 export function AnalysisKChart({
   rows,
+  symbol,
   levels,
   series,
   seriesDates,
@@ -136,7 +139,7 @@ export function AnalysisKChart({
   const [hoveredKey, setHoveredKey] = useState<string | null>(null)
 
   // 数据预处理 + 带状曲线序列对齐(后端 series 的日期范围可能与 rows 不同,需映射)
-  const { dates, candle, vols, dateIndex, zoomStart, alignedSeries } = useMemo(() => {
+  const { dates, candle, vols, dateIndex, defaultZoom, alignedSeries } = useMemo(() => {
     const dates = rows.map(r => (typeof r.date === 'string' ? r.date.slice(0, 10) : String(r.date)))
     const candle = rows.map(r => [r.open, r.close, r.low, r.high])
     const vols = rows.map(r => ({
@@ -146,7 +149,8 @@ export function AnalysisKChart({
     const dateIndex = new Map(dates.map((d, i) => [d, i]))
     // 默认显示最近 6 个月 ≈ 120 个交易日;数据不足则全部显示
     const showBars = 120
-    const zoomStart = dates.length > showBars ? Math.round((1 - showBars / dates.length) * 100) : 0
+    const start = dates.length > showBars ? Math.round((1 - showBars / dates.length) * 100) : 0
+    const defaultZoom = { start, end: 100 }
 
     // 把后端 series(按 seriesDates 对齐)映射到前端 rows 的 dates 顺序
     const alignedSeries: Record<string, (number | null)[]> = {}
@@ -184,8 +188,29 @@ export function AnalysisKChart({
       }
     }
 
-    return { dates, candle, vols, dateIndex, zoomStart, alignedSeries }
+    return { dates, candle, vols, dateIndex, defaultZoom, alignedSeries }
   }, [rows, series, seriesDates])
+
+  // ── TV 同款交互状态 (ref, 高频交互不触发 React 重渲染) ──
+  // X 用户窗口 (拖拽/滚轮/双击重置后记录, setOption 重建时恢复); null = 默认 120 根
+  const xZoomRef = useRef<{ start: number; end: number } | null>(null)
+  // 主图 Y 手动缩放窗口; null = 自动定界 (0-100, 跟随数据)
+  const yZoomRef = useRef<{ start: number; end: number } | null>(null)
+  const defaultZoomRef = useRef(defaultZoom)
+  defaultZoomRef.current = defaultZoom
+  const datesRef = useRef<string[]>(dates)
+  datesRef.current = dates
+
+  // 换股重置 (工作台 [_symbol] 同款): 标的切换时旧股的 X/Y 用户窗口语义已失效
+  // (价格尺度/数据长度不同), 清空回默认 120 根 + Y 自动定界;
+  // 同股数据更新 (轮询追加/滑动窗口首日变化) 不重置。
+  const prevSymbolRef = useRef(symbol)
+  useEffect(() => {
+    if (prevSymbolRef.current === symbol) return
+    prevSymbolRef.current = symbol
+    xZoomRef.current = null
+    yZoomRef.current = null
+  }, [symbol])
 
   // 构建 option
   const buildOption = (): EChartsOption => {
@@ -222,6 +247,36 @@ export function AnalysisKChart({
         label: r.label ? { show: true, position: 'insideTop', distance: 6, color: '#EAB308', fontSize: 10 } : undefined,
       }, { xAxis: r.end }])
 
+// TV 同款现价标签: 末根收盘价贴价格轴 (价格轴在左, position 'start' = 横线左端
+    // = 左侧轴区, 盖在刻度上), 涨跌色背景白字, 实时行 (is_live) 前缀 ● 徽记 — 盯盘
+    // 第一视觉锚点; 右侧带专留给价位线标签不与之争位。
+    const lastBar = rows[rows.length - 1]
+    const prevBar = rows[rows.length - 2]
+    const lastUp = prevBar != null && Number.isFinite(prevBar.close)
+      ? lastBar.close >= prevBar.close
+      : true
+    const liveBadge = lastBar.is_live === true ? '●' : ''
+    const liveMarkLine = lastBar != null && Number.isFinite(lastBar.close) ? {
+      silent: true,
+      symbol: 'none' as const,
+      data: [{
+        yAxis: lastBar.close,
+        lineStyle: { color: lastUp ? THEME.bull : THEME.bear, type: 'dashed' as const, width: 1, opacity: 0.5 },
+        label: {
+          show: true,
+          formatter: `${liveBadge}${lastBar.close.toFixed(2)}`,
+          position: 'start' as const,
+          color: '#FFFFFF',
+          backgroundColor: lastUp ? THEME.bull : THEME.bear,
+          borderRadius: 2,
+          padding: [2, 5],
+          fontSize: 10,
+          fontFamily: 'JetBrains Mono, monospace',
+        },
+      }],
+      animation: false,
+    } : undefined
+
     const series: any[] = [
       {
         name: 'K', type: 'candlestick', data: candle, animation: false,
@@ -233,6 +288,7 @@ export function AnalysisKChart({
         },
         markPoint: markPointData.length ? { data: markPointData, animation: false } : undefined,
         markArea: markAreaData.length ? { silent: true, data: markAreaData } : undefined,
+        markLine: liveMarkLine,
       },
       {
         name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
@@ -324,12 +380,17 @@ export function AnalysisKChart({
     }
     seriesKeyMapRef.current = keyMap
 
+    // 窗口: X 优先用户窗口 (xZoomRef, 含双击重置的默认 120 根), 重建后保持;
+    // Y 主图手动窗口 (yZoomRef) 或自动定界 0-100。
+    const xWin = xZoomRef.current ?? defaultZoom
+    const yWin = yZoomRef.current
+
     return {
       animation: false,
       backgroundColor: 'transparent',
-      // grid.right 留出足够宽度给价位标签文字区:蜡烛只占左侧主区域,
-      // 价位线右端的标签文字显示在这条预留带里,不压在蜡烛上。
-      // 预留 ~144px:最长标签(如「成交密集区(POC) 12.34」)约 13 字符,fontSize 9 等宽。
+      // grid: 左侧价格刻度带 (标准行情区) + 右侧价位标签带 (价位线 endLabel 文字区)。
+      // 价位标签从网格右缘向右约 76px (最长标签「成交密集区(POC) 12.34」), right 144 足够;
+      // 价格标尺回左后与价位标签互不干扰, 右带专给价位文字。
       grid: [
         { left: 56, right: 144, top: 16, height: mainH },
         { left: 56, right: 144, top: volTop, height: volH },
@@ -340,7 +401,8 @@ export function AnalysisKChart({
           axisLine: { lineStyle: { color: CT().grid } },
           axisLabel: { color: CT().text, fontSize: 10 },
           splitLine: { show: false },
-          axisPointer: { show: true, label: { show: false } },
+          // 十字光标时间读数 (label 由 tooltip.axisPointer 统一配置)
+          axisPointer: { show: true, label: { show: true } },
         },
         {
           type: 'category', gridIndex: 1, data: dates, boundaryGap: true,
@@ -348,22 +410,55 @@ export function AnalysisKChart({
         },
       ],
       yAxis: [
-        { scale: true, splitLine: { lineStyle: { color: CT().grid } },
-          axisLabel: { color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' } },
+        // 价格标尺回左 (标准行情区; 右侧专让价位标签带), 与价位线文字互不干扰。
+        // axisPointer: 十字光标悬停时在轴区显示光标所在价格读数。
+        { scale: true, axisLabel: { color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+          axisPointer: { show: true, label: { show: true } },
+          splitLine: { lineStyle: { color: CT().grid } } },
         { scale: true, gridIndex: 1, splitNumber: 2,
           // 成交量区不画背景横线
           splitLine: { show: false },
           axisLabel: { color: CT().text, fontSize: 9, fontFamily: 'JetBrains Mono, monospace',
                        formatter: (v: number) => fmtVol(v) } },
       ],
+      // 窗口: X 优先用户窗口 (xZoomRef, 含双击重置的默认 120 根), 重建后保持;
+      // Y 主图手动窗口 (yZoomRef) 或自动定界 0-100。
+      // dataZoom 结构: [0]=X inside, [1]=X slider, [2]=主图 Y inside (自研窗口控制)。
       dataZoom: [
-        { type: 'inside', xAxisIndex: [0, 1], start: zoomStart, end: 100 },
-        { type: 'slider', xAxisIndex: [0, 1], bottom: sliderBottom, height: SLIDER_H, start: zoomStart, end: 100,
+        // X 拖拽平移由 zr 自研 (水平=动 X, 垂直=动主图 Y 互不干扰): 内置 moveOnMouseMove
+        // 不区分方向, 垂直拖会同时平移 X → 可见数据范围每帧变化 → 价位线/蜡烛被推挤出
+        // 视野 (与工作台同款修复)。滚轮 X 缩放保留 (zoomOnMouseWheel)。
+        { type: 'inside', xAxisIndex: [0, 1], start: xWin.start, end: xWin.end, moveOnMouseMove: false, zoomOnMouseWheel: true },
+        { type: 'slider', xAxisIndex: [0, 1], bottom: sliderBottom, height: SLIDER_H, start: xWin.start, end: xWin.end,
           borderColor: 'transparent', fillerColor: CT().zoomFill,
           handleStyle: { color: '#52525B' }, textStyle: { color: CT().text, fontSize: 10 } },
+        { type: 'inside', yAxisIndex: 0, start: yWin ? yWin.start : 0, end: yWin ? yWin.end : 100,
+          moveOnMouseMove: false, zoomOnMouseWheel: false },
       ],
-      // 不弹 hover tooltip(用户要求);但保留十字线 axisPointer 作为缩放/定位参照
-      tooltip: { show: false },
+      // 不弹 hover tooltip(用户要求);但保留十字光标 axisPointer 作为缩放/定位参照。
+      // 轴读数 label 与工作台同款 (时间+价格, 悬停显示) — 行情图表的基础交互。
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        textStyle: { fontSize: 0 },
+        formatter: () => '',
+        axisPointer: {
+          type: 'cross',
+          label: {
+            show: true,
+            backgroundColor: CT().tooltipBg,
+            borderColor: CT().tooltipBorder,
+            borderWidth: 1,
+            padding: [2, 5],
+            color: CT().tooltipText,
+            fontSize: 10,
+            fontFamily: 'JetBrains Mono, monospace',
+          },
+          crossStyle: { color: CT().crosshair, type: 'dashed', width: 1 },
+          lineStyle: { color: CT().crosshair, type: 'dashed', width: 1 },
+        },
+      },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       series,
     }
@@ -388,6 +483,168 @@ export function AnalysisKChart({
         }
       })
       chartInstRef.current.on('globalout', () => setHoveredKey(null))
+
+      // ── TV 同款交互: 主图 Y 缩放/双轴平移 + 双击重置 (工作台同款, 精简单主图版) ──
+      const chart = chartInstRef.current
+      const gridRectAt = (g: number) => {
+        const comp = (chart as any).getModel().getComponent('grid', g)
+        return comp?.coordinateSystem?.getRect() as { x: number; y: number; width: number; height: number } | undefined
+      }
+      /** 鼠标在哪个 grid 内; -1 = 不在 (主图 0 / 成交量 1)。 */
+      const locateGrid = (px: number, py: number): number => {
+        for (let g = 0; g < 2; g++) {
+          const r = gridRectAt(g)
+          if (r && px >= r.x && px <= r.x + r.width && py >= r.y && py <= r.y + r.height) return g
+        }
+        return -1
+      }
+      /** 鼠标是否在主图左侧价格刻度带 (价格轴在左, TV 同款: 左缘滚轮/拖拽缩放 Y)。
+       *  右侧价位标签带不参与缩放, 避免误触价位文字。 */
+      const inPriceAxis = (px: number, py: number): boolean => {
+        const r = gridRectAt(0)
+        if (!r) return false
+        if (py < r.y || py > r.y + r.height) return false
+        return px < r.x - 2 && px >= r.x - 62
+      }
+      /** 主图 Y 窗口缩放 (anchorRatio: 0=底 1=顶; factor>1 = 收窄 = 放大)。 */
+      const scaleMainY = (anchorRatio: number, factor: number) => {
+        const opt = chart.getOption() as any
+        const yz = opt?.dataZoom?.[2]
+        if (!yz) return
+        const s = yz.start ?? 0
+        const e = yz.end ?? 100
+        const w0 = e - s
+        const w = Math.max(Math.min(w0 / factor, 100), 0.5)
+        const c = s + anchorRatio * w0
+        let sN = c - (c - s) / factor
+        let eN = sN + w
+        if (sN < 0) { sN = 0; eN = w }
+        if (eN > 100) { eN = 100; sN = Math.max(0, 100 - w) }
+        yZoomRef.current = { start: sN, end: eN }
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 2, start: sN, end: eN })
+      }
+      // 滚轮: 价格轴区上滚放大/下滚缩小 (与拖拽向上=放大同语义)
+      const handleYWheel = (ev: any) => {
+        if (!inPriceAxis(ev.offsetX, ev.offsetY)) return
+        ev.preventDefault?.()
+        const r = gridRectAt(0)
+        if (!r) return
+        const anchor = 1 - (ev.offsetY - r.y) / r.height
+        const delta = Number(ev.wheelDelta ?? ev.zrDelta ?? 0)
+        if (!Number.isFinite(delta) || delta === 0) return
+        scaleMainY(anchor, Math.exp(delta * 0.15))
+      }
+      // 按住拖拽 — 双模式: 价格轴带内 = 缩放 Y; 图区内 = 双轴平移
+      // pan: 水平分量只动 X, 垂直分量只动主图 Y (已手动缩放时) — 互不干扰,
+      // 垂直拖不会把可见数据带推跑 (K 线不再"拖一拖消失再显示")。
+      type Drag =
+        | { mode: 'scale'; y0: number; ry: number; h: number; s0: number; e0: number }
+        | { mode: 'pan'; hasY: boolean; x0: number; y0: number; gw: number; gh: number; s0X: number; e0X: number; s0Y: number; e0Y: number }
+      let drag: Drag | null = null
+      const handleZrMouseDown = (ev: { offsetX: number; offsetY: number }) => {
+        if (inPriceAxis(ev.offsetX, ev.offsetY)) {
+          const opt = chart.getOption() as any
+          const yz = opt?.dataZoom?.[2]
+          const r = gridRectAt(0)
+          if (!yz || !r) return
+          drag = { mode: 'scale', y0: ev.offsetY, ry: r.y, h: r.height, s0: yz.start ?? 0, e0: yz.end ?? 100 }
+          return
+        }
+        const g = locateGrid(ev.offsetX, ev.offsetY)
+        if (g < 0) return
+        const r = gridRectAt(g)
+        if (!r) return
+        const opt = chart.getOption() as any
+        const xz = opt?.dataZoom?.[0]
+        if (!xz) return
+        const yz = yZoomRef.current
+        drag = {
+          mode: 'pan', hasY: g === 0 && !!yz,
+          x0: ev.offsetX, y0: ev.offsetY, gw: r.width, gh: r.height,
+          s0X: xz.start ?? 0, e0X: xz.end ?? 100,
+          s0Y: yz ? yz.start : 0, e0Y: yz ? yz.end : 100,
+        }
+      }
+      const handleZrMouseMove = (ev: { offsetX: number; offsetY: number }) => {
+        if (!drag) return
+        if (drag.mode === 'scale') {
+          const dy = ev.offsetY - drag.y0
+          if (dy === 0) return
+          const w0 = drag.e0 - drag.s0
+          const factor = Math.pow(2, -dy / drag.h)
+          const w = Math.max(Math.min(w0 / factor, 100), 0.5)
+          const c = drag.s0 + (1 - (drag.y0 - drag.ry) / drag.h) * w0
+          let sN = c - (c - drag.s0) / factor
+          let eN = sN + w
+          if (sN < 0) { sN = 0; eN = w }
+          if (eN > 100) { eN = 100; sN = Math.max(0, 100 - w) }
+          yZoomRef.current = { start: sN, end: eN }
+          chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 2, start: sN, end: eN })
+          return
+        }
+        // pan: 水平 → X 平移 (内容跟随手指: 左拖看更晚数据); 垂直 → 主图 Y 平移
+        const dx = ev.offsetX - drag.x0
+        const dy = ev.offsetY - drag.y0
+        if (dx !== 0) {
+          const w = drag.e0X - drag.s0X
+          const d = (dx / drag.gw) * w
+          const sN = Math.max(0, Math.min(100 - w, drag.s0X - d))
+          xZoomRef.current = { start: sN, end: sN + w }
+          chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: sN, end: sN + w })
+          chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1, start: sN, end: sN + w })
+        }
+        if (dy !== 0 && drag.hasY) {
+          const w = drag.e0Y - drag.s0Y
+          const d = (dy / drag.gh) * w
+          const sN = Math.max(0, Math.min(100 - w, drag.s0Y + d))
+          yZoomRef.current = { start: sN, end: sN + w }
+          chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 2, start: sN, end: sN + w })
+        }
+      }
+      const handleZrDragEnd = () => { drag = null }
+      // 双击重置 (TV 同款): X 回默认 120 根窗口 + 主图 Y 回自动定界
+      const handleDblClick = () => {
+        const z = defaultZoomRef.current
+        xZoomRef.current = { start: z.start, end: z.end }
+        yZoomRef.current = null
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: z.start, end: z.end })
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1, start: z.start, end: z.end })
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 2, start: 0, end: 100 })
+      }
+      // X slider (dataZoom[1]) 与 inside (dataZoom[0]) 窗口同步 + 用户窗口入账:
+      // ① inside 滚轮缩放/自研拖拽只动 0, slider 手柄会脱节 → 事件里互相补齐, 防递归;
+      // ② 同步把最新窗口记入 xZoomRef — hover 价位线等触发 setOption 全量重建时
+      //    buildOption 用 xZoomRef 恢复窗口, 不入账会把用户刚滚轮缩放的窗口弹回旧值
+      //    (EChartsCandlestick 的 dataZoom→userZoomRef 同款机制)。
+      // 注意: 内置滚轮缩放触发的事件 params 为空对象 (不带 dataZoomIndex) —
+      // 从 getOption() 读实际窗口而非依赖 params; Y 组件 (index 2) 的事件跳过。
+      let zoomSyncing = false
+      chart.on('dataZoom', (params: any) => {
+        if (zoomSyncing) return
+        const idx = params?.dataZoomIndex
+        if (idx === 2) return // Y 组件事件: X 窗口无关
+        const opt = chart.getOption() as any
+        // slider 手柄拖拽 (idx=1) 只动了 slider → 从 1 读; 其余 (内置滚轮空 params /
+        // 自研拖拽/程序 dispatch 到 0) 从 0 读 (inside 与 slider 双写, 二者一致)
+        const z = idx === 1 ? opt?.dataZoom?.[1] : opt?.dataZoom?.[0]
+        if (!z) return
+        xZoomRef.current = { start: z.start, end: z.end }
+        // 与另一个 X 组件同步 (窗口已一致时跳过, 防递归)
+        const otherIdx = idx === 1 ? 0 : 1
+        const zs = opt?.dataZoom?.[otherIdx]
+        if (zs && (Math.abs(zs.start - z.start) > 0.01 || Math.abs(zs.end - z.end) > 0.01)) {
+          zoomSyncing = true
+          chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: otherIdx, start: z.start, end: z.end })
+          zoomSyncing = false
+        }
+      })
+      const zr = chart.getZr()
+      zr.on('mousewheel', handleYWheel)
+      zr.on('mousedown', handleZrMouseDown)
+      zr.on('mousemove', handleZrMouseMove)
+      zr.on('mouseup', handleZrDragEnd)
+      zr.on('globalout', handleZrDragEnd)
+      zr.on('dblclick', handleDblClick)
     }
     chartInstRef.current.setOption(buildOption(), true)
     // eslint-disable-next-line react-hooks/exhaustive-deps

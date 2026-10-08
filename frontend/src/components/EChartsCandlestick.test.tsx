@@ -13,9 +13,10 @@ const chart = vi.hoisted(() => ({
   resize: vi.fn(),
   dispose: vi.fn(),
   getZr: () => ({ on: vi.fn(), off: vi.fn() }),
-  getOption: () => ({ dataZoom: [{ start: 0, end: 100 }] }),
+  getOption: () => ({ dataZoom: [{ start: chart.__zoom.start, end: chart.__zoom.end }] }),
   containPixel: () => false,
   convertFromPixel: () => [0, 0],
+  __zoom: { start: 0, end: 100 },
 }))
 
 vi.mock('echarts', () => ({ init: () => chart }))
@@ -26,6 +27,15 @@ const DAYS = Array.from({ length: 62 }, (_, i) =>
 const rows = (base: number): OHLC[] =>
   DAYS.map(date => ({ date, open: base, high: base + 1, low: base - 1, close: base, volume: 1 }))
 
+/** 生成 n 根日 K, 从 startDate (含) 起每天一根, 用于前插检测测试 */
+const makeRows = (n: number, startDate = '2024-01-01'): OHLC[] => {
+  const base = new Date(`${startDate}T00:00:00Z`)
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(base.getTime() + i * 86_400_000)
+    return { date: d.toISOString().slice(0, 10), open: 10, high: 11, low: 9, close: 10, volume: 1 }
+  })
+}
+
 let host: HTMLDivElement
 let root: ReturnType<typeof createRoot>
 
@@ -34,6 +44,7 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   chart.handlers = {}
   chart.setOption.mockClear()
+  chart.__zoom = { start: 0, end: 100 }
   chart.on.mockImplementation((name: string, callback: (event?: any) => void) => {
     chart.handlers[name] = callback
   })
@@ -112,4 +123,76 @@ it('切股后鼠标未离开图表, 竖虚线重新命中即恢复「至今/周�
   // 移出图表区 → 重新收起
   await act(async () => { surface.dispatchEvent(new MouseEvent('mouseleave')) })
   expect(host.textContent).not.toContain('至今')
+})
+
+it('拖到 X 最左边界 (start ≤ 0.5) 触发 onLoadMoreLeft 回调', async () => {
+  const onLoadMoreLeft = vi.fn()
+  await act(async () => root.render(
+    <EChartsCandlestick
+      data={rows(10)}
+      symbol="600000"
+      height={400}
+      visibleBars="all"
+      onLoadMoreLeft={onLoadMoreLeft}
+    />,
+  ))
+  chart.__zoom = { start: 0, end: 100 }
+  await act(async () => { chart.handlers.dataZoom?.() })
+  expect(onLoadMoreLeft).toHaveBeenCalledTimes(1)
+})
+
+it('未贴到最左边界 (start > 0.5) 不触发 onLoadMoreLeft', async () => {
+  const onLoadMoreLeft = vi.fn()
+  await act(async () => root.render(
+    <EChartsCandlestick
+      data={rows(10)}
+      symbol="600000"
+      height={400}
+      visibleBars="all"
+      onLoadMoreLeft={onLoadMoreLeft}
+    />,
+  ))
+  chart.__zoom = { start: 10, end: 100 }
+  await act(async () => { chart.handlers.dataZoom?.() })
+  expect(onLoadMoreLeft).not.toHaveBeenCalled()
+})
+
+it('「往左加载更多」前插后视野右移, 保持用户看到的日期段不变', async () => {
+  const oldData = makeRows(60, '2024-01-01')
+  const frontData = makeRows(50, '2023-11-12') // 50 根更早历史, 末根 2023-12-31
+  const newData = [...frontData, ...oldData]   // 110 根, data[50] === oldData[0]
+
+  await act(async () => root.render(
+    <EChartsCandlestick
+      data={oldData}
+      symbol="600000"
+      height={400}
+      visibleBars="all"
+    />,
+  ))
+  // 用户原本看末尾 10 根: start = (60-10)/60*100 = 83.333...
+  chart.__zoom = { start: 83.33333, end: 100 }
+  await act(async () => { chart.handlers.dataZoom?.() })
+
+  // 前插 50 根更早历史 (触发「往左加载更多」后的数据合并结果)
+  await act(async () => root.render(
+    <EChartsCandlestick
+      data={newData}
+      symbol="600000"
+      height={400}
+      visibleBars="all"
+    />,
+  ))
+
+  // 前插检测: 旧视野索引段整体右移 inserted=50 根
+  // startIdx = 83.333/100 * 60 = 50, endIdx = 60
+  // new start = (50+50)/110*100 ≈ 90.91, end = (60+50)/110*100 = 100
+  // 前插检测: 旧视野索引段整体右移 inserted=50 根
+  // startIdx = 83.333/100 * 60 = 50, endIdx = 60
+  // new start = (50+50)/110*100 ≈ 90.91, end = (60+50)/110*100 = 100
+  const xDispatch = chart.dispatchAction.mock.calls
+    .filter((c: any[]) => c[0]?.dataZoomIndex === 0)
+    .at(-1) as any[]
+  expect(xDispatch[0].start).toBeCloseTo(90.9, 1)
+  expect(xDispatch[0].end).toBe(100)
 })

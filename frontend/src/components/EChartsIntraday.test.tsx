@@ -119,11 +119,56 @@ it('listing day without prevClose anchors y-axis with scale, not zero', async ()
   const host = document.createElement('div')
   const root = createRoot(host)
   cleanup = async () => { await act(async () => root.unmount()) }
-  await act(async () => root.render(
-    <EChartsIntraday data={wideRows('2026-09-17')} date="2026-09-17" />,
-  ))
+  await act(async () => root.render(<EChartsIntraday data={wideRows('2026-09-17')} date="2026-09-17" />))
   const axis = lastYAxis()
   expect(axis.min).toBeUndefined()
   expect(axis.max).toBeUndefined()
   expect(axis.scale).toBe(true)
+})
+
+// ================================================================
+// 收盘点补值 (分钟语义换算后): 数据为"开始时刻"语义 (末根 14:59 = 收盘根),
+// 15:00 槽补收盘价 (曲线横住到 15:00) 但量柱不补 (防双柱);
+// 11:30 午休槽不补 (保持午休断线语义, 不跨午休连线)。
+// ================================================================
+it('close carry: 15:00 slot gets price (not volume), 11:30 stays empty across noon', async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  cleanup = async () => { await act(async () => root.unmount()) }
+  // 换算后语义: 09:30 合并根 / 11:29 上午收盘 / 13:00 / 14:59 收盘根
+  const day = '2026-09-29'
+  await act(async () => root.render(
+    <EChartsIntraday
+      data={[
+        { datetime: `${day} 09:30:00`, open: 10, high: 10.2, low: 9.9, close: 10, volume: 5000, amount: 50000 },
+        { datetime: `${day} 11:29:00`, open: 10.5, high: 10.6, low: 10.4, close: 10.5, volume: 100, amount: 1050 },
+        { datetime: `${day} 13:00:00`, open: 10.5, high: 10.7, low: 10.5, close: 10.6, volume: 80, amount: 848 },
+        { datetime: `${day} 14:59:00`, open: 11, high: 11.2, low: 11, close: 11.1, volume: 300, amount: 3330 },
+      ]}
+      date={day}
+      prevClose={10}
+    />,
+  ))
+  const call = chart.setOption.mock.calls.at(-1)
+  const series: any[] = call?.[0]?.series ?? []
+  const cats: string[] = call?.[0]?.xAxis?.[0]?.data ?? []
+  const price = series.find(s => s.type === 'line' && s.data) // 价格线 (首个 line)
+  const vol = series.find(s => s.type === 'bar')
+  const data = price?.data ?? []
+  const vols = vol?.data ?? []
+  const i1129 = cats.indexOf('11:29')
+  const i1130 = cats.indexOf('11:30')
+  const i1459 = cats.indexOf('14:59')
+  const i1500 = cats.indexOf('15:00')
+  // 15:00 槽: 价格补值 = 14:59 收盘价, 量柱为 null (不重复画柱)
+  expect(data[i1500]).toBe(11.1)
+  expect(data[i1459]).toBe(11.1)
+  expect(vols[i1500]).toBeNull()
+  expect(vols[i1459]?.value).toBe(300)
+  // 11:30 午休槽: 价格与量都为 null (曲线止于 11:29, 不跨午休连线)
+  expect(data[i1130]).toBeNull()
+  expect(vols[i1130]).toBeNull()
+  expect(data[i1129]).toBe(10.5)
 })

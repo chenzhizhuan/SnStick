@@ -96,6 +96,7 @@ roles:
       # 菜单可见性
       - "stick:menu:abnormal"
       - "stick:menu:backtest"
+      - "stick:menu:chart"
       - "stick:menu:concept-analysis"
       - "stick:menu:data"
       - "stick:menu:factors"
@@ -145,6 +146,7 @@ roles:
       # 菜单可见性
       - "stick:menu:abnormal"
       - "stick:menu:backtest"
+      - "stick:menu:chart"
       - "stick:menu:concept-analysis"
       - "stick:menu:factors"
       - "stick:menu:indices"
@@ -189,6 +191,7 @@ roles:
       - "stick:paper:write"
       # 菜单可见性
       - "stick:menu:backtest"
+      - "stick:menu:chart"
       - "stick:menu:concept-analysis"
       - "stick:menu:factors"
       - "stick:menu:indices"
@@ -235,6 +238,7 @@ roles:
       # 菜单可见性
       - "stick:menu:abnormal"
       - "stick:menu:backtest"
+      - "stick:menu:chart"
       - "stick:menu:concept-analysis"
       - "stick:menu:factors"
       - "stick:menu:financials"

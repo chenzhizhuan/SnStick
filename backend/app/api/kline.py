@@ -5,7 +5,7 @@ import gzip
 import json
 import logging
 import math
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from functools import lru_cache
@@ -423,8 +423,16 @@ def get_daily(
     df = repo.get_daily_asset(asset_type, symbol, start, end)
 
     if df.is_empty():
+        # 库内无 [start, end] 数据 (图表「往左加载更多」请求了更早的历史区间):
+        # 按请求窗口实时拉取, 而非 tail(days) 取最近 N 根 —— tail(days) 会把窗口外的
+        # 历史请求静默替换成最近数据, 导致前端永远拿不到更早的 K 线。
+        # 往前多拉 150 天作为指标 warmup (MA60 需要 ~60 交易日 ≈ 120 日历日), 最后裁剪回窗口。
         try:
-            raw = kline_sync.sync_daily_batch([symbol], count=days + 30)
+            raw = kline_sync.sync_daily_batch(
+                [symbol],
+                start_time=datetime.combine(start - timedelta(days=150), datetime.min.time()),
+                end_time=datetime.combine(end, datetime.max.time()),
+            )
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"TickFlow fetch failed: {e}") from e
         if raw.is_empty():
@@ -443,7 +451,7 @@ def get_daily(
         except Exception as e:  # noqa: BLE001
             logger.debug("单股除权因子拉取失败 %s: %s", symbol, e)
         enriched = compute_enriched(raw, factors=factors)
-        rows = enriched.tail(days).to_dicts()
+        rows = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end)).to_dicts()
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
@@ -929,7 +937,7 @@ def get_minute_batch(request: Request, body: dict):
 def get_minute_range(
     request: Request,
     symbol: str = Query(..., description="标的代码"),
-    days: int = Query(10, ge=1, le=20, description="最近交易日数量"),
+    days: int = Query(10, ge=1, le=60, description="最近交易日数量（图表工作台多周期原料 60 日上限）"),
 ):
     """读取单只标的最近 N 个已落库交易日的分钟 K。"""
     import polars as pl

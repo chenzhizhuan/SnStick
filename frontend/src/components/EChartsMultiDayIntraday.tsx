@@ -80,19 +80,25 @@ function buildModel(sessions: MinuteKlineSession[]) {
     let prevRef: number | null = session.prev_close
     for (const time of FULL_DAY_TIMES) {
       const point = rowsByTime.get(time)
+      // 收盘点补值 (分钟语义换算后): 原 15:00 收盘根已换算为 14:59 → 15:00 槽空,
+      // 用 14:59 收盘值补价格/均价 (分时曲线收盘价横住到 15:00, TV 同款);
+      // 量柱不补 (该分钟量已在 14:59 槽, 复制会双柱), 悬停信息也标记为补点。
+      // 11:30 午休槽不补: 相邻有值会跨午休连线, 留空槽维持午休断线语义。
+      const closeCarry = !point && time === '15:00' && rowsByTime.has('14:59')
+      const effective = closeCarry ? rowsByTime.get('14:59')! : point
       const index = categories.length
       categories.push(`${session.date} ${time}`)
-      if (!point) {
+      if (!effective) {
         dayValues.push(null)
         dayAverages.push(null)
         volumeData.push(null)
         continue
       }
 
-      const { row, average } = point
+      const { row, average } = effective
       dayValues.push(row.close)
       dayAverages.push(average)
-      volumeData.push({
+      volumeData.push(closeCarry ? null : {
         value: row.volume,
         itemStyle: {
           color: prevRef == null
@@ -104,7 +110,7 @@ function buildModel(sessions: MinuteKlineSession[]) {
                 : COLORS.volumeFlat,
         },
       })
-      prevRef = row.close
+      if (!closeCarry) prevRef = row.close
       priceValues.push(row.low, row.high)
       if (average != null) priceValues.push(average)
       pointByIndex.set(index, {

@@ -44,6 +44,7 @@ import {
 } from 'lucide-react'
 import {
   IconDashboard,
+  IconChart,
   IconWatchlist,
   IconStrategy,
   IconFactors,
@@ -103,6 +104,7 @@ type NavGroupKey = (typeof NAV_GROUPS)[number]['key']
 
 const nav = [
   { to: '/',                 label: '看板',     icon: IconDashboard, group: 'overview', perm: undefined },
+  { to: '/chart',            label: '图表',     icon: IconChart,     group: 'overview', perm: 'stick:menu:chart' },
   { to: '/watchlist',        label: '自选',     icon: IconWatchlist, group: 'overview', perm: 'stick:menu:watchlist' },
   { to: '/screener',         label: '策略',     icon: IconStrategy, group: 'strategy', perm: 'stick:menu:screener' },
   { to: '/factors',          label: '因子',     icon: IconFactors, group: 'strategy', perm: 'stick:menu:factors' },
