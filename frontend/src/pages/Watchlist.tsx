@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, FileUp, FolderOpen, FolderMinus, FolderPlus } from 'lucide-react'
 import { api, type KlineRow, type MinuteKlineRow, type WatchlistGroup, type WatchlistGroupColor } from '@/lib/api'
 import { fetchMinuteBatchIncremental } from '@/lib/minuteBatchIncremental'
-import { extendMinuteTail } from '@/lib/minuteTailExtend'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
 import { fmtPrice, fmtPct, fmtBigNum, priceColorClass, formatExtNumber } from '@/lib/format'
@@ -965,14 +964,6 @@ export function Watchlist() {
       }
     }
     return patched
-    // 合并未起作用，TODO 看看是否有必要融合？
-    // if (!intradayVisible) return {}
-    // return extendMinuteTail(
-    //   minuteBatch.data?.data ?? {},
-    //   enriched.data?.rows,
-    //   enriched.data?.dates,
-    //   new Date(),
-    // )
   }, [intradayVisible, minuteBatch.data, enriched.data])
 
   const addMutation = useMutation({

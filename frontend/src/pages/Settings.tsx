@@ -3,7 +3,7 @@
  *
  * 通过 URL query param ?tab=xxx 同步 Tab 状态。
  */
-import { Suspense, lazy, useState, type ComponentType } from 'react'
+import { Suspense, useState, type ComponentType } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { BarChart3, Database, KeyRound, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck } from 'lucide-react'

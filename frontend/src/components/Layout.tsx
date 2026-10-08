@@ -39,9 +39,8 @@ import {
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
-  LogOut,
+LogOut,
   User,
-  Download,
 } from 'lucide-react'
 import {
   IconDashboard,
