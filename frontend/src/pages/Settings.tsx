@@ -3,21 +3,21 @@
  *
  * 通过 URL query param ?tab=xxx 同步 Tab 状态。
  */
-import { Suspense, useState, type ComponentType } from 'react'
+import { Suspense, lazy, useState, type ComponentType } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { BarChart3, Database, KeyRound, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck } from 'lucide-react'
-// 面板按 tab 按需加载: 8 个面板源码 270KB+, 同步打包会让设置页 chunk 膨胀
-import { SettingsAIPanel } from './settings/AI'
-import { SettingsApiTokensPanel } from './settings/ApiTokens'
-import { SettingsMonitoringPanel } from './settings/Monitoring'
-import { SettingsExtPagesPanel } from './settings/ExtPages'
-import { SettingsMenuSettingsPanel } from './settings/MenuSettings'
-import { SettingsTimeoutPanel } from './settings/Timeout'
-import { SettingsSystemPanel } from './settings/System'
-import { SettingsDataSourcesPanel } from './settings/DataSources'
-import { SettingsPlatformPanel } from './settings/Platform'
-import { SettingsRolesPanel } from './settings/Roles'
+// 面板按 tab 懒加载: 10 个面板源码体积大, 同步打包会让设置页 chunk 膨胀
+const SettingsAIPanel = lazy(() => import('./settings/AI').then(m => ({ default: m.SettingsAIPanel })))
+const SettingsApiTokensPanel = lazy(() => import('./settings/ApiTokens').then(m => ({ default: m.SettingsApiTokensPanel })))
+const SettingsMonitoringPanel = lazy(() => import('./settings/Monitoring').then(m => ({ default: m.SettingsMonitoringPanel })))
+const SettingsExtPagesPanel = lazy(() => import('./settings/ExtPages').then(m => ({ default: m.SettingsExtPagesPanel })))
+const SettingsMenuSettingsPanel = lazy(() => import('./settings/MenuSettings').then(m => ({ default: m.SettingsMenuSettingsPanel })))
+const SettingsTimeoutPanel = lazy(() => import('./settings/Timeout').then(m => ({ default: m.SettingsTimeoutPanel })))
+const SettingsSystemPanel = lazy(() => import('./settings/System').then(m => ({ default: m.SettingsSystemPanel })))
+const SettingsDataSourcesPanel = lazy(() => import('./settings/DataSources').then(m => ({ default: m.SettingsDataSourcesPanel })))
+const SettingsPlatformPanel = lazy(() => import('./settings/Platform').then(m => ({ default: m.SettingsPlatformPanel })))
+const SettingsRolesPanel = lazy(() => import('./settings/Roles').then(m => ({ default: m.SettingsRolesPanel })))
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/cn'
 import { usePerm } from '@/lib/useAuth'

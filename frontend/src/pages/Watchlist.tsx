@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Rows3, BarChart3, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, FileUp, FolderOpen, FolderMinus, FolderPlus } from 'lucide-react'
 import { api, type KlineRow, type MinuteKlineRow, type WatchlistGroup, type WatchlistGroupColor } from '@/lib/api'
 import { fetchMinuteBatchIncremental } from '@/lib/minuteBatchIncremental'
+import { extendMinuteTail } from '@/lib/minuteTailExtend'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
 import { fmtPrice, fmtPct, fmtBigNum, priceColorClass, formatExtNumber } from '@/lib/format'
@@ -918,52 +919,14 @@ export function Watchlist() {
     placeholderData: (prev: any) => prev,
   })
 
-  // 分时图 SSE 续画: enriched 行情列每 tick 刷新 (SSE 触发), 前端本地续写分钟序列
-  // 的最后一根 / 分钟滚动追加新K — 轮询间隔内分时图也随实时价跳动, 零额外请求。
+  // 分时图 SSE 续画 (见 extendMinuteTail): 用 enriched 实时价续写分钟序列的
+  // 最后一根 / 追加新K — 轮询间隔内分时图随实时价跳动, 零额外请求。
   // 纯视图叠加不写回缓存: 轮询拉回的服务端定版K始终是权威值, 覆盖续画值。
-  // 新鲜度守卫 (见 extendMinuteTail): 只对行情日期为当日的资产类型续画 — ETF
-  // 未开实时拉取时 enriched close 是旧日K回退值, 拼到当日分钟K尾部会画错价。
+  // fail-closed 守卫: 仅行情日期为当日 (enriched.dates[asset_type]) 且价格合法的
+  // 标的续画 — ETF 等未开实时拉取的 close 是旧日K回退值, 续画会画出错价长刺。
   const minuteData = useMemo(() => {
     const base: Record<string, MinuteKlineRow[]> = intradayVisible ? (minuteBatch.data?.data ?? {}) : {}
-    const liveRows = enriched.data?.rows
-    if (!intradayVisible || !liveRows?.length) return base
-    const liveBySymbol = new Map<string, any>(liveRows.map((r: any) => [r.symbol, r]))
-    // 仅连续竞价时段续画 (开始时刻语义: 09:30-11:29, 13:00-14:59);
-    // 收盘后 rt_price 即收盘价无需续写
-    const now = new Date()
-    const hh = now.getHours(), mm = now.getMinutes()
-    const inSession =
-      (hh === 9 && mm >= 30) || hh === 10 ||
-      (hh === 11 && mm <= 29) || hh === 13 || (hh === 14 && mm <= 59)
-    if (!inSession) return base
-    // 与服务端同构的 naive 北京时间戳 (手工拼本地时间, 不能用 toISOString — 那是 UTC)
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const barTs = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(hh)}:${pad(mm)}:00`
-    const patched: Record<string, MinuteKlineRow[]> = {}
-    for (const sym of Object.keys(base)) {
-      const arr = base[sym]
-      if (!Array.isArray(arr) || arr.length === 0) { patched[sym] = arr; continue }
-      const live = liveBySymbol.get(sym)
-      const price = live?.rt_price ?? live?.close
-      if (typeof price !== 'number' || !Number.isFinite(price)) { patched[sym] = arr; continue }
-      const last = arr[arr.length - 1]
-      if (last.datetime === barTs) {
-        patched[sym] = [...arr.slice(0, -1), {
-          ...last,
-          close: price,
-          high: Math.max(last.high, price),
-          low: Math.min(last.low, price),
-        }]
-      } else if (barTs > last.datetime) {
-        patched[sym] = [...arr, {
-          datetime: barTs, open: price, high: price, low: price, close: price,
-          volume: 0, amount: 0,   // 量/额由下一轮轮询定版覆盖
-        }]
-      } else {
-        patched[sym] = arr   // 轮询数据已新于本地时钟 (钟差兜底), 不动
-      }
-    }
-    return patched
+    return extendMinuteTail(base, enriched.data?.rows, enriched.data?.dates, new Date())
   }, [intradayVisible, minuteBatch.data, enriched.data])
 
   const addMutation = useMutation({

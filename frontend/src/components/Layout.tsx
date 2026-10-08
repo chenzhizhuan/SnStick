@@ -401,7 +401,7 @@ function UserMenu({
                                 if (e.key === 'Enter' || e.key === ' ') {
                                   e.preventDefault()
                                   e.stopPropagation()
-                                  navigate('/settings?tab=system')
+navigate('/settings?tab=system&autoupdate=1')
                                 }
                               }}
                               className="inline-flex items-center rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold text-accent cursor-pointer hover:bg-accent/25"

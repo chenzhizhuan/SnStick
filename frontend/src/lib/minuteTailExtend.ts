@@ -24,11 +24,12 @@ export type TailExtendQuoteDates = {
   index?: string | null
 }
 
-/** 连续竞价时段 (9:31-11:30, 13:01-15:00); 收盘后 rt 价即收盘价无需续写 */
+/** 连续竞价时段 (开始时刻语义: 09:30-11:29, 13:00-14:59);
+ * 14:59 根即数据源 15:00 结束时刻根; 收盘后 rt 价即收盘价无需续写 */
 function inContinuousSession(now: Date): boolean {
   const hh = now.getHours(), mm = now.getMinutes()
-  return (hh === 9 && mm >= 31) || hh === 10 ||
-    (hh === 11 && mm <= 30) || (hh === 13 && mm >= 1) || hh === 14
+  return (hh === 9 && mm >= 30) || hh === 10 ||
+    (hh === 11 && mm <= 29) || hh === 13 || (hh === 14 && mm <= 59)
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
