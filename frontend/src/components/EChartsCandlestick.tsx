@@ -3,6 +3,7 @@ import { chartTheme, getTheme, useTheme } from '@/lib/theme'
 import { fmtPct } from '@/lib/format'
 import * as echarts from 'echarts'
 import type { ECharts, EChartsOption } from 'echarts'
+import { drawingsToMarks, type DrawingObject } from '@/chart/drawings'
 
 export interface OHLC {
   date: string
@@ -26,6 +27,10 @@ export interface OHLC {
   kdj_j?: number | null
   boll_upper?: number | null
   boll_lower?: number | null
+  obv?: number | null
+  cci?: number | null
+  /** 后端注入的当日实时行标记 (日K); 现价标签用它显示实时徽记 */
+  is_live?: boolean
 }
 
 export interface ChartMarker {
@@ -69,6 +74,7 @@ export interface VolumeCompareConfig {
 interface SubChartContext {
   compact: boolean
   volumeCompare: VolumeCompareConfig
+  rsiZeroAxis: boolean
 }
 
 /** 子图定义 */
@@ -235,32 +241,22 @@ export const SUB_CHARTS: SubChartDef[] = [
     label: 'RSI',
     height: 72,
     yAxisConfig: { min: 0, max: 100 },
-    buildSeries: (data) => [
-      {
-        name: 'RSI6',
-        type: 'line',
-        data: data.map(d => d.rsi_6 != null ? Number(d.rsi_6) : '-'),
+    buildSeries: (data, context) => {
+      // 零轴震荡形态: RSI-50 映射到 ±50 (lc-chart 副图同款观感); 信息栏仍显示原始 RSI
+      const shift = context.rsiZeroAxis ? 50 : 0
+      const rsiLine = (key: 'rsi_6' | 'rsi_14' | 'rsi_24', color: string, name: string) => ({
+        name, type: 'line',
+        data: data.map(d => d[key] != null ? Number(d[key]) - shift : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
-      },
-      {
-        name: 'RSI14',
-        type: 'line',
-        data: data.map(d => d.rsi_14 != null ? Number(d.rsi_14) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#3B82F6' },
-        itemStyle: { color: '#3B82F6' },
-      },
-      {
-        name: 'RSI24',
-        type: 'line',
-        data: data.map(d => d.rsi_24 != null ? Number(d.rsi_24) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' },
-        itemStyle: { color: '#8B5CF6' },
-      },
-    ],
+        lineStyle: { width: 1, color },
+        itemStyle: { color },
+      })
+      return [
+        rsiLine('rsi_6', '#FACC15', 'RSI6'),
+        rsiLine('rsi_14', '#3B82F6', 'RSI14'),
+        rsiLine('rsi_24', '#8B5CF6', 'RSI24'),
+      ]
+    },
     buildInfo: (d) => {
       if (!d) return []
       return [
@@ -309,6 +305,54 @@ export const SUB_CHARTS: SubChartDef[] = [
       ]
     },
   },
+  {
+    key: 'obv',
+    label: 'OBV',
+    height: 72,
+    buildSeries: (data) => [
+      {
+        name: 'OBV',
+        type: 'line',
+        data: data.map(d => d.obv != null ? Number(d.obv) : '-'),
+        smooth: true, symbol: 'none', animation: false,
+        lineStyle: { width: 1, color: '#F97316' },
+        itemStyle: { color: '#F97316' },
+      },
+    ],
+    buildInfo: (d) => {
+      if (!d) return []
+      return [
+        { label: 'OBV', color: '#F97316', value: d.obv != null ? fmtVol(d.obv) : '—' },
+      ]
+    },
+  },
+  {
+    key: 'cci',
+    label: 'CCI',
+    height: 72,
+    buildSeries: (data) => [
+      {
+        name: 'CCI',
+        type: 'line',
+        data: data.map(d => d.cci != null ? Number(d.cci) : '-'),
+        smooth: true, symbol: 'none', animation: false,
+        lineStyle: { width: 1, color: '#06B6D4' },
+        itemStyle: { color: '#06B6D4' },
+        markLine: {
+          silent: true, symbol: 'none', animation: false,
+          lineStyle: { color: CT().grid, type: 'dashed', width: 1 },
+          label: { show: false },
+          data: [{ yAxis: 100 }, { yAxis: -100 }],
+        },
+      },
+    ],
+    buildInfo: (d) => {
+      if (!d) return []
+      return [
+        { label: 'CCI', color: '#06B6D4', value: d.cci != null ? d.cci.toFixed(1) : '—' },
+      ]
+    },
+  },
 ]
 
 /** 向后兼容的 INDICATORS 导出 (不含 vol) */
@@ -342,6 +386,24 @@ interface Props {
   volumeCompare?: VolumeCompareConfig
   /** 加入自选日 (北京时间 YYYY-MM-DD); 有值且落在当前区间内时, 主图画一条「自选」竖虚线 */
   addedDate?: string | null
+  /** 图表实例就绪/销毁回调 (图表工作台联动层、绘图层取实例用); 销毁时回传 null */
+  chartReady?: (chart: ECharts | null) => void
+  /** K 线样式: candle 蜡烛(默认) / hollow 空心 / line 收盘折线 / area 收盘面积 */
+  chartStyle?: 'candle' | 'hollow' | 'line' | 'area'
+  /** RSI 副图零轴震荡形态 (RSI-50, 显示范围 ±50); 默认 0-100 */
+  rsiZeroAxis?: boolean
+  /** 外部绘图层 (图表工作台): 趋势线/水平线/斐波/矩形, 数据坐标锚定自动重定位 */
+  externalDrawings?: DrawingObject[]
+  /** 图区内按住拖拽平移 Y 窗口 (Y 已手动缩放时生效); 绘图模式下应传 false 让位给画线 */
+  panEnabled?: boolean
+  /** 双击重置信号 (图表工作台): 值变化时执行 TV 同款重置 (60 根最佳窗口 + 全部 grid Y 归位) */
+  resetSignal?: number
+  /** 双击重置请求回调 (图表工作台): 存在时双击只上报、由 resetSignal 统一驱动重置;
+   *  缺省时保持本地双击自重置 (个股分析页等无协调层的调用方不受影响) */
+  onResetZoom?: () => void
+  /** 「往左加载更多」请求回调: 数据是完整序列 (更早数据拼在前面), 视野停留在原日期段;
+   *  图表拖到 X 最左边界 (dataZoom.start ≤ 0) 时触发, 由调用方判断是否有更多历史 */
+  onLoadMoreLeft?: () => void
 }
 
 // 序列颜色 (双主题通用); 画布轴/网格/文字等主题相关色走 CT() 动态取
@@ -443,7 +505,9 @@ function buildSubInfoGraphics(
     graphics.push({
       id: `sub-val-${key}`,
       type: 'text',
-      right: 24,
+      // 右上角 (right 64 = 60px Y 轴刻度区 + 4px 留白), 不与刻度数字重叠;
+      // TV 观感: 指标名在左上, 指标值在右上贴轴
+      right: 64,
       style: {
         text: richTextParts.join(`{gap|  }`),
         y: curTop + 3,
@@ -480,6 +544,9 @@ function buildOption(
   linkedPrice: number | null | undefined,
   volumeCompare: VolumeCompareConfig,
   addedDate: string | null | undefined,
+  chartStyle: 'candle' | 'hollow' | 'line' | 'area' | undefined,
+  rsiZeroAxis: boolean,
+  externalDrawings: DrawingObject[] | undefined,
 ): EChartsOption {
   const candleData = data.map(d => [d.open, d.close, d.low, d.high])
 
@@ -536,8 +603,10 @@ function buildOption(
   }
 
   // ====== 布局计算 ======
-  const left = 60
-  const right = 20
+  // TV/同花顺同款: 价格轴在右侧 (最新价标签贴右缘, 符合阅读直觉);
+  // left 只留 x 轴末端留白, right 让出 Y 轴标签宽度。
+  const left = 20
+  const right = 60
   const topPad = 8
   const candleBottomPad = 22
 
@@ -588,6 +657,7 @@ function buildOption(
   })
   yAxes.push({
     scale: true,
+    position: 'right',
     min: axisMin,
     max: axisMax,
     // 上下各留 3% 边距: 防止最高/最低点的蜡烛贴边, 涨停/炸板标签被遮挡
@@ -673,18 +743,71 @@ function buildOption(
     })
   }
 
-  series.push({
-    name: 'K', type: 'candlestick', data: candleData,
-    animation: false,
-    itemStyle: {
-      color: THEME.bull, color0: THEME.bear,
-      borderColor: THEME.bull, borderColor0: THEME.bear,
-      cursor: 'pointer',
-    },
+  // TV 同款现价标签: 末根收盘价贴在价格轴 (position 'end' = 横线右端 = 右侧轴区),
+  // 涨跌色背景白字, 实时行 (is_live) 前缀 ● 徽记 — 盯盘第一视觉锚点。
+  const lastBar = data[data.length - 1]
+  if (lastBar != null && Number.isFinite(lastBar.close)) {
+    const prevBar = data[data.length - 2]
+    const lastUp = prevBar != null && Number.isFinite(prevBar.close)
+      ? lastBar.close >= prevBar.close
+      : true
+    const liveBadge = lastBar.is_live === true ? '●' : ''
+    markLineData.push({
+      yAxis: lastBar.close,
+      symbol: 'none',
+      lineStyle: { color: lastUp ? THEME.bull : THEME.bear, type: 'dashed', width: 1, opacity: 0.5 },
+      label: {
+        show: true,
+        formatter: `${liveBadge}${lastBar.close.toFixed(2)}`,
+        position: 'end',
+        color: '#FFFFFF',
+        backgroundColor: lastUp ? THEME.bull : THEME.bear,
+        borderRadius: 2,
+        padding: [2, 5],
+        fontSize: 10,
+        fontFamily: 'JetBrains Mono, monospace',
+      },
+    })
+  }
+
+  // 外部绘图层 (图表工作台 DrawingToolbar 落定的图形): 数据坐标锚定, 缩放/平移后自动重定位;
+  // 跨周期共享时锚点按日级降级映射 (dateIndexMap 精确失败 → 该日首根, 传 dates 供渲染锚替换)
+  if (externalDrawings && externalDrawings.length > 0) {
+    const drawMarks = drawingsToMarks(externalDrawings, dateIndexMap, dates)
+    markLineData.push(...drawMarks.markLine)
+    markAreaData.push(...drawMarks.markArea)
+  }
+
+  // 主图 series — 按 chartStyle 分支 (默认蜡烛, 与既有调用方一致); 标注三件套无论样式均挂在主 series 上
+  const mainMarkExtras = {
     markPoint: markPointData.length > 0 ? { data: markPointData, animation: false } : undefined,
     markArea: markAreaData.length > 0 ? { silent: true, data: markAreaData } : undefined,
     markLine: markLineData.length > 0 ? { silent: true, symbol: 'none', data: markLineData, animation: false } : undefined,
-  })
+  }
+  if (chartStyle === 'line' || chartStyle === 'area') {
+    series.push({
+      name: 'K', type: 'line', data: data.map(d => d.close),
+      animation: false,
+      smooth: false, symbol: 'none',
+      lineStyle: { width: chartStyle === 'line' ? 1.5 : 1, color: THEME.ma5 },
+      itemStyle: { color: THEME.ma5 },
+      ...(chartStyle === 'area' ? { areaStyle: { color: 'rgba(161,161,175,0.15)' } } : {}),
+      ...mainMarkExtras,
+    })
+  } else {
+    // candle / hollow: hollow 时涨柱体透明 (仅描边), 观感同 TV 空心蜡烛
+    series.push({
+      name: 'K', type: 'candlestick', data: candleData,
+      animation: false,
+      itemStyle: {
+        color: chartStyle === 'hollow' ? 'transparent' : THEME.bull,
+        color0: chartStyle === 'hollow' ? 'transparent' : THEME.bear,
+        borderColor: THEME.bull, borderColor0: THEME.bear,
+        cursor: 'pointer',
+      },
+      ...mainMarkExtras,
+    })
+  }
 
   if (hasMA) {
     const maLine = (key: keyof OHLC, color: string, name: string) => ({
@@ -763,7 +886,7 @@ function buildOption(
     })
   }
 
-  // BOLL 布林带 — 需在 activeIndicators 中激活
+  // BOLL 布林带 — 需在 activeIndicators 中激活; 上下轨之间加浅色填充带 (堆叠法)
   const showBOLL = activeIndicators.includes('boll') && data.some(d => d.boll_upper != null || d.boll_lower != null)
   if (showBOLL) {
     const bollLine = (key: keyof OHLC, color: string, name: string) => ({
@@ -775,6 +898,21 @@ function buildOption(
     })
     series.push(bollLine('boll_upper', '#E879F9', 'BOLL上'))
     series.push(bollLine('boll_lower', '#E879F9', 'BOLL下'))
+    // 填充带: 下轨作堆叠基底(透明), 带宽=(上轨-下轨)堆叠其上, areaStyle 填在两轨之间 (z:1 垫底不遮 K 线)
+    series.push({
+      name: 'BOLL带', type: 'line', stack: 'boll-band', z: 1,
+      data: data.map(d => d.boll_lower != null && d.boll_upper != null ? Number(d.boll_lower) : '-'),
+      smooth: true, symbol: 'none', animation: false, silent: true,
+      lineStyle: { opacity: 0 }, itemStyle: { opacity: 0 },
+    })
+    series.push({
+      name: 'BOLL带填充', type: 'line', stack: 'boll-band', z: 1,
+      data: data.map(d => d.boll_lower != null && d.boll_upper != null
+        ? Number(d.boll_upper) - Number(d.boll_lower) : '-'),
+      smooth: true, symbol: 'none', animation: false, silent: true,
+      lineStyle: { opacity: 0 }, itemStyle: { opacity: 0 },
+      areaStyle: { color: 'rgba(232,121,249,0.10)' },
+    })
   }
 
   // ===== 子图区域 =====
@@ -802,10 +940,13 @@ function buildOption(
       axisPointer: { label: { show: false } },
     })
 
-    const isFixedRange = !!def.yAxisConfig
+    // RSI 零轴形态: 副图范围从 0~100 切换到 ±50
+    const yCfg = def.key === 'rsi' && rsiZeroAxis ? { min: -50, max: 50 } : def.yAxisConfig
+    const isFixedRange = !!yCfg
     yAxes.push({
       scale: !isFixedRange,
-      ...(isFixedRange ? def.yAxisConfig : {}),
+      position: 'right',
+      ...(isFixedRange ? yCfg : {}),
       gridIndex: gridIdx,
       splitNumber: 2,
       axisLine: { show: false }, axisTick: { show: false },
@@ -818,7 +959,7 @@ function buildOption(
 
     xAxisIndices.push(xAxisIdx)
 
-    const subSeries = def.buildSeries(data, { compact, volumeCompare })
+    const subSeries = def.buildSeries(data, { compact, volumeCompare, rsiZeroAxis })
     subSeries.forEach((s: any) => {
       series.push({ ...s, xAxisIndex: xAxisIdx, yAxisIndex: yAxisIdx })
     })
@@ -830,10 +971,31 @@ function buildOption(
   const subStartTop = topPad + candleAvail + candleBottomPad
   const infoGraphics = buildSubInfoGraphics(data, infoIdx, activeIndicators, subStartTop, volumeCompare)
 
+  // Y 轴缩放承载组件: 每个 grid (主图 0 + 激活副图 1..N) 各一个, dataZoomIndex = 1 + gridIdx。
+  // 禁用一切内置交互 (滚轮/拖拽/点击都不动), 仅作数据缩放窗口的载体 — 实际缩放/平移由
+  // 下方 zr 事件手动 dispatch (刻度区滚轮/按住拖拽 = 缩放; 图区内上下拖拽 = 平移)。
+  // 主图价格 + 副图指标 (MACD/RSI/OBV...) 与 TV 同款均可独立缩放平移。
+  const yZooms: any[] = []
+  for (let g = 0; g <= activeSubDefs.length; g++) {
+    yZooms.push({
+      type: 'inside',
+      yAxisIndex: [g],
+      start: 0,
+      end: 100,
+      zoomOnMouseWheel: false,
+      moveOnMouseMove: false,
+      moveOnMouseWheel: false,
+    })
+  }
+
   return {
     animation: false,
     backgroundColor: THEME.bg,
     tooltip: {
+      // richText: 走 canvas 渲染, 无 DOM 依赖 — 手动 dispatch updateAxisPointer (图间十字联动)
+      // 时 HTML 模式的 tooltip DOM 为 null 会抛异常, 中断 axisPointer 渲染导致联动十字不显示。
+      // 本组件 tooltip 为"隐形设计"(空 formatter, 仅借 tooltip 系统驱动十字光标), richText 无观感差异。
+      renderMode: 'richText',
       trigger: 'axis',
       axisPointer: { type: 'cross', crossStyle: { color: CT().crosshair } },
       backgroundColor: 'transparent',
@@ -859,14 +1021,24 @@ function buildOption(
         xAxisIndex: xAxisIndices,
         start: 0,
         end: 100,
-        moveOnMouseMove: true,
-        zoomOnMouseWheel: true,
+        // 拖拽平移由下方 zr 事件自研 (水平=动 X, 垂直=动 Y 互不干扰):
+        // 内置 moveOnMouseMove 不区分方向, 垂直拖拽会同时平移 X → 可见数据范围
+        // 每帧变化 → Y 窗口基准漂移, K 线被推挤到视野外 ("拖拽中 K 线消失")。
+        // 滚轮 X 缩放同样自研 (zoomOnMouseWheel: false): 内置灵敏度仅 ~1.053x/格,
+        // 从默认 60 根窗口缩到全量需 50+ 格, TV 同操作只要 5-10 格 — 与 Y 轴滚轮
+        // 同灵敏度 exp(±0.15) ≈ 1.16x/格, 锚定鼠标 X 位置 (见 handleYWheel)。
+        moveOnMouseMove: false,
+        zoomOnMouseWheel: false,
       },
+      ...yZooms,
     ],
     series,
   }
 }
 
+
+const DEFAULT_VOLUME_COMPARE = { enabled: true, days: 1 }
+const DEFAULT_ACTIVE_INDICATORS: string[] = []
 
 export function EChartsCandlestick({
   data,
@@ -884,9 +1056,17 @@ export function EChartsCandlestick({
   onDateClick,
   onPriceDoubleClick,
   visibleBars = 60,
-  activeIndicators = [],
-  volumeCompare = { enabled: true, days: 1 },
+  activeIndicators = DEFAULT_ACTIVE_INDICATORS,
+  volumeCompare = DEFAULT_VOLUME_COMPARE,
   addedDate,
+  chartReady,
+  chartStyle,
+  rsiZeroAxis,
+  externalDrawings,
+  panEnabled = true,
+  resetSignal,
+  onResetZoom,
+  onLoadMoreLeft,
 }: Props) {
   const hoverSurfaceRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -897,6 +1077,14 @@ export function EChartsCandlestick({
   onDateClickRef.current = onDateClick
   const onPriceDoubleClickRef = useRef(onPriceDoubleClick)
   onPriceDoubleClickRef.current = onPriceDoubleClick
+  const chartReadyRef = useRef(chartReady)
+  chartReadyRef.current = chartReady
+  const panEnabledRef = useRef(panEnabled)
+  panEnabledRef.current = panEnabled
+  const onResetZoomRef = useRef(onResetZoom)
+  onResetZoomRef.current = onResetZoom
+  const onLoadMoreLeftRef = useRef(onLoadMoreLeft)
+  onLoadMoreLeftRef.current = onLoadMoreLeft
   // 主题: buildOption/信息栏内部通过 CT() 动态取调色板, 这里只负责切换时触发重建
   const theme = useTheme()
 
@@ -904,12 +1092,62 @@ export function EChartsCandlestick({
   const infoIdxRef = useRef<number>(data.length - 1)
   const compactRef = useRef(false)
   const userZoomRef = useRef<{ start: number; end: number } | null>(null)
+  // 「往左加载更多」前插检测: 记录上次 setOption 时的数据, 判断新数据是否在头部前插了更早历史
+  const prevDataRef = useRef<OHLC[]>([])
+  // Y 轴(价格/指标)手动缩放窗口 per grid (TV 同款, 主图 0 + 副图 1..N):
+  // 刻度区滚轮/拖拽缩放、图区内上下拖拽平移后记录, setOption 重建时恢复;
+  // 重置按钮 / 双击 / 换股后清空 → 回落 0-100 (跟随数据自动定界)。
+  const yZoomByGridRef = useRef<Map<number, { start: number; end: number }>>(new Map())
   // dataZoom 监听只在图表创建时注册一次, 直接调用会一直执行「创建那次渲染」的 updateCompactPresentation:
   // 它的 data/dateIndexMap/markers 停在旧标的, 会把上一只的买卖标记 merge 回新标的图上。
   // 与 dataRef/getInfoBarHTMLRef 同法, 经 ref 取最新一次渲染的函数。
   const updateCompactPresentationRef = useRef<() => void>(() => {})
   // 竖虚线(crosshair)是否可见: 控制信息栏「至今」字段的显隐。鼠标移出图表区即 false。
   const hoverActiveRef = useRef(false)
+
+  // Y 轴价格缩放: 重置按钮 (TV 同款「A」) → 全部 grid 恢复自动定界窗口
+  const resetYPrice = useCallback(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    const dzs = (chart.getOption() as any)?.dataZoom ?? []
+    for (let g = 0; g + 1 < dzs.length; g++) {
+      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
+    }
+    yZoomByGridRef.current.clear()
+  }, [])
+
+  // 双击重置 (TV 同款): X 回默认 60 根「最佳窗口」(不显示全部数据) + 全部 grid Y 回自动定界。
+  // 60 根窗口记入 userZoomRef (而非清空): range 档位 (如 all) 的 initialZoom 会在下次
+  // setOption 重建 (轮询/SSE 合并) 时把窗口冲回全部, 重置效果必须作为「用户缩放状态」保持。
+  // __snSuppressXZoom 抑制计数: 程序窗口操作 — ChartPane 的 dataZoom 监听器豁免 (不清范围栏
+  // 高亮不广播); 重置联动由 Chart 协调层按开关显式派发 resetSignal, 不依赖 X 事件广播,
+  // 保证「关」时对端窗口/视野完全不动。
+  const performResetZoom = useCallback(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    const z = defaultZoomRef.current
+    userZoomRef.current = { start: z.start, end: z.end }
+    yZoomByGridRef.current.clear()
+    ;(chart as any).__snSuppressXZoom = ((chart as any).__snSuppressXZoom ?? 0) + 1
+    chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: z.start, end: z.end })
+    const dzs = (chart.getOption() as any)?.dataZoom ?? []
+    for (let g = 0; g + 1 < dzs.length; g++) {
+      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
+    }
+    window.setTimeout(() => {
+      const c = chart as any
+      c.__snSuppressXZoom = Math.max(0, (c.__snSuppressXZoom ?? 1) - 1)
+    }, 0)
+  }, [])
+
+  // 双击重置协调信号 (图表工作台): Chart 层按「重置联动」开关派发, 值递增即执行一次重置。
+  // 首次挂载跳过 (prev 初始 == resetSignal); 数据轮询等重建不重跑 (deps 只含 resetSignal)。
+  const prevResetSignalRef = useRef(resetSignal)
+  useEffect(() => {
+    if (resetSignal === prevResetSignalRef.current) return
+    prevResetSignalRef.current = resetSignal
+    performResetZoom()
+  }, [resetSignal, performResetZoom])
 
   // 需要在闭包中访问最新值的变量 — 先声明占位，后面赋值
   const activeIndicatorsRef = useRef(activeIndicators)
@@ -973,6 +1211,15 @@ export function EChartsCandlestick({
       : Math.max(0, 100 - (visibleBars / Math.max(data.length, 1)) * 100)
     return { start, end: 100 }
   }, [visibleBars, data.length])
+
+  // 双击重置的「最佳窗口」: 默认 60 根 (与图表默认视野同口径), 不随外部 range (如 all = 全部数据)
+  // 走 — 多周期多窗下各窗都回到根数合理、K 线粗细可读的窗口 (TV reset 语义, 而非显示全部)。
+  const defaultZoom = useMemo(() => ({
+    start: Math.max(0, 100 - (60 / Math.max(data.length, 1)) * 100),
+    end: 100,
+  }), [data.length])
+  const defaultZoomRef = useRef(defaultZoom)
+  defaultZoomRef.current = defaultZoom
 
   // ===== 信息栏 HTML 内容 (基于 infoIdxRef.current) =====
   const getInfoBarHTML = useCallback(() => {
@@ -1050,7 +1297,18 @@ export function EChartsCandlestick({
   useEffect(() => {
     infoIdxRef.current = data.length - 1
     compactRef.current = false
-    userZoomRef.current = null
+    // 前插(「往左加载更多」): 旧数据是新数据尾部连续段 → 保留 userZoomRef 供下方
+    // setOption effect 的前插检测右移视野; 其他 data.length 变化(换周期/换数据集)
+    // 重置 X 窗口, 旧窗口对新数据无意义。
+    const prev = prevDataRef.current
+    const isFrontInsert = prev.length > 0 && data.length > prev.length
+      && data[0].date < prev[0].date
+      && data[data.length - prev.length].date === prev[0].date
+    if (!isFrontInsert) {
+      userZoomRef.current = null
+    }
+    // Y 轴缩放窗口 (主图+副图) 随标的全部重置 — 新股价格范围不同, 旧窗口无意义
+    yZoomByGridRef.current.clear()
     // 新数据无悬停上下文, 隐藏「至今」; 下次鼠标移动时由 updateAxisPointer 重新置位
     hoverActiveRef.current = false
   }, [_symbol, data.length])
@@ -1063,6 +1321,7 @@ export function EChartsCandlestick({
 
     const chart = echarts.init(el, undefined, { renderer: 'canvas' })
     chartRef.current = chart
+    chartReadyRef.current?.(chart)
 
     // 信息栏内容由本组件直接写 innerHTML; 悬停显隐与悬停 K 线变化共用这一处写入口
     const writeInfoBar = () => {
@@ -1134,7 +1393,188 @@ export function EChartsCandlestick({
         onPriceDoubleClickRef.current?.(price, currentPrice)
       }
     }
-    chart.getZr().on('dblclick', handlePriceDoubleClick)
+    // 双击语义: 有价格提醒消费者 (个股分析页) → 报价回调;
+    // 无消费者 (图表工作台等) → TV 同款重置缩放。工作台走协调层 (onResetZoom 存在时只上报,
+    // 由 Chart 按「重置联动」开关派发 resetSignal — 开 = 全部窗一起重置, 关 = 仅本窗);
+    // 无协调层的调用方保持本地自重置 (performResetZoom)。
+    const handleDblClick = (event: { offsetX: number; offsetY: number }) => {
+      if (onPriceDoubleClickRef.current) {
+        handlePriceDoubleClick(event)
+        return
+      }
+      if (onResetZoomRef.current) {
+        onResetZoomRef.current()
+        return
+      }
+      performResetZoom()
+    }
+    chart.getZr().on('dblclick', handleDblClick)
+
+    // ── Y 轴缩放/平移 — TV 同款, 主图 + 全部副图均可独立操作 ──
+    // 右侧刻度带: 滚轮缩放 / 按住上下拖拽缩放 (不抢 grid 内的 X 缩放/十字光标/绘图);
+    // 图区内: 该 grid Y 已手动缩放时按住上下拖拽 = 平移 Y 窗口 (缩放后 K 线出视野可拖回来,
+    // 垂直分量与内置 X 平移共存 → 斜拖时时间价格同时动, TV 同款); 绘图模式禁用 (让位画线)。
+    const gridCount = () => {
+      const dzs = (chart.getOption() as any)?.dataZoom ?? []
+      return Math.max(0, dzs.length - 1)
+    }
+    const gridRectAt = (g: number) => {
+      const comp = (chart as any).getModel().getComponent('grid', g)
+      return comp?.coordinateSystem?.getRect()
+    }
+    /** 鼠标在哪个 grid 的右侧刻度带; -1 = 不在 (含左右两带中的左带: 价格轴在右, 左带不算)。 */
+    const locateYBand = (px: number, py: number): number => {
+      if (px < 0 || px >= chart.getWidth()) return -1
+      for (let g = 0; g < gridCount(); g++) {
+        const r = gridRectAt(g)
+        if (!r) continue
+        if (py < r.y || py > r.y + r.height) continue
+        if (px > r.x + r.width + 2) return g
+      }
+      return -1
+    }
+    /** 鼠标在哪个 grid 图区内; -1 = 不在。 */
+    const locateGrid = (px: number, py: number): number => {
+      for (let g = 0; g < gridCount(); g++) {
+        const r = gridRectAt(g)
+        if (!r) continue
+        if (px >= r.x && px <= r.x + r.width && py >= r.y && py <= r.y + r.height) return g
+      }
+      return -1
+    }
+    /** 把 grid g 的 Y 窗口以锚点比例(anchorRatio: 0=底 1=顶)缩放 factor 倍 (factor>1 = 收窄 = 放大)。 */
+    const scaleYWindow = (g: number, anchorRatio: number, factor: number) => {
+      const opt = chart.getOption() as any
+      const yz = opt?.dataZoom?.[1 + g]
+      if (!yz) return
+      const s = yz.start ?? 0
+      const e = yz.end ?? 100
+      const w0 = e - s
+      // 窗宽夹在 [0.5, 100]: 全窗口继续放大时 w0/factor > 100, 不夹会让
+      // 后续“夹回 0-100”算出负 start, ECharts 忽略无效 dispatch → 缩放无响应
+      const w = Math.max(Math.min(w0 / factor, 100), 0.5)
+      const c = s + anchorRatio * w0
+      let sN = c - (c - s) / factor
+      let eN = sN + w
+      if (sN < 0) { sN = 0; eN = w }
+      if (eN > 100) { eN = 100; sN = Math.max(0, 100 - w) }
+      yZoomByGridRef.current.set(g, { start: sN, end: eN })
+      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: sN, end: eN })
+    }
+    // 滚轮: 以鼠标位置为锚 (上滚放大, 下滚缩小)。zr 的 wheelDelta 已归一化
+    // (上滚 = +1, 下滚 = -1), 每格约 ±15%; 刻度带在 grid 右侧 (TV 同款)
+    const handleYWheel = (ev: any) => {
+      const g = locateYBand(ev.offsetX, ev.offsetY)
+      if (g < 0) {
+        // 图区内滚轮 → X 轴缩放 (自研, 锚定鼠标 X; 内置灵敏度太慢见 buildOption 注释)
+        ev.preventDefault?.()
+        const xg = locateGrid(ev.offsetX, ev.offsetY)
+        const xr = xg >= 0 ? gridRectAt(xg) : null
+        const opt = chart.getOption() as any
+        const xz = opt?.dataZoom?.[0]
+        const delta = Number(ev.wheelDelta ?? ev.zrDelta ?? 0)
+        if (!xr || !xz || !Number.isFinite(delta) || delta === 0) return
+        const factor = Math.exp(delta * 0.15) // 上滚>1 = 放大 (与 Y 轴滚轮同灵敏度)
+        const s = xz.start ?? 0
+        const e = xz.end ?? 100
+        const w0 = e - s
+        // 锚点比例 (0=窗口最左 1=最右): 缩放后该比例处的数据仍在鼠标下方
+        const anchor = Math.max(0, Math.min(1, (ev.offsetX - xr.x) / xr.width))
+        const w = Math.max(Math.min(w0 / factor, 100), 0.5)
+        const c = s + anchor * w0
+        let sN = c - (c - s) / factor
+        let eN = sN + w
+        if (sN < 0) { sN = 0; eN = w }
+        if (eN > 100) { eN = 100; sN = Math.max(0, 100 - w) }
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: sN, end: eN })
+        return
+      }
+      ev.preventDefault?.()
+      const r = gridRectAt(g)
+      if (!r) return
+      const anchor = 1 - (ev.offsetY - r.y) / r.height
+      const delta = Number(ev.wheelDelta ?? ev.zrDelta ?? 0)
+      if (!Number.isFinite(delta) || delta === 0) return
+      // 上滚 delta>0 → factor>1 → 窗口收窄 = 放大 (与拖拽向上=放大同语义)
+      scaleYWindow(g, anchor, Math.exp(delta * 0.15))
+    }
+    // 按住拖拽 — 双模式: 刻度带内 = 缩放; 图区内 = 双轴平移 (TV 同款)
+    // pan: 水平分量只动 X 窗口, 垂直分量只动 Y 窗口 (仅该 grid Y 已手动缩放时响应) —
+    // 互不干扰, 垂直拖不会把可见数据带推跑, K 线不再“拖一拖消失再显示”
+    type Drag =
+      | { mode: 'scale'; grid: number; y0: number; ry: number; h: number; s0: number; e0: number }
+      | { mode: 'pan'; grid: number; hasY: boolean; x0: number; y0: number; gw: number; gh: number; s0X: number; e0X: number; s0Y: number; e0Y: number }
+    let drag: Drag | null = null
+    const handleZrMouseDown = (ev: { offsetX: number; offsetY: number }) => {
+      const bandGrid = locateYBand(ev.offsetX, ev.offsetY)
+      if (bandGrid >= 0) {
+        // 刻度带: 缩放模式 — 按下点记录窗口与锚, 上下拖动按比例缩放 (拖满 grid 高 = 2 倍)
+        const opt = chart.getOption() as any
+        const yz = opt?.dataZoom?.[1 + bandGrid]
+        if (!yz) return
+        const r = gridRectAt(bandGrid)
+        if (!r) return
+        drag = { mode: 'scale', grid: bandGrid, y0: ev.offsetY, ry: r.y, h: r.height, s0: yz.start ?? 0, e0: yz.end ?? 100 }
+        return
+      }
+      // 图区内: 平移模式 — X 始终可拖; Y 仅在该 grid 已手动缩放时可拖 (自动定界不转手动)
+      if (!panEnabledRef.current) return
+      const g = locateGrid(ev.offsetX, ev.offsetY)
+      if (g < 0) return
+      const r = gridRectAt(g)
+      if (!r) return
+      const opt = chart.getOption() as any
+      const xz = opt?.dataZoom?.[0]
+      const yz = yZoomByGridRef.current.get(g)
+      drag = {
+        mode: 'pan', grid: g, hasY: !!yz,
+        x0: ev.offsetX, y0: ev.offsetY, gw: r.width, gh: r.height,
+        s0X: xz?.start ?? 0, e0X: xz?.end ?? 100,
+        s0Y: yz ? yz.start : 0, e0Y: yz ? yz.end : 100,
+      }
+    }
+    const handleZrMouseMove = (ev: { offsetX: number; offsetY: number }) => {
+      if (!drag) return
+      if (drag.mode === 'scale') {
+        const dy = ev.offsetY - drag.y0
+        if (dy === 0) return
+        const w0 = drag.e0 - drag.s0
+        const factor = Math.pow(2, -dy / drag.h) // 上拖(负) → factor>1 → 窗口收窄 = 放大
+        // 窗宽夹在 [0.5, 100] (同 scaleYWindow: 全窗口继续放大需夹住, 否则负 start 无效)
+        const w = Math.max(Math.min(w0 / factor, 100), 0.5)
+        const c = drag.s0 + (1 - (drag.y0 - drag.ry) / drag.h) * w0
+        let sN = c - (c - drag.s0) / factor
+        let eN = sN + w
+        if (sN < 0) { sN = 0; eN = w }
+        if (eN > 100) { eN = 100; sN = Math.max(0, 100 - w) }
+        yZoomByGridRef.current.set(drag.grid, { start: sN, end: eN })
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + drag.grid, start: sN, end: eN })
+        return
+      }
+      // pan: 水平分量 → X 平移 (内容跟随手指: 左拖看更晚数据, 窗口右移); 垂直分量 → Y 平移
+      const dx = ev.offsetX - drag.x0
+      const dy = ev.offsetY - drag.y0
+      if (dx !== 0) {
+        const w = drag.e0X - drag.s0X
+        const d = (dx / drag.gw) * w
+        const sN = Math.max(0, Math.min(100 - w, drag.s0X - d))
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: sN, end: sN + w })
+      }
+      if (dy !== 0 && drag.hasY) {
+        const w = drag.e0Y - drag.s0Y
+        const d = (dy / drag.gh) * w
+        const sN = Math.max(0, Math.min(100 - w, drag.s0Y + d))
+        yZoomByGridRef.current.set(drag.grid, { start: sN, end: sN + w })
+        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + drag.grid, start: sN, end: sN + w })
+      }
+    }
+    const handleZrDragEnd = () => { drag = null }
+    const zr = chart.getZr()
+    zr.on('mousewheel', handleYWheel)
+    zr.on('mousedown', handleZrMouseDown)
+    zr.on('mousemove', handleZrMouseMove)
+    zr.on('mouseup', handleZrDragEnd)
+    zr.on('globalout', handleZrDragEnd)
 
     // dataZoom → 只更新 ref，不触发 React re-render
     // compact 变化时需要增量更新 markPoint
@@ -1143,6 +1583,13 @@ export function EChartsCandlestick({
       const zoom = opt?.dataZoom?.[0]
       if (!zoom) return
       userZoomRef.current = { start: zoom.start, end: zoom.end }
+
+      // 「往左加载更多」: 视野贴到最左边界 (start ≤ 0.5%) 时上报一次。
+      // 防重复由调用方 (ChartPane: canLoadMore + isFetching) 负责; 加载后数据变长、
+      // 视野平移, start 回正, 直到用户再次拖到边界才再次触发 — 天然实现逐步加载。
+      if (zoom.start <= 0.5 && onLoadMoreLeftRef.current) {
+        onLoadMoreLeftRef.current()
+      }
 
       const d = dataRef.current
       const total = d.length
@@ -1163,7 +1610,13 @@ export function EChartsCandlestick({
       chart.off('dataZoom')
       hoverEl.removeEventListener('mouseenter', handlePointerEnter)
       hoverEl.removeEventListener('mouseleave', handlePointerLeave)
-      chart.getZr().off('dblclick', handlePriceDoubleClick)
+      chart.getZr().off('dblclick', handleDblClick)
+      zr.off('mousewheel', handleYWheel)
+      zr.off('mousedown', handleZrMouseDown)
+      zr.off('mousemove', handleZrMouseMove)
+      zr.off('mouseup', handleZrDragEnd)
+      zr.off('globalout', handleZrDragEnd)
+      chartReadyRef.current?.(null)
       ro.disconnect()
       chart.dispose()
       chartRef.current = null
@@ -1255,24 +1708,62 @@ export function EChartsCandlestick({
       linkedPrice,
       volumeCompare,
       addedDate,
+      chartStyle,
+      !!rsiZeroAxis,
+      externalDrawings,
     )
 
     chart.setOption(option, true)
 
-    // 恢复用户缩放位置
+    // 恢复用户缩放位置 (dataZoomIndex: 0 只动 X — 不带 index 会打到全部 Y 窗口)。
+    // __snSuppressXZoom 抑制计数: setOption 全量重建会瞬时触发 dataZoom 事件 (option 里
+    // 写死的 start:0/end:100), 会把程序恢复窗口误判成用户手动缩放 (清范围高亮/广播幽灵
+    // 窗口) — 程序窗口操作期间 (宏任务内) ChartPane 的 dataZoom 监听一律豁免;
+    // 组件内自己的监听 (维护 userZoomRef) 不豁免, 恢复窗口正常入账。
+    const prevData = prevDataRef.current
     const zoom = userZoomRef.current
-    if (zoom) {
-      chart.dispatchAction({ type: 'dataZoom', start: zoom.start, end: zoom.end })
-    } else {
-      chart.dispatchAction({ type: 'dataZoom', start: initialZoom.start, end: initialZoom.end })
+    let xWin = zoom ?? initialZoom
+    if (zoom && prevData.length > 0 && data.length > prevData.length) {
+      // 「往左加载更多」前插检测: 新数据头部是更早历史, 旧数据仍是其尾部连续段。
+      // 此时把旧视野的索引段整体右移 inserted 根, 保持用户看到的日期段不变
+      // (否则百分比 start/end 不变会因分母变大而视觉跳变)。
+      const inserted = data.length - prevData.length
+      const isFrontInsert = data[0].date < prevData[0].date && data[inserted].date === prevData[0].date
+      if (isFrontInsert) {
+        const startIdx = (zoom.start / 100) * prevData.length
+        const endIdx = (zoom.end / 100) * prevData.length
+        xWin = {
+          start: ((startIdx + inserted) / data.length) * 100,
+          end: ((endIdx + inserted) / data.length) * 100,
+        }
+      }
+    }
+    prevDataRef.current = data
+    ;(chart as any).__snSuppressXZoom = ((chart as any).__snSuppressXZoom ?? 0) + 1
+    window.setTimeout(() => {
+      const c = chart as any
+      c.__snSuppressXZoom = Math.max(0, (c.__snSuppressXZoom ?? 1) - 1)
+    }, 0)
+    chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: xWin.start, end: xWin.end })
+    // 恢复 Y 轴手动缩放窗口 (主图+全部副图; 切周期/指标等重建后保持; 新标的已随
+    // _symbol 重置清空)。setOption 不会重置 dataZoom 的窗口状态, 未缩放的 grid 也需
+    // 显式归位 0-100, 否则换股后旧标的的价格窗口会残留到新标的上。
+    const dzs = (chart.getOption() as any)?.dataZoom ?? []
+    for (let g = 0; g + 1 < dzs.length; g++) {
+      const yZoom = yZoomByGridRef.current.get(g)
+      chart.dispatchAction({
+        type: 'dataZoom', dataZoomIndex: 1 + g,
+        start: yZoom ? yZoom.start : 0,
+        end: yZoom ? yZoom.end : 100,
+      })
     }
 
     // 初始信息栏
     const infoEl = infoBarRef.current
     if (infoEl) {
-      infoEl.innerHTML = getInfoBarHTML()
+      infoEl.innerHTML = getInfoBarHTMLRef.current()
     }
-  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, addedDate, chartHeight, dates, dateIndexMap, initialZoom, getInfoBarHTML, theme])
+  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, addedDate, chartStyle, rsiZeroAxis, externalDrawings, chartHeight, dates, dateIndexMap, initialZoom, theme])
 
   // 渲染信息栏容器 (内容由 JS 直接写入)
   const initialHTML = useMemo(() => {
@@ -1319,12 +1810,25 @@ export function EChartsCandlestick({
   }, [])
 
   return (
-    <div ref={hoverSurfaceRef} className="w-full">
+    <div ref={hoverSurfaceRef} className="relative w-full">
       {/* 主图信息栏 — 内容由 JS 直接操作 innerHTML */}
       {showInfoBar && (
         <div ref={infoBarRef} style={{ backgroundColor: CT().infoBarBg }}
           dangerouslySetInnerHTML={{ __html: initialHTML }} />
       )}
+
+      {/* Y 轴缩放重置 (TV 同款「A」): 主图+全部副图一起恢复自动定界;
+          右侧刻度区滚轮或按住拖拽可手动缩放, Y 缩放后图内上下拖拽可平移。
+          放在 ECharts 容器之外 (兄弟节点), 避免 zrender 容器内子节点被 React 协调移除 */}
+      <button
+        type="button"
+          title="恢复主图与全部副图 Y 轴自动高度 (右侧刻度区滚轮/拖拽可缩放, 图内上下拖拽可平移)"
+        onClick={resetYPrice}
+        className="absolute z-20 flex h-4 w-4 items-center justify-center rounded-full border border-border/60 bg-surface/80 font-mono text-[10px] leading-none text-secondary opacity-70 transition-opacity hover:border-accent/50 hover:text-accent hover:opacity-100"
+        style={{ right: 8, top: (showInfoBar ? 40 : 0) + 8 }}
+      >
+        A
+      </button>
 
       {/* ECharts canvas */}
       <div ref={containerRef} className="w-full" style={{ height: chartHeight }} />
