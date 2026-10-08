@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { SSE_INVALIDATE_PREFIXES, QK } from './queryKeys'
 import { klineDailyLatestQueryOptions, mergeLatestKlineRow } from './kline'
+import { getChartLiveSymbols } from '@/chart/liveSymbols'
 import { getQueryConfig } from './useQueryConfig'
 import { toast } from '@/components/Toast'
 import { pushAlertToasts } from '@/components/AlertToast'
@@ -174,6 +175,25 @@ export function useQuoteStream(
                 const start = String(query.queryKey[2] ?? '')
                 const end = String(query.queryKey[3] ?? '')
                 if (latestDate < start || latestDate > end) continue
+                qc.setQueryData<KlineDailyResponse>(
+                  query.queryKey,
+                  current => mergeLatestKlineRow(current, latest),
+                )
+              }
+            })
+            .catch(() => {})
+        }
+
+        // 图表工作台日K实时增量 (P3 一期): 活跃窗格 symbol → 拉当日实时单行 →
+        // 合并进 ['chart','kline-daily',symbol,*] 缓存尾部, 末根 K 实时价自动覆盖。
+        // 触发源为 SSE 推送 (盘后无推送自动静止), 与实时行情开关联动 (enabledRef 已判)。
+        const chartSymbols = getChartLiveSymbols()
+        for (const symbol of chartSymbols) {
+          void qc.fetchQuery({ ...klineDailyLatestQueryOptions(symbol), staleTime: 0 })
+            .then((latest) => {
+              if (!latest.row) return
+              const queries = qc.getQueryCache().findAll({ queryKey: ['chart', 'kline-daily', symbol] })
+              for (const query of queries) {
                 qc.setQueryData<KlineDailyResponse>(
                   query.queryKey,
                   current => mergeLatestKlineRow(current, latest),

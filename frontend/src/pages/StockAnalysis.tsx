@@ -237,6 +237,7 @@ function StockAnalysisBoard({ symbol }: { symbol: string }) {
       <div className="p-3">
         <AnalysisKChart
           rows={rows}
+          symbol={symbol}
           levels={levels}
           series={levelsQ.data?.series}
           seriesDates={levelsQ.data?.dates}

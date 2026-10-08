@@ -4,6 +4,9 @@
 // Prod:同源(FastAPI 托管前端 dist)
 
 import { toast } from '@/components/Toast'
+// 分钟K时间语义换算: 数据源 bar 结束时刻 → TV bar 开始时刻 (见 minuteSemantics.ts)。
+// 后端契约保持源语义, 前端展示层统一换算, 保证全站图表 (工作台/分时/自选) 一致。
+import { toMinuteStartSemanticsRows, toMinuteStartSemanticsSessions } from '@/lib/minuteSemantics'
 
 const BASE = ''
 
@@ -291,6 +294,8 @@ export interface KlineRow {
   macd_hist?: number | null
   rsi_14?: number | null
   vol_ratio_5d?: number | null
+  /** 后端 _maybe_inject_live_candle 注入的当日实时行标记 (收盘定版后消失) */
+  is_live?: boolean
   [key: string]: any
 }
 
@@ -2717,11 +2722,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ symbols, days }),
     }),
-  klineMinuteBatch: (symbols: string[], date?: string, preferLocal?: boolean, since?: string) =>
-    request<{ data: Record<string, MinuteKlineRow[]>; full_minute_local?: boolean; incremental?: boolean }>('/api/kline/minute-batch', {
+  klineMinuteBatch: async (symbols: string[], date?: string, preferLocal?: boolean, since?: string) => {
+    const res = await request<{ data: Record<string, MinuteKlineRow[]>; full_minute_local?: boolean; incremental?: boolean }>('/api/kline/minute-batch', {
       method: 'POST',
       body: JSON.stringify({ symbols, date, ...(preferLocal ? { prefer_local: true } : {}), ...(since ? { since } : {}) }),
-    }),
+    })
+    const data: Record<string, MinuteKlineRow[]> = {}
+    for (const [sym, rows] of Object.entries(res.data ?? {})) data[sym] = toMinuteStartSemanticsRows(rows)
+    return { ...res, data }
+  },
   instrumentSearch: (q: string, limit = 20, assetTypes?: string) =>
     request<{ results: { symbol: string; name: string; code: string; asset_type?: string }[] }>(
       `/api/kline/instruments/search?q=${encodeURIComponent(q)}&limit=${limit}${assetTypes ? `&asset_types=${encodeURIComponent(assetTypes)}` : ''}`,
@@ -2733,8 +2742,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(symbols),
     }),
-  klineMinute: (symbol: string, date?: string, live?: boolean) =>
-    request<{
+  klineMinute: async (symbol: string, date?: string, live?: boolean) => {
+    const res = await request<{
       symbol: string
       name?: string
       stock_info?: { name?: string; total_shares?: number; float_shares?: number }
@@ -2746,9 +2755,11 @@ export const api = {
       prev_close?: number | null
     }>(
       `/api/kline/minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}${live ? '&live=1' : ''}`,
-    ),
-  klineMinuteRange: (symbol: string, days = 10) =>
-    request<{
+    )
+    return { ...res, rows: toMinuteStartSemanticsRows(res.rows ?? []) }
+  },
+  klineMinuteRange: async (symbol: string, days = 10) => {
+    const res = await request<{
       symbol: string
       name?: string
       asset_type: 'stock' | 'etf' | 'index'
@@ -2757,7 +2768,9 @@ export const api = {
       source: 'local' | 'none'
     }>(
       `/api/kline/minute-range?symbol=${encodeURIComponent(symbol)}&days=${days}`,
-    ),
+    )
+    return { ...res, sessions: toMinuteStartSemanticsSessions(res.sessions ?? []) }
+  },
   indexDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }) =>
     request<{
       symbol: string
@@ -2770,8 +2783,8 @@ export const api = {
         ? `/api/index/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
         : `/api/index/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`,
     ),
-  indexMinute: (symbol: string, date?: string) =>
-    request<{
+  indexMinute: async (symbol: string, date?: string) => {
+    const res = await request<{
       symbol: string
       name?: string
       date: string | null
@@ -2779,7 +2792,9 @@ export const api = {
       source?: string
     }>(
       `/api/index/minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`,
-    ),
+    )
+    return { ...res, rows: toMinuteStartSemanticsRows(res.rows ?? []) }
+  },
   syncIndexInstruments: () =>
     request<{ status: string; count: number }>('/api/index/sync_instruments', { method: 'POST' }),
   syncIndexDaily: (days = 365) =>

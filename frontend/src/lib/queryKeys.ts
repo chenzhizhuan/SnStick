@@ -140,6 +140,14 @@ export const QK = {
   sectorRotationIndexDaily:  (symbol: string) => ['sector-rotation-index-daily', symbol] as const,
   // 扩展表 schema 清单 (板块切换的资金流列选择器等)
   extSchemaAll:         ['ext-schema-all'] as const,
+  // ===== 图表工作台 (/chart) =====
+  // 日K不复用个股分析页 kline key: 该页 key 绑定 dateRange, 工作台按天数取更长历史;
+  // 且不进 SSE_INVALIDATE_PREFIXES (P0 静态看图, 实时接入是 P3)。
+  chartKlineDaily:       (symbol: string, days: number) => ['chart', 'kline-daily', symbol, days] as const,
+  // 「往左加载更多」额外历史日K: 按日期区间拉更早数据, 与 chartKlineDaily 合并去重
+  chartKlineDailyExtra:  (symbol: string, start: string, end: string) => ['chart', 'kline-daily-extra', symbol, start, end] as const,
+  // 原始 1 分钟K按 (symbol, days) 缓存, 5/15/30/60m 各周期 pane 共用同一份缓存重采样
+  chartMinuteRange:      (symbol: string, days: number) => ['chart', 'minute-range', symbol, days] as const,
 } as const
 
 // ===== SSE 应该 invalidate 的 key 前缀列表 =====

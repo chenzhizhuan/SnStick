@@ -34,6 +34,7 @@ const Signals = lazy(() => import('./pages/Signals').then(m => ({ default: m.Sig
 const Review = lazy(() => import('./pages/Review').then(m => ({ default: m.Review })))
 const LimitUpLadder = lazy(() => import('./pages/LimitUpLadder').then(m => ({ default: m.LimitUpLadder })))
 const Indices = lazy(() => import('./pages/Indices').then(m => ({ default: m.Indices })))
+const Chart = lazy(() => import('./pages/Chart').then(m => ({ default: m.Chart })))
 const Branding = lazy(() => import('./pages/Branding').then(m => ({ default: m.Branding })))
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
 const Regime = lazy(() => import('./pages/Regime').then(m => ({ default: m.Regime })))
@@ -61,6 +62,7 @@ const CORE_ROUTE_PATHS = new Set([
   '/monitor',
   '/limit-ladder',
   '/indices',
+  '/chart',
   '/regime',
   '/abnormal',
   '/branding',
@@ -146,6 +148,7 @@ export const router = createBrowserRouter([
       { path: 'signals', element: <RequirePerm perm="stick:signals:read"><Signals /></RequirePerm> },
       { path: 'limit-ladder', element: <RequirePerm perm="stick:kline:read"><LimitUpLadder /></RequirePerm> },
       { path: 'indices', element: <RequirePerm perm="stick:kline:read"><Indices /></RequirePerm> },
+      { path: 'chart', element: <RequirePerm perm="stick:kline:read"><Chart /></RequirePerm> },
       { path: 'regime', element: <RequirePerm perm="stick:regime:read"><Regime /></RequirePerm> },
       { path: 'abnormal', element: <RequirePerm perm="stick:analysis:read"><AbnormalMoves /></RequirePerm> },
       { path: 'branding', element: <RequirePerm perm="stick:settings:read"><Branding /></RequirePerm> },
