@@ -39,7 +39,7 @@ import {
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
-  LogOut,
+LogOut,
   User,
 } from 'lucide-react'
 import {
@@ -401,7 +401,7 @@ function UserMenu({
                                 if (e.key === 'Enter' || e.key === ' ') {
                                   e.preventDefault()
                                   e.stopPropagation()
-                                  navigate('/settings?tab=system')
+navigate('/settings?tab=system&autoupdate=1')
                                 }
                               }}
                               className="inline-flex items-center rounded bg-accent/15 px-1 py-0.5 text-[9px] font-semibold text-accent cursor-pointer hover:bg-accent/25"
@@ -600,12 +600,12 @@ export function Layout() {
     [navWatchlist, navEnriched],
   )
 
-  // 数据同步状态轮询: 有活跃 job 时「数据」菜单项显示转圈
+  // 数据同步状态轮询: 有活跃 job 时「数据」菜单项显示转圈。
+  // 标签页隐藏时 TanStack 默认暂停轮询 — 转圈提示只在页面可见时有意义, 不再强制后台轮询
   const { data: pipelineJobs } = useQuery({
     queryKey: QK.pipelineJobs,
     queryFn: () => api.pipelineJobs(1),
     refetchInterval: (query) => (query.state.data?.active_id ? 2000 : 15000),
-    refetchIntervalInBackground: true,
   })
   const isDataSyncing = !!pipelineJobs?.active_id
 
@@ -714,11 +714,12 @@ export function Layout() {
         ? '关闭实时行情'
         : '开启实时行情'
 
-  // 轮询触发记录总数 → 更新监控中心徽标 (每 15 秒; 后台标签页由 SSE 事件驱动, 不轮询)
+  // 轮询触发记录总数 → 更新监控中心徽标 (每 15 秒; 后台标签页由 SSE 事件驱动, 不轮询)。
+  // 非交易时段无新告警, 降为 2 分钟兜底
   const alertsTotalQuery = useQuery({
     queryKey: ['alerts-total'],
     queryFn: () => api.alertsList({ days: 7, limit: 1 }),
-    refetchInterval: 15000,
+    refetchInterval: () => (isTrading ? 15000 : 120000),
     select: (data) => data.total,
   })
   // 只在拿到真实总数时同步徽标 (避免 data=undefined 时传 0 重置 lastSeen)
@@ -843,7 +844,7 @@ export function Layout() {
 
   return (
     <div
-      className="sn-workstation h-screen grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
+      className="sn-workstation h-full grid bg-base text-foreground overflow-hidden transition-[grid-template-columns] duration-200 ease-smooth"
       style={{
         gridTemplateColumns: isDesktop && !overlayPreview ? (navState === 'expanded' ? '14rem 1fr' : navState === 'rail' ? '3.5rem 1fr' : '0 1fr') : '1fr',
         gridTemplateRows: '48px minmax(0, 1fr)',

@@ -2,7 +2,7 @@
      概念: 方括号 [ ] = 终端/代码/量化边界; 中央 K 线 = 行情本体
      bullish 姿态: 上影短/下影长, 站稳向上
      用法: 浅色背景; 深色背景请用 logo-white.svg -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="SnStick">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="赢在子午线">
   <defs>
     <linearGradient id="tsp-brand" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#A78BFA"/>
