@@ -62,7 +62,8 @@ interface AssistantState {
   fabVisible: boolean
   /** 输入框预填指令 (建议卡片→用户改完再发, 不浪费一次问答);
    *  seq 递增保证重复点击同一建议也能触发消费; selectCode 预填后自动
-   *  选中首个示例代码区间 (如 600519.SH), 用户直接打字即替换。
+   *  选中全部示例代码区间 (单个 600519.SH, 多个如 600519.SH、000858.SZ、
+   *  603288.SH 整组选中), 用户直接打字即替换。
    *  纯 UI 态不持久化。 */
   draft: { text: string; seq: number; selectCode?: boolean }
 }
@@ -357,7 +358,7 @@ function applyEvent(event: AssistantEvent, footprintId: string, assistantId: str
 // ===== 对外动作 =====
 
 /** 预填提问框: 不发送、不产生消息, 由 InputArea 消费后用户编辑确认。
- * selectCode=true 时 (建议卡片点击) 预填后自动选中首个示例代码供直接替换。 */
+ * selectCode=true 时 (建议卡片点击) 预填后自动选中全部示例代码 (多个时整组选中) 供直接替换。 */
 export function setDraft(text: string, selectCode = false) {
   draftSeq += 1
   setState({ draft: { text, seq: draftSeq, selectCode } }, false)

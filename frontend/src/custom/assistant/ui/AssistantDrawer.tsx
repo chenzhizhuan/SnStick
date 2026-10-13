@@ -472,6 +472,21 @@ function EmptyState({ status, suggests }: { status: AssistantStatus | null; sugg
   )
 }
 
+/** 示例代码选区: 全局匹配所有代码占位 (如 600519.SH), 相邻 (间隔≤3 字符,
+ * 如「、」分隔) 并为同一簇, 返回首簇 [起, 止)。多代码模板 (示例代码 A、B、C)
+ * 整组选中, 打字即整组替换; 代码分散出现时只选第一簇, 避免选区吞掉中间正文。 */
+function exampleCodeSpan(text: string): [number, number] | null {
+  let start: number | null = null
+  let end = -1
+  for (const match of text.matchAll(/\d{6}\.[A-Z]{2}/g)) {
+    if (match.index === undefined) continue
+    if (start === null) start = match.index
+    else if (match.index - end > 3) break
+    end = match.index + match[0].length
+  }
+  return start !== null && end > start ? [start, end] : null
+}
+
 function InputArea({
   sending,
   blocked,
@@ -498,7 +513,8 @@ function InputArea({
   }, [])
 
   // 消费预填指令: 填入文本并聚焦; 建议卡片预填 (selectCode) 时自动选中
-  // 首个示例代码 (如 600519.SH), 用户直接打字即替换; 草稿恢复则光标置末尾。
+  // 全部示例代码 (单个如 600519.SH, 多个如 600519.SH、000858.SZ、603288.SH
+  // 整组选中), 用户直接打字即替换; 草稿恢复则光标置末尾。
   // rAF 等一帧再操作 DOM: setText 同帧内 focus 会被 React 重渲染重置;
   // Firefox 首帧 paint 后可能清除程序化选区, 再延迟 80ms 幂等补设一次。
   useEffect(() => {
@@ -512,9 +528,9 @@ function InputArea({
       el.focus()
       const len = draft.text.length
       if (draft.selectCode) {
-        const code = draft.text.match(/\d{6}\.[A-Z]{2}/)
-        if (code && code.index !== undefined) {
-          el.setSelectionRange(code.index, code.index + code[0].length)
+        const span = exampleCodeSpan(draft.text)
+        if (span) {
+          el.setSelectionRange(span[0], span[1])
           autoGrow()
           return
         }
