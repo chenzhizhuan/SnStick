@@ -41,6 +41,7 @@ import {
   retryLast,
   selectSession,
   sendMessage,
+  setDraft,
   stopSending,
   useAssistantStore,
 } from '../store'
@@ -98,7 +99,7 @@ function DrawerPanel({
   sending: boolean
   messages: DrawerMessages
 }) {
-  const { sessions, activeId } = useAssistantStore()
+  const { sessions, activeId, draft } = useAssistantStore()
   const [status, setStatus] = useState<AssistantStatus | null>(null)
   const [suggests, setSuggests] = useState<QuickSuggest[]>([])
   const [width, setWidth] = useState(() => clampWidth(loadWidth()))
@@ -155,7 +156,7 @@ function DrawerPanel({
     >
       <DrawerHeader status={status} sessions={sessions} activeId={activeId} sending={sending} />
       <MessageList messages={messages} sending={sending} status={status} suggests={suggests} />
-      <InputArea sending={sending} blocked={status ? !status.supports_tools : false} />
+      <InputArea sending={sending} blocked={status ? !status.supports_tools : false} draft={draft} />
 
       {/* 左缘拖拽调宽 */}
       <div
@@ -427,7 +428,7 @@ function EmptyState({ status, suggests }: { status: AssistantStatus | null; sugg
           <Bot className="h-4.5 w-4.5" />
         </div>
         <p className="mt-2 text-sm font-medium text-foreground">有什么可以帮你？</p>
-        <p className="mt-1 text-xs text-muted">基于本地真实数据回答 · 每次取数都可展开核对</p>
+        <p className="mt-1 text-xs text-muted">基于本地真实数据回答 · 点击建议填入提问框, 可修改参数后再发送</p>
       </div>
 
       {[...groups.entries()].map(([group, items]) => {
@@ -443,7 +444,8 @@ function EmptyState({ status, suggests }: { status: AssistantStatus | null; sugg
                 <button
                   key={suggest.id}
                   type="button"
-                  onClick={() => sendMessage(suggest.prompt)}
+                  onClick={() => setDraft(suggest.prompt)}
+                  title="点击填入提问框, 可修改参数后发送"
                   className="max-w-full shrink-0 cursor-pointer rounded-card border border-border bg-base/60 px-3 py-2 text-left text-xs text-secondary transition-all duration-150 ease-smooth hover:border-accent/40 hover:bg-elevated hover:text-foreground"
                 >
                   {suggest.label}
@@ -468,9 +470,35 @@ function EmptyState({ status, suggests }: { status: AssistantStatus | null; sugg
   )
 }
 
-function InputArea({ sending, blocked }: { sending: boolean; blocked: boolean }) {
+function InputArea({
+  sending,
+  blocked,
+  draft,
+}: {
+  sending: boolean
+  blocked: boolean
+  draft: { text: string; seq: number }
+}) {
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const lastDraftSeq = useRef(0)
+
+  // 消费预填指令: 填入文本并聚焦到末尾, 用户改完自行发送。
+  // rAF 等一帧再操作 DOM: setText 同帧内 focus 会被 React 重渲染重置。
+  useEffect(() => {
+    if (!draft.seq || draft.seq === lastDraftSeq.current) return
+    lastDraftSeq.current = draft.seq
+    setText(draft.text)
+    const raf = requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(draft.text.length, draft.text.length)
+      autoGrow()
+    })
+    return () => cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- autoGrow 稳定引用, 无需重跑
+  }, [draft])
 
   const canSend = !sending && !blocked && text.trim().length > 0
 
