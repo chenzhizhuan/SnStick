@@ -35,6 +35,7 @@ import {
   type QuickSuggest,
 } from '../client'
 import {
+  clearDraft,
   closeAssistant,
   deleteSession,
   newSession,
@@ -482,6 +483,15 @@ function InputArea({
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const lastDraftSeq = useRef(0)
+  // 草稿镜像: 卸载 cleanup 闭包拿不到最新 state, 用 ref 同步。
+  const textRef = useRef('')
+  textRef.current = text
+
+  // 抽屉关闭 = InputArea 卸载: 未发送的非空草稿存回 draft,
+  // 重开抽屉自动填回 — 误按 Esc 不丢正在编辑的长问题。
+  useEffect(() => () => {
+    if (textRef.current.trim()) setDraft(textRef.current)
+  }, [])
 
   // 消费预填指令: 填入文本并聚焦到末尾, 用户改完自行发送。
   // rAF 等一帧再操作 DOM: setText 同帧内 focus 会被 React 重渲染重置。
@@ -506,6 +516,7 @@ function InputArea({
     if (!canSend) return
     sendMessage(text)
     setText('')
+    clearDraft()
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
