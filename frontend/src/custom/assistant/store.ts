@@ -60,6 +60,9 @@ interface AssistantState {
   sending: boolean
   /** 悬浮球是否显示 (纯 UI 偏好, 独立 localStorage, 不随会话持久化) */
   fabVisible: boolean
+  /** 输入框预填指令 (建议卡片→用户改完再发, 不浪费一次问答);
+   *  seq 递增保证重复点击同一建议也能触发消费。纯 UI 态不持久化。 */
+  draft: { text: string; seq: number }
 }
 
 const STORAGE_KEY = 'assistant.sessions.v1'
@@ -71,6 +74,9 @@ const MAX_INPUT_CHARS = 4000
 
 const FAB_STORAGE_KEY = 'assistant.fab.enabled'
 
+/** draft 序号: 仅内存递增, 每次预填都产生新 seq 让 InputArea 效应重跑。 */
+let draftSeq = 0
+
 function loadFabVisible(): boolean {
   try { return localStorage.getItem(FAB_STORAGE_KEY) !== '0' } catch { return true }
 }
@@ -81,6 +87,7 @@ let state: AssistantState = {
   open: false,
   sending: false,
   fabVisible: loadFabVisible(),
+  draft: { text: '', seq: 0 },
 }
 
 const listeners = new Set<() => void>()
@@ -346,6 +353,12 @@ function applyEvent(event: AssistantEvent, footprintId: string, assistantId: str
 }
 
 // ===== 对外动作 =====
+
+/** 预填提问框: 不发送、不产生消息, 由 InputArea 消费后用户编辑确认。 */
+export function setDraft(text: string) {
+  draftSeq += 1
+  setState({ draft: { text, seq: draftSeq } }, false)
+}
 
 export function sendMessage(textRaw: string) {
   const text = textRaw.trim().slice(0, MAX_INPUT_CHARS)

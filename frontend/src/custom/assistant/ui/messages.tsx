@@ -315,9 +315,28 @@ const ERROR_TITLES: Record<string, string> = {
   network: '网络错误',
 }
 
-export const NoticeMessage = memo(function NoticeMessage({ content }: { content: string }) {
+export const NoticeMessage = memo(function NoticeMessage({
+  content,
+  onRetry,
+}: {
+  content: string
+  onRetry?: () => void
+}) {
+  // 仅“已中断”类提示提供重试入口 (与文案承诺一致); 其余提示纯文本。
+  const canRetry = Boolean(onRetry) && content.includes('重试')
   return (
-    <div className="text-center text-xs text-muted">{content}</div>
+    <div className="flex items-center justify-center gap-1.5 text-center text-xs text-muted">
+      <span>{content}</span>
+      {canRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="cursor-pointer rounded-btn px-1.5 py-0.5 text-accent transition-colors duration-150 ease-smooth hover:bg-accent/10"
+        >
+          重试
+        </button>
+      )}
+    </div>
   )
 })
 
@@ -332,7 +351,7 @@ export function AssistantMessageView({ message, onRetry }: { message: ChatMessag
     case 'error':
       return <ErrorBubble kind={message.kind} message={message.message} hint={message.hint} onRetry={onRetry} />
     case 'notice':
-      return <NoticeMessage content={message.content} />
+      return <NoticeMessage content={message.content} onRetry={onRetry} />
     default:
       return null
   }
