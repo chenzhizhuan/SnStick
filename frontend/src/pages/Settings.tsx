@@ -6,15 +6,17 @@
 import { Suspense, lazy, useState, type ComponentType } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BarChart3, Database, KeyRound, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck } from 'lucide-react'
-// 面板按 tab 懒加载: 10 个面板源码体积大, 同步打包会让设置页 chunk 膨胀
+import { BarChart3, Database, KeyRound, Package, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck, Info } from 'lucide-react'
+// 面板按 tab 懒加载: 12 个面板源码体积大, 同步打包会让设置页 chunk 膨胀
 const SettingsAIPanel = lazy(() => import('./settings/AI').then(m => ({ default: m.SettingsAIPanel })))
 const SettingsApiTokensPanel = lazy(() => import('./settings/ApiTokens').then(m => ({ default: m.SettingsApiTokensPanel })))
 const SettingsMonitoringPanel = lazy(() => import('./settings/Monitoring').then(m => ({ default: m.SettingsMonitoringPanel })))
 const SettingsExtPagesPanel = lazy(() => import('./settings/ExtPages').then(m => ({ default: m.SettingsExtPagesPanel })))
+const SettingsPagePacksPanel = lazy(() => import('./settings/PagePacks').then(m => ({ default: m.SettingsPagePacksPanel })))
 const SettingsMenuSettingsPanel = lazy(() => import('./settings/MenuSettings').then(m => ({ default: m.SettingsMenuSettingsPanel })))
 const SettingsTimeoutPanel = lazy(() => import('./settings/Timeout').then(m => ({ default: m.SettingsTimeoutPanel })))
 const SettingsSystemPanel = lazy(() => import('./settings/System').then(m => ({ default: m.SettingsSystemPanel })))
+const SettingsAboutPanel = lazy(() => import('./settings/About').then(m => ({ default: m.SettingsAboutPanel })))
 const SettingsDataSourcesPanel = lazy(() => import('./settings/DataSources').then(m => ({ default: m.SettingsDataSourcesPanel })))
 const SettingsPlatformPanel = lazy(() => import('./settings/Platform').then(m => ({ default: m.SettingsPlatformPanel })))
 const SettingsRolesPanel = lazy(() => import('./settings/Roles').then(m => ({ default: m.SettingsRolesPanel })))
@@ -39,12 +41,14 @@ const TABS: readonly TabDef[] = [
   { key: 'ai',         label: 'AI 设置',    icon: Sparkles,  panel: SettingsAIPanel },
   { key: 'monitoring', label: '实时监控',   icon: Radio,     panel: SettingsMonitoringPanel },
   { key: 'ext-pages',  label: '扩展页面',   icon: BarChart3, panel: SettingsExtPagesPanel },
+  { key: 'page-packs',  label: '页面包',     icon: Package,   panel: SettingsPagePacksPanel },
   { key: 'timeout',    label: '网络设置',   icon: Clock3,    panel: SettingsTimeoutPanel },
   { key: 'menus',      label: '菜单设置',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
   { key: 'api-tokens', label: '开放接口',   icon: KeyRound, panel: SettingsApiTokensPanel },
   { key: 'system',     label: '系统设置',   icon: Settings2, panel: SettingsSystemPanel },
   { key: 'platform',   label: '平台管理',   icon: ShieldCheck, panel: SettingsPlatformPanel, perm: 'stick:admin:view' },
   { key: 'roles',      label: '权限管理',   icon: KeyRound,    panel: SettingsRolesPanel,    perm: 'stick:admin:view' },
+  { key: 'about',      label: '关于',       icon: Info,      panel: SettingsAboutPanel },
 ]
 
 type TabKey = (typeof TABS)[number]['key']

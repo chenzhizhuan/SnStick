@@ -305,7 +305,7 @@ export function IndustryAnalysis() {
   const PRESET_INDUSTRY_ID = 'ext_hy_ths'
   const queryClient = useQueryClient()
   const fetchMutation = useMutation({
-    mutationFn: () => api.extDataPresetFetch(PRESET_INDUSTRY_ID),
+    mutationFn: () => api.extDataPullRun(PRESET_INDUSTRY_ID),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QK.extData })
       queryClient.invalidateQueries({ queryKey: QK.extDataRows(PRESET_INDUSTRY_ID, undefined, PAGE_LIMIT) })
