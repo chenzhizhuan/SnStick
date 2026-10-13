@@ -445,8 +445,8 @@ function EmptyState({ status, suggests }: { status: AssistantStatus | null; sugg
                 <button
                   key={suggest.id}
                   type="button"
-                  onClick={() => setDraft(suggest.prompt)}
-                  title="点击填入提问框, 可修改参数后发送"
+                  onClick={() => setDraft(suggest.prompt, true)}
+                  title="点击填入提问框, 示例代码可直接选中替换后发送"
                   className="max-w-full shrink-0 cursor-pointer rounded-card border border-border bg-base/60 px-3 py-2 text-left text-xs text-secondary transition-all duration-150 ease-smooth hover:border-accent/40 hover:bg-elevated hover:text-foreground"
                 >
                   {suggest.label}
@@ -478,7 +478,7 @@ function InputArea({
 }: {
   sending: boolean
   blocked: boolean
-  draft: { text: string; seq: number }
+  draft: { text: string; seq: number; selectCode?: boolean }
 }) {
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -493,7 +493,8 @@ function InputArea({
     if (textRef.current.trim()) setDraft(textRef.current)
   }, [])
 
-  // 消费预填指令: 填入文本并聚焦到末尾, 用户改完自行发送。
+  // 消费预填指令: 填入文本并聚焦; 建议卡片预填 (selectCode) 时自动选中
+  // 首个示例代码 (如 600519.SH), 用户直接打字即替换; 草稿恢复则光标置末尾。
   // rAF 等一帧再操作 DOM: setText 同帧内 focus 会被 React 重渲染重置。
   useEffect(() => {
     if (!draft.seq || draft.seq === lastDraftSeq.current) return
@@ -503,7 +504,16 @@ function InputArea({
       const el = textareaRef.current
       if (!el) return
       el.focus()
-      el.setSelectionRange(draft.text.length, draft.text.length)
+      const len = draft.text.length
+      if (draft.selectCode) {
+        const code = draft.text.match(/\d{6}\.[A-Z]{2}/)
+        if (code && code.index !== undefined) {
+          el.setSelectionRange(code.index, code.index + code[0].length)
+          autoGrow()
+          return
+        }
+      }
+      el.setSelectionRange(len, len)
       autoGrow()
     })
     return () => cancelAnimationFrame(raf)
