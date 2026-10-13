@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { api, type MiningResult, type MiningRun, type MiningRunProgress, type MiningRunStatus } from './api'
 import { userKeyOf } from './storage'
+import { fetchRunningTask, reportTaskFinished, reportTaskRunning } from './taskRegistry'
 
 // 用户级 key: 互通形态下重连只认本人任务, 不会重连到其他账号的 run;
 // 桌面版前缀为空, 行为与升级前一致。
@@ -20,6 +21,24 @@ export interface MiningTask {
 const ACTIVE_RUN_KEY = 'mining_active_run_id'
 // 实际存取 key (带用户前缀)。各读写点统一走此函数。
 const runKey = () => userKeyOf(ACTIVE_RUN_KEY)
+
+// 跨设备接回: run 创建时上报注册表, 终态关闭; attach 命中非终态时重报 running
+// (幂等, 同时刷新 updated_at 防孤儿误回收)。重连/轮询逻辑本身零改动。
+const TASK_KIND = 'mining' as const
+
+/** 终态/重置: 关闭注册表项并清本地活跃 run 键。 */
+function finishTaskRegistry() {
+  const runId = localStorage.getItem(runKey())
+  if (runId) reportTaskFinished(TASK_KIND, { run_id: runId })
+  localStorage.removeItem(runKey())
+}
+
+/** run 创建/接管: 记本地键 + 上报 running。 */
+function trackRun(runId: string) {
+  localStorage.setItem(runKey(), runId)
+  reportTaskRunning(TASK_KIND, { run_id: runId })
+}
+
 const TERMINAL_STATES = new Set<MiningRunStatus>([
   'succeeded',
   'succeeded_with_budget_exhausted',
@@ -107,7 +126,7 @@ async function refreshTerminalRun(
       if (result.run_id !== runId) throw new Error('任务结果与运行 ID 不匹配')
     }
     if (current.runId !== runId || connectionToken !== token) return
-    localStorage.removeItem(runKey())
+    finishTaskRegistry()
     update({
       run,
       progress: run.progress ?? current.progress,
@@ -119,7 +138,7 @@ async function refreshTerminalRun(
     })
   } catch (error) {
     if (current.runId !== runId || connectionToken !== token) return
-    localStorage.removeItem(runKey())
+    finishTaskRegistry()
     const run = current.run && fallbackStatus
       ? { ...current.run, status: fallbackStatus, error: fallbackError || current.run.error }
       : current.run
@@ -241,7 +260,7 @@ function connect(runId: string) {
 
 export async function startMining(payload: Parameters<typeof api.miningStart>[0]) {
   closeEvents()
-  localStorage.removeItem(runKey())
+  finishTaskRegistry()
   const token = connectionToken
   update({
     runId: null,
@@ -257,7 +276,7 @@ export async function startMining(payload: Parameters<typeof api.miningStart>[0]
   try {
     const run = await api.miningStart(payload)
     if (connectionToken !== token || current.runId !== null) return
-    localStorage.setItem(runKey(), run.run_id)
+    trackRun(run.run_id)
     update({
       runId: run.run_id,
       run,
@@ -283,7 +302,7 @@ export async function startMining(payload: Parameters<typeof api.miningStart>[0]
  */
 export async function startAutoMining(payload: Parameters<typeof api.miningAutoStart>[0]) {
   closeEvents()
-  localStorage.removeItem(runKey())
+  finishTaskRegistry()
   const token = connectionToken
   update({
     runId: null,
@@ -301,7 +320,7 @@ export async function startAutoMining(payload: Parameters<typeof api.miningAutoS
     if (connectionToken !== token || current.runId !== null) return
     if (data.started && data.run) {
       const run = data.run
-      localStorage.setItem(runKey(), run.run_id)
+      trackRun(run.run_id)
       update({
         runId: run.run_id,
         run,
@@ -398,13 +417,13 @@ export async function attachMiningRun(runId: string): Promise<boolean> {
     if (TERMINAL_STATES.has(run.status)) {
       await refreshTerminalRun(runId, run.status, run, token)
     } else {
-      localStorage.setItem(runKey(), runId)
+      trackRun(runId)
       connect(runId)
     }
     return true
   } catch (error) {
     if (current.runId !== runId || connectionToken !== token) return false
-    localStorage.removeItem(runKey())
+    finishTaskRegistry()
     update({
       isPending: false,
       reconnecting: false,
@@ -414,16 +433,29 @@ export async function attachMiningRun(runId: string): Promise<boolean> {
   }
 }
 
+/** 换设备接回: 本地无键时从服务端注册表找 running 任务, 回填本地键并走原有 attach。 */
+async function adoptFromServer() {
+  if (current.runId) return // 本机已有活动任务
+  const task = await fetchRunningTask(TASK_KIND)
+  const runId = typeof task?.payload?.run_id === 'string' ? task.payload.run_id : ''
+  if (!runId || localStorage.getItem(runKey())) return
+  trackRun(runId)
+  void attachMiningRun(runId)
+}
+
 export function tryReconnectMining(): boolean {
   const runId = localStorage.getItem(runKey())
-  if (!runId) return false
+  if (!runId) {
+    void adoptFromServer()
+    return false
+  }
   void attachMiningRun(runId)
   return true
 }
 
 export function clearMiningTask() {
   closeEvents()
-  localStorage.removeItem(runKey())
+  finishTaskRegistry()
   current = {
     runId: null,
     isPending: false,

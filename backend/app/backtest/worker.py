@@ -91,7 +91,7 @@ def _strategy_dirs(data_dir: Path) -> list[Path]:
     app_dir = Path(__file__).resolve().parents[1]
     strategies_dir = user_strategies_dir(data_dir)
     return [
-        app_dir / "strategy" / "builtin",
+        app_dir / "strategy" / "research",
         strategies_dir / "custom",
         strategies_dir / "ai",
         strategies_dir / "composite",

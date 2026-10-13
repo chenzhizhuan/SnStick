@@ -1,8 +1,10 @@
 /**
- * 买卖触发器信号定义 — 选股页弹窗 / 回测页共用。
+ * 信号/字段显示名 — 展示侧统一查表。
  *
- * 信号 ID 必须与后端 backtest/strategy.py:_build_signal_mask 对齐
- * (signal_* 前缀为内置原子信号, csg_ 前缀为用户自定义信号)。
+ * 日线信号布尔列 (csg_* 与迁移自内置、沿用 signal_* 列名的定义) 全部由
+ * /api/custom-signals 的用户定义驱动, 中文名经 cnSignal 第二参数
+ * (useCustomSignalNames 的列名→命名映射) 传入; 此处不再内置信号清单。
+ * 信号 ID 语义与后端 backtest/strategy.py:_build_signal_mask 对齐。
  */
 
 export type SignalKind = 'entry' | 'exit' | 'both'
@@ -168,14 +170,8 @@ export const MONITOR_INTRADAY_SIGNAL_LABELS: Record<string, string> = {
 
 export const MONITOR_INTRADAY_SIGNAL_OPTIONS = Object.keys(MONITOR_INTRADAY_SIGNAL_LABELS)
 
-/** 内置原子信号 → 中文标签 */
-export const SIGNAL_LABELS: Record<string, string> = BUILTIN_SIGNAL_DEFINITIONS.reduce<Record<string, string>>((acc, sig) => {
-  acc[sig.id] = sig.name
-  return acc
-}, { ...MONITOR_INTRADAY_SIGNAL_LABELS })
-
-/** 内置信号 ID 列表 */
-export const SIGNAL_OPTIONS = BUILTIN_SIGNAL_DEFINITIONS.map(sig => sig.id)
+/** 盘中信号 → 中文标签 (日线信号标签由用户定义提供, 不在此表) */
+export const SIGNAL_LABELS: Record<string, string> = { ...MONITOR_INTRADAY_SIGNAL_LABELS }
 
 /** 常用技术指标/字段 → 中文 (阈值条件展示用, 与后端 ENRICHED_COLUMNS 对齐) */
 const FIELD_LABELS: Record<string, string> = {
@@ -194,11 +190,12 @@ const FIELD_LABELS: Record<string, string> = {
   momentum_5d: '5日动量', momentum_20d: '20日动量', momentum_60d: '60日动量',
   atr_14: 'ATR14', annual_vol_20d: '20日年化波动',
   consecutive_limit_ups: '连板数', consecutive_limit_downs: '跌停连板',
+  limit_up_price: '涨停判定价', limit_down_price: '跌停判定价',
 }
 
 /**
  * 信号/字段 ID → 中文显示名。
- * 内置信号查 SIGNAL_LABELS; csg_ 前缀查传入的自定义信号名称映射;
+ * 自定义信号列 (csg_/signal_*) 查传入的命名映射; 盘中信号查 SIGNAL_LABELS;
  * 技术指标查 FIELD_LABELS; 都找不到则原样返回。
  */
 export function cnSignal(name: string, customNames?: Record<string, string>): string {

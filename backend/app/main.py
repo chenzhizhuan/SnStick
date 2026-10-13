@@ -18,8 +18,9 @@ from app.api import (
     analysis,
     backtest,
     data,
-    ext_data,
     events,
+    ext_data,
+    ext_pages,
     factors,
     financials,
     indices,
@@ -39,6 +40,7 @@ from app.api import (
     signals,
     stock_analysis,
     strategy,
+    task_registry,
     watchlist,
 )
 from app.api import auth as auth_api
@@ -128,6 +130,16 @@ async def _application_lifespan(app: FastAPI):
     repo = KlineRepository(store)
     app.state.datastore = store
     app.state.repo = repo
+    # 去内置化种子迁移必须赶在下方 refresh_cache 之前: enriched 缓存构建时
+    # 编译自定义信号表达式, 晚种会让本次启动的看板/梯队引用的 signal_limit_*
+    # 列缺失 (跌停恒 0、连板梯队无数据), 直到下一次缓存刷新才自愈。
+    _seeded_signals = 0
+    try:
+        from app.strategy import custom_signals as _cs_seed
+
+        _seeded_signals = _cs_seed.seed_if_empty(store.data_dir)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("signal seeding failed (ignored): %s", e)
     # 自定义/复合因子载入注册表 (P3); 单个失败只跳过该因子 (fail-隔离)
     from app.factors.store import load_into_registry
 
@@ -170,6 +182,19 @@ async def _application_lifespan(app: FastAPI):
     capset = detect_capabilities()
     app.state.capabilities = capset
     logger.info("ready; %d capabilities active", len(capset.all()))
+    # 各能力的生效源与可用性: 切换数据源后一眼看出路由落点, 无需回设置页对照
+    try:
+        from app.data_providers.capabilities import resolve_capability_sources
+
+        for row in resolve_capability_sources():
+            logger.info(
+                "  能力路由 | %-8s ← %-12s %s",
+                row["label"],
+                row["source_display"],
+                "可用" if row["usable"] else "不可用",
+            )
+    except Exception as e:  # noqa: BLE001 — 仅日志, 失败不影响启动
+        logger.warning("能力路由日志输出失败: %s", e)
 
     # 全局行情服务
     qs = QuoteService()
@@ -266,10 +291,10 @@ async def _application_lifespan(app: FastAPI):
     app.state.watchdog = start_watchdog(app.state, repo)
 
     # 策略引擎
-    from app.strategy.engine import StrategyEngine
-    from app.strategy import config as strategy_config
-    from app.strategy.monitor import StrategyMonitorService
     from app.services.screener import ScreenerService
+    from app.strategy import config as strategy_config
+    from app.strategy.engine import StrategyEngine
+    from app.strategy.monitor import StrategyMonitorService
 
     _screener_svc = ScreenerService(repo)
     _etf_screener_svc = ScreenerService(repo, asset_type="etf")
@@ -280,7 +305,7 @@ async def _application_lifespan(app: FastAPI):
     set_production_roots(store.data_dir, user_root())
     _strategies_root = user_strategies_dir(store.data_dir)
     strategy_dirs = [
-        Path(__file__).resolve().parent / "strategy" / "builtin",
+        Path(__file__).resolve().parent / "strategy" / "research",
         _strategies_root / "custom",
         _strategies_root / "ai",
         _strategies_root / "composite",
@@ -289,6 +314,25 @@ async def _application_lifespan(app: FastAPI):
         strategy_dirs=strategy_dirs,
         override_loader=lambda sid: strategy_config.load_override(store.data_dir, sid),
     )
+    # 去内置化一次性迁移: ①信号目录缺种子时补入 20 个默认定义;
+    # ②内置残留类加载失败 (composite 断链 / import 已删模块) 的策略文件
+    #   自动归档出扫描目录并重载。摘要挂到 app.state 供前端提示一次。
+    legacy_migration: dict = {}
+    try:
+        from app.strategy.legacy_migrate import archive_unloadable_strategies
+
+        if _seeded_signals:
+            legacy_migration["seeded_signals"] = _seeded_signals
+            logger.info("legacy migrate: seeded %d default signals", _seeded_signals)
+        archived = archive_unloadable_strategies(strategy_engine.load_errors())
+        if archived:
+            strategy_engine.reload()
+            legacy_migration["archived_files"] = archived
+            logger.info("legacy migrate: archived %d unloadable files", len(archived))
+        if legacy_migration:
+            app.state.legacy_migration = legacy_migration
+    except Exception as e:  # noqa: BLE001
+        logger.warning("legacy migrate failed (ignored): %s", e)
     app.state.strategy_engine = strategy_engine
     logger.info("strategy engine loaded: %d strategies", len(strategy_engine.list_strategies()))
 
@@ -341,7 +385,7 @@ async def _application_lifespan(app: FastAPI):
     if repo.enriched_ready:
         _schedule_matrix_cache_prewarm()
 
-    # 通用监控规则引擎: 启动时 reload 规则到内存态 (修复崩溃后告警失效)
+    # 通用监控规则引擎: 启动时 reload 规则到内存态 (修复重启后告警失效)
     from app.strategy.monitor import MonitorRuleEngine
     from app.strategy import monitor_rules as mr_store
     from app.services import preferences
@@ -513,7 +557,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="SnStick",
     version=__version__,
-    description="A 股选股 + 回测面板 — TickFlow 适配",
+    description="A 股策略 + 回测面板 — TickFlow 适配",
     lifespan=lifespan,
 )
 
@@ -569,6 +613,13 @@ async def auth_middleware(request: Request, call_next):
     authz = request.headers.get("authorization", "")
     if authz.startswith("Bearer "):
         from app.services import api_gateway
+        # 网络门禁先行: 默认仅本机/内网可调 Token 通道 (API_TOKEN_LOCAL_ONLY=0 放开);
+        # 先于 evaluate 拦截 → 不消耗限流额度, 公网探测者也拿不到 Token 有效性信号
+        gate = api_gateway.token_network_verdict(auth_api._client_ip(request))
+        if gate is not None:
+            return JSONResponse(
+                status_code=gate["status"], content={"detail": gate["detail"]},
+            )
         verdict = api_gateway.evaluate(
             settings.data_dir, request.method, path, authz[len("Bearer "):].strip(),
         )
@@ -653,6 +704,8 @@ app.include_router(analysis.router)
 app.include_router(pipeline.router)
 app.include_router(data.router)
 app.include_router(ext_data.router)
+app.include_router(ext_pages.router)
+app.include_router(task_registry.router)
 app.include_router(financials.router)
 app.include_router(stock_analysis.router)
 app.include_router(market_recap.router)
@@ -678,6 +731,7 @@ app.state.extension_load_errors = extension_load_errors
 # 若不注册 handler 会冒泡成 500 Internal Server Error,对前端不友好且语义错误。
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
 from app.tickflow.capabilities import CapabilityDenied
 
 

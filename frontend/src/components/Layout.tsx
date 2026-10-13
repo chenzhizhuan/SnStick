@@ -21,6 +21,7 @@ import {
   useToggleRealtimeQuotes,
 } from '@/lib/useSharedMutations'
 import { QK } from '@/lib/queryKeys'
+import { compareByDefaultNav } from '@/lib/navOrder'
 import {
   Settings,
   DatabaseZap,
@@ -479,12 +480,15 @@ function SidebarIndexQuotes({ rows, items }: { rows: IndexQuote[] | undefined; i
           <NavLink
             key={item.symbol}
             to={`/indices?symbol=${encodeURIComponent(item.symbol)}`}
-            className="block rounded bg-elevated/60 px-2 py-1.5 transition-colors hover:bg-elevated"
+            className="block rounded bg-elevated/60 px-1.5 py-1.5 transition-colors hover:bg-elevated"
             title={`${item.name} ${item.symbol}`}
           >
+            {/* 名称不换行 + 涨跌幅不压缩: 两列布局下单卡内容区仅 85px,
+                「上证指数」41px + 涨跌幅 36px 已接近占满, 任其收缩或换行会把
+                指数名折成两行 (曾出现「上证指/数」)。px-1.5 是为此留出的余量。 */}
             <div className="flex items-center justify-between gap-1">
-              <span className="text-[10px] text-secondary">{item.name}</span>
-              <span className={`text-[10px] font-mono ${indexPctClass(pct)}`}>{fmtIndexPct(pct)}</span>
+              <span className="min-w-0 truncate text-[10px] text-secondary">{item.name}</span>
+              <span className={`shrink-0 text-[10px] font-mono ${indexPctClass(pct)}`}>{fmtIndexPct(pct)}</span>
             </div>
             <div className={`mt-0.5 truncate font-mono text-[10px] text-muted`}>
               {fmtIndexValue(value)}
@@ -550,8 +554,9 @@ export function Layout() {
   // 持久化到 localStorage; 迁移旧两态键 tf-nav-collapsed (收起 → 图标条)。
   const [navState, setNavState] = useState<NavState>(() => {
     try {
+      // 两态导航: expanded(14rem) / rail(3.5rem 图标条)。历史三态版本的 'hidden' 归一为展开
       const v = localStorage.getItem('tf-nav-state')
-      if (v === 'expanded' || v === 'rail' || v === 'hidden') return v
+      if (v === 'expanded' || v === 'rail') return v
       return localStorage.getItem('tf-nav-collapsed') === '1' ? 'rail' : 'expanded'
     } catch { return 'expanded' }
   })
@@ -646,9 +651,9 @@ export function Layout() {
   // 开启实时行情时若存在排队中的挖掘任务 → 确认弹窗 (实时落盘会让排队任务开跑即失败)
   const [miningQueuedWarning, setMiningQueuedWarning] = useState<number | null>(null)
   const miningWarnBackdrop = useDialogBackdrop(() => setMiningQueuedWarning(null))
-  // 三态循环切换 (仅桌面): 展开 → 图标条 → 隐藏 → 展开
+  // 两态切换 (仅桌面): 展开 <-> 图标条
   const toggleNavCollapsed = () => {
-    setNavStatePersist(navState === 'expanded' ? 'rail' : navState === 'rail' ? 'hidden' : 'expanded')
+    setNavStatePersist(navState === 'expanded' ? 'rail' : 'expanded')
   }
   // 指数条: 固定核心四只 (产品契约, 不再可配置), 常驻显示
   const sidebarIndexes = CORE_INDEXES
@@ -673,7 +678,7 @@ export function Layout() {
   const quoteMode = quoteStatus?.mode ?? 'none'
   const realtimeUnavailable = quoteMode === 'none'
   const isWatchlistMode = quoteMode === 'watchlist'
-  const realtimeModeLabel = isWatchlistMode ? '自选股' : '全市场'
+  const realtimeModeLabel = isWatchlistMode ? '自选' : '全市场'
   // 当前实时行情数据源名称 (插件/自定义源显示源名, tickflow 不显示)
   const realtimeProvider = prefs?.realtime_data_provider
   const realtimeProviderName = realtimeProvider && realtimeProvider !== 'tickflow'
@@ -778,12 +783,14 @@ export function Layout() {
             }
           }
           if (anchor >= 0) merged.splice(anchor + 1, 0, item)
-          else if (defaultIndex >= 0) merged.unshift(item)
+          else if (defaultIndex === 0) merged.unshift(item)
           else merged.push(item)
         }
         return merged
       })()
-    : allNav
+    // 无保存排序 (新装/从未调整过菜单): 按迁移前默认基准排序, 扩展域页面
+    // 不沉底 — 老用户升级侧栏顺序与迁移前一致; 未知路径稳定追加在后。
+    : [...allNav].sort((a, b) => compareByDefaultNav(a.to, b.to))
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
@@ -1021,7 +1028,11 @@ export function Layout() {
                           )}
                         />
                         <Icon className={cn('h-4 w-4 shrink-0 transition-colors', isActive ? 'text-accent' : 'text-foreground/60 group-hover:text-foreground/85')} />
-                        {!railMode && <span className="flex-1">{label}</span>}
+                        {!railMode && (
+                          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                            <span className="truncate">{label}</span>
+                          </span>
+                        )}
                         {!railMode && badge && (
                           <span className="ml-auto inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-400 shrink-0">
                             {badge}

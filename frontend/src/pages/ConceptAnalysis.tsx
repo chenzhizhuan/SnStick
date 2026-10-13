@@ -270,7 +270,7 @@ export function ConceptAnalysis() {
   const PRESET_CONCEPT_ID = 'ext_gn_ths'
   const queryClient = useQueryClient()
   const fetchMutation = useMutation({
-    mutationFn: () => api.extDataPresetFetch(PRESET_CONCEPT_ID),
+    mutationFn: () => api.extDataPullRun(PRESET_CONCEPT_ID),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QK.extData })
       queryClient.invalidateQueries({ queryKey: QK.extDataRows(PRESET_CONCEPT_ID, undefined, PAGE_LIMIT) })
