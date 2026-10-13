@@ -360,6 +360,11 @@ export function setDraft(text: string) {
   setState({ draft: { text, seq: draftSeq } }, false)
 }
 
+/** 清除草稿 (发送成功后调用): 防止下次打开抽屉时已发送内容复活。 */
+export function clearDraft() {
+  setState({ draft: { text: '', seq: 0 } }, false)
+}
+
 export function sendMessage(textRaw: string) {
   const text = textRaw.trim().slice(0, MAX_INPUT_CHARS)
   if (!text || state.sending) return
