@@ -16,6 +16,7 @@ import {
   Database,
   FlaskConical,
   History,
+  MousePointerClick,
   Plus,
   Puzzle,
   SendHorizontal,
@@ -483,6 +484,9 @@ function InputArea({
   const [text, setText] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const lastDraftSeq = useRef(0)
+  // 预填提示: 'code'=模板已填入+示例代码可替换; 'draft'=草稿已恢复。
+  // 不依赖选区高亮 (Firefox 失焦后选区不可见), 让用户始终知道下一步。
+  const [hint, setHint] = useState<'code' | 'draft' | null>(null)
   // 草稿镜像: 卸载 cleanup 闭包拿不到最新 state, 用 ref 同步。
   const textRef = useRef('')
   textRef.current = text
@@ -495,12 +499,14 @@ function InputArea({
 
   // 消费预填指令: 填入文本并聚焦; 建议卡片预填 (selectCode) 时自动选中
   // 首个示例代码 (如 600519.SH), 用户直接打字即替换; 草稿恢复则光标置末尾。
-  // rAF 等一帧再操作 DOM: setText 同帧内 focus 会被 React 重渲染重置。
+  // rAF 等一帧再操作 DOM: setText 同帧内 focus 会被 React 重渲染重置;
+  // Firefox 首帧 paint 后可能清除程序化选区, 再延迟 80ms 幂等补设一次。
   useEffect(() => {
     if (!draft.seq || draft.seq === lastDraftSeq.current) return
     lastDraftSeq.current = draft.seq
     setText(draft.text)
-    const raf = requestAnimationFrame(() => {
+    setHint(draft.selectCode ? 'code' : 'draft')
+    const applySelection = () => {
       const el = textareaRef.current
       if (!el) return
       el.focus()
@@ -515,8 +521,16 @@ function InputArea({
       }
       el.setSelectionRange(len, len)
       autoGrow()
+    }
+    let retryTimer: number | undefined
+    const raf = requestAnimationFrame(() => {
+      applySelection()
+      retryTimer = window.setTimeout(applySelection, 80)
     })
-    return () => cancelAnimationFrame(raf)
+    return () => {
+      cancelAnimationFrame(raf)
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- autoGrow 稳定引用, 无需重跑
   }, [draft])
 
@@ -526,6 +540,7 @@ function InputArea({
     if (!canSend) return
     sendMessage(text)
     setText('')
+    setHint(null)
     clearDraft()
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
@@ -546,6 +561,24 @@ function InputArea({
 
   return (
     <div className="shrink-0 border-t border-border bg-surface px-4 pb-3 pt-2.5">
+      <AnimatePresence>
+        {hint && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15, ease: EASE_SMOOTH }}
+            className={cn(
+              'mb-1.5 flex items-center gap-1 px-1 text-[11px]',
+              hint === 'code' ? 'text-accent' : 'text-muted',
+            )}
+          >
+            {hint === 'code'
+              ? <><MousePointerClick className="h-3 w-3 shrink-0" />模板已填入 — 示例代码已选中, 直接打字即可替换, 改好按 Enter 发送</>
+              : <><History className="h-3 w-3 shrink-0" />已恢复上次未发送的草稿, 继续编辑后发送</>}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex items-end gap-2 rounded-card border border-border bg-base focus-within:border-accent/50">
         <textarea
           ref={textareaRef}
@@ -553,7 +586,7 @@ function InputArea({
           rows={1}
           disabled={blocked}
           placeholder={blocked ? '请先在设置页配置 AI' : '提问, Enter 发送 / Shift+Enter 换行'}
-          onChange={e => { setText(e.target.value); autoGrow() }}
+          onChange={e => { setText(e.target.value); setHint(null); autoGrow() }}
           onKeyDown={onKeyDown}
           className="max-h-36 min-h-[38px] flex-1 resize-none bg-transparent px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted disabled:cursor-not-allowed"
         />
