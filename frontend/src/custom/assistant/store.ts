@@ -61,8 +61,10 @@ interface AssistantState {
   /** 悬浮球是否显示 (纯 UI 偏好, 独立 localStorage, 不随会话持久化) */
   fabVisible: boolean
   /** 输入框预填指令 (建议卡片→用户改完再发, 不浪费一次问答);
-   *  seq 递增保证重复点击同一建议也能触发消费。纯 UI 态不持久化。 */
-  draft: { text: string; seq: number }
+   *  seq 递增保证重复点击同一建议也能触发消费; selectCode 预填后自动
+   *  选中首个示例代码区间 (如 600519.SH), 用户直接打字即替换。
+   *  纯 UI 态不持久化。 */
+  draft: { text: string; seq: number; selectCode?: boolean }
 }
 
 const STORAGE_KEY = 'assistant.sessions.v1'
@@ -354,10 +356,11 @@ function applyEvent(event: AssistantEvent, footprintId: string, assistantId: str
 
 // ===== 对外动作 =====
 
-/** 预填提问框: 不发送、不产生消息, 由 InputArea 消费后用户编辑确认。 */
-export function setDraft(text: string) {
+/** 预填提问框: 不发送、不产生消息, 由 InputArea 消费后用户编辑确认。
+ * selectCode=true 时 (建议卡片点击) 预填后自动选中首个示例代码供直接替换。 */
+export function setDraft(text: string, selectCode = false) {
   draftSeq += 1
-  setState({ draft: { text, seq: draftSeq } }, false)
+  setState({ draft: { text, seq: draftSeq, selectCode } }, false)
 }
 
 /** 清除草稿 (发送成功后调用): 防止下次打开抽屉时已发送内容复活。 */
