@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { BARS_PER_DAY } from './ranges'
-import { DEFAULT_PERIOD, MINUTE_FETCH_DAYS, PERIODS, isDailyPeriod, isMinutePeriod, periodDef } from './periods'
+import { DEFAULT_PERIOD, PERIODS, isDailyPeriod, isMinutePeriod, periodDef } from './periods'
 
 describe('periods', () => {
   it('八档周期定义齐全', () => {
@@ -26,11 +26,6 @@ describe('periods', () => {
 
   it('默认周期为 15 分', () => {
     expect(DEFAULT_PERIOD).toBe('15m')
-  })
-
-  it('MINUTE_FETCH_DAYS 为正数 (env 覆盖为 20 时仍可工作)', () => {
-    expect(Number.isFinite(MINUTE_FETCH_DAYS)).toBe(true)
-    expect(MINUTE_FETCH_DAYS).toBeGreaterThan(0)
   })
 
   it('分钟级/日级以上分流正确', () => {

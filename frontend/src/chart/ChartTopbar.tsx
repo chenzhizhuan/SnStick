@@ -4,7 +4,7 @@
  * 搜索: 输入防抖 300ms → /api/kline/instruments/search (instrumentSearch);
  * 周期/样式/指标为受控组件 (状态由 Chart 页持有并持久化)。
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Loader2, Search, X } from 'lucide-react'
@@ -58,7 +58,9 @@ function Pill({ active, label, title, onClick, activeClass = 'bg-accent/20 text-
 
 /** 紧凑单选下拉框 — 周期/范围/形态等单选控件共用, 腾出图表空间。
  *  触发器: 圆角按钮 (h-7, 与搜索框同高) + 当前值 + ChevronDown; 面板: 选项列表当前项高亮。
- *  value=null 且有 placeholder 时显示占位文本 (范围栏手动缩放后 = "自定义")。 */
+ *  value=null 且有 placeholder 时显示占位文本 (范围栏手动缩放后 = "自定义")。
+ *  面板经 createPortal 挂 body + fixed 定位 (父级 overflow 裁剪不了): 位置按视口边界
+ *  自动翻转/夹取 — 下方放不下翻到按钮上方, 右缘越界向左夹回; 打开期间滚动/缩放实时重定位。 */
 function SingleSelect<T extends string>({ value, options, onChange, placeholder, title }: {
   value: T | null
   options: { key: T; label: string; title?: string }[]
@@ -71,6 +73,33 @@ function SingleSelect<T extends string>({ value, options, onChange, placeholder,
   const panelRef = useRef<HTMLDivElement>(null)
   const [panelPos, setPanelPos] = useState<{ top: number; left: number; minW: number } | null>(null)
 
+  /** 重算面板位置: 按钮 rects + 面板实测(首次未渲染按行高估计) → 视口内夹取。 */
+  const updatePos = useCallback(() => {
+    const btn = btnRef.current
+    if (!btn) { setPanelPos(null); return }
+    const r = btn.getBoundingClientRect()
+    const vw = window.innerWidth || r.right
+    const vh = window.innerHeight || r.bottom
+    const M = 8 // 视口安全边距
+    const GAP = 4 // 按钮↔面板间距
+    // 面板尺寸: 首帧未挂载时按行高 ~30px 估计 (py-1.5 + text-xs 行高 + 2px 边框)
+    const pw = Math.max(panelRef.current?.offsetWidth ?? 0, r.width)
+    const ph = panelRef.current?.offsetHeight ?? options.length * 30 + 2
+    // 垂直: 默认按钮下方; 下方放不下且上方更宽裕 → 翻转到按钮上方
+    let top = r.bottom + GAP
+    if (top + ph > vh - M && r.top - GAP - ph >= M) top = r.top - GAP - ph
+    // 水平: 左对齐按钮, 右缘越界向左夹回 (面板宽于按钮时也不倒出视口)
+    let left = r.left
+    if (left + pw > vw - M) left = Math.max(M, vw - M - pw)
+    // 值不变时返回 prev (引用稳定) — panelPos 进 layout effect 依赖也不致死循环
+    setPanelPos(prev => {
+      const next = { top, left, minW: r.width }
+      return prev && prev.top === next.top && prev.left === next.left && prev.minW === next.minW
+        ? prev
+        : next
+    })
+  }, [options.length])
+
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => {
@@ -82,14 +111,24 @@ function SingleSelect<T extends string>({ value, options, onChange, placeholder,
       setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
+    // 面板在 portal 里不随锚滚动/缩放移动 — 捕获阶段监听全部 scroll (含工具条横向
+    // 滚动容器) 实时重定位; 分屏窄窗格/底部窗格下不再越位或脱锚。
+    window.addEventListener('scroll', updatePos, true)
+    window.addEventListener('resize', updatePos)
+    updatePos()
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      window.removeEventListener('scroll', updatePos, true)
+      window.removeEventListener('resize', updatePos)
+    }
+  }, [open, updatePos])
 
+  // 打开即定位 (layout 阶段, 首帧不闪): 未挂载按行高估计 → 挂载后 (panelPos 变化
+  // 触发重跑) 实测校正; 值不变时引用稳定, 不会循环。关闭时清空 → 重开无旧坐标残留。
   useLayoutEffect(() => {
-    if (!open || !btnRef.current) { setPanelPos(null); return }
-    const r = btnRef.current.getBoundingClientRect()
-    setPanelPos({ top: r.bottom + 4, left: r.left, minW: r.width })
-  }, [open])
+    if (!open) { setPanelPos(null); return }
+    updatePos()
+  }, [open, updatePos, panelPos])
 
   const selected = options.find(o => o.key === value)
   const displayLabel = selected?.label ?? placeholder ?? '选择'

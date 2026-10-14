@@ -869,10 +869,13 @@ function buildOption(
 
   // 外部绘图层 (图表工作台 DrawingToolbar 落定的图形): 数据坐标锚定, 缩放/平移后自动重定位;
   // 跨周期共享时锚点按日级降级映射 (dateIndexMap 精确失败 → 该日首根, 传 dates 供渲染锚替换)
+  // vline (垂直线) 的副图联动副本: 挂到每个激活副图的 series 上同步显示 (时间轴共享)
+  let subVlineMarks: any[] = []
   if (externalDrawings && externalDrawings.length > 0) {
     const drawMarks = drawingsToMarks(externalDrawings, dateIndexMap, dates)
     markLineData.push(...drawMarks.markLine)
     markAreaData.push(...drawMarks.markArea)
+    subVlineMarks = drawMarks.subMarkLine
   }
 
   // 主图 series — 按 chartStyle 分支 (默认蜡烛, 与既有调用方一致); 标注三件套无论样式均挂在主 series 上
@@ -1060,6 +1063,15 @@ function buildOption(
 
     const seriesStart = series.length
     const subSeries = def.buildSeries(data, { compact, volumeCompare, rsiZeroAxis })
+    // 垂直线副图联动: vline 挂到本副图首个 series (已有 markLine 如 MACD+ 零轴则合并 data,
+    // 条目级 lineStyle/label 覆盖父级, 零轴样式不受影响)
+    if (subVlineMarks.length > 0 && subSeries.length > 0) {
+      const first = subSeries[0] as any
+      const existing = first.markLine
+      first.markLine = existing
+        ? { ...existing, data: [...(existing.data ?? []), ...subVlineMarks] }
+        : { silent: true, symbol: 'none', animation: false, data: subVlineMarks }
+    }
     subSeries.forEach((s: any) => {
       series.push({ ...s, xAxisIndex: xAxisIdx, yAxisIndex: yAxisIdx })
     })

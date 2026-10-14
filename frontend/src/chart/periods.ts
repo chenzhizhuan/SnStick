@@ -37,19 +37,12 @@ export const PERIODS: PeriodDef[] = [
 
 export const DEFAULT_PERIOD: Period = '15m'
 
-/**
- * 聚合周期需要的原始分钟K天数: 分钟 240 根/日, 60 日原料足够任何分屏周期看图。
- * dev 打通旧版线上后端 (minute-range 上限 le=20) 期间, 在 frontend/.env.local 设
- * VITE_CHART_MINUTE_DAYS=20 覆盖; 线上后端部署 le=60 后删除覆盖即恢复 60。
- */
-export const MINUTE_FETCH_DAYS = Number(import.meta.env.VITE_CHART_MINUTE_DAYS ?? 60)
-
-/** 周期是否为分钟级 (走 resampleMinutes 路径) */
+/** 周期是否为分钟级 (15m/60m 走服务端聚合接口; 4h 也带 minutes 但走日K源) */
 export function isMinutePeriod(p: Period): boolean {
   return periodDef(p).minutes !== undefined
 }
 
-/** 周期是否为日级以上 (走日K聚合路径) */
+/** 周期是否为日级以上 (走日K路径) */
 export function isDailyPeriod(p: Period): boolean {
   return periodDef(p).minutes === undefined
 }

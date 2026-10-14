@@ -4,8 +4,9 @@
  * 核心思路 (v2 方案): markLine / markArea 天生按数据坐标锚定 (coord: [dateStr, price]),
  * 缩放 / 平移 / 换窗后 ECharts 自动重定位 — 无需手写 convertToPixel 像素换算。
  *
- * 工具集 (P2 最小四件套):
+ * 工具集 (P2 最小四件套 + 垂直线):
  *   trendline 趋势线 (两点线段) / hline 水平线 (一点) /
+ *   vline 垂直线 (一点, 主图 + 全部副图联动显示 — 时间轴共享, 价格无关) /
  *   fib 斐波那契回撤 (两点高低 → 6 档水平线 + 区间填充) / rect 矩形区域 (两点)
  *
  * 持久化: 共享库 key = stick.chart-drawings.{symbol} (TV 同款 per-symbol, 绘图联动开);
@@ -13,12 +14,13 @@
  * 锚点日期不在当前数据集时该图形暂不渲染 (换周期不炸, 回到原周期自动恢复)。
  */
 
-export type DrawTool = 'cursor' | 'trendline' | 'hline' | 'fib' | 'rect'
+export type DrawTool = 'cursor' | 'trendline' | 'hline' | 'vline' | 'fib' | 'rect'
 
 export const DRAW_TOOLS: { key: DrawTool; label: string; title: string }[] = [
   { key: 'cursor', label: '光标', title: '光标 (退出绘制)' },
   { key: 'trendline', label: '趋势线', title: '趋势线: 两点连线' },
   { key: 'hline', label: '水平线', title: '水平线: 单点全宽横线' },
+  { key: 'vline', label: '垂直线', title: '垂直线: 单点全高竖线, 主图与副图联动显示' },
   { key: 'fib', label: '斐波', title: '斐波那契回撤: 两点定高低' },
   { key: 'rect', label: '矩形', title: '矩形区域' },
 ]
@@ -31,7 +33,7 @@ export interface DrawPoint {
 export interface DrawingObject {
   id: string
   tool: Exclude<DrawTool, 'cursor'>
-  /** trendline / rect / fib 两点; hline 一点 (price 生效, date 仅作存在锚) */
+  /** trendline / rect / fib 两点; hline / vline 一点 (hline price 生效; vline date 生效) */
   points: DrawPoint[]
   style: { color: string; width: number }
 }
@@ -58,7 +60,7 @@ export function paneDrawingsStorageKey(paneId: string, symbol: string): string {
     (d): d is DrawingObject =>
       d != null && typeof d === 'object' &&
       typeof d.id === 'string' && typeof d.tool === 'string' &&
-      ['trendline', 'hline', 'fib', 'rect'].includes(d.tool) &&
+      ['trendline', 'hline', 'vline', 'fib', 'rect'].includes(d.tool) &&
       Array.isArray(d.points) && d.points.length >= 1 &&
       d.points.every((p: DrawPoint) => p != null && typeof p.date === 'string' && Number.isFinite(p.price)),
   )
@@ -137,14 +139,19 @@ function anchorIndex(dateIndexMap: Map<string, number>, date: string): number | 
  * DrawingObject[] → ECharts markLine / markArea data (挂到主图 series 上)。
  * 纯生成函数: 图形状态在 pane, 渲染锚定交给 ECharts。
  * dates 为当前数据集标签数组: 跨周期降级命中时把渲染锚替换为该日首根的实际标签
- * (markLine coord 必须是数据集内存在的类目, 否则 ECharts 不渲染)。 */
+ * (markLine coord 必须是数据集内存在的类目, 否则 ECharts 不渲染)。
+ *
+ * subMarkLine: 垂直线 (vline) 的副图联动副本 — 时间轴各 grid 共享, 垂直线是
+ * 唯一与价格无关的图形, 挂到每个激活副图的 series 上同步显示 (无 label 防重复)。
+ * 价格类图形 (trendline/hline/fib/rect) 不下沉副图。 */
 export function drawingsToMarks(
   drawings: DrawingObject[],
   dateIndexMap: Map<string, number>,
   dates: string[],
-): { markLine: any[]; markArea: any[] } {
+): { markLine: any[]; markArea: any[]; subMarkLine: any[] } {
   const markLine: any[] = []
   const markArea: any[] = []
+  const subMarkLine: any[] = []
 
   for (const d of drawings) {
     const pts = d.points.map(p => {
@@ -161,6 +168,24 @@ export function drawingsToMarks(
         yAxis: p.price,
         lineStyle: { color: d.style.color, width: d.style.width, type: 'solid' },
         label: { show: true, formatter: p.price.toFixed(2), position: 'insideEndTop', fontSize: 9, color: d.style.color },
+      })
+      continue
+    }
+
+    // 垂直线: 一点定 date — 主图 markLine(xAxis) + 副图联动副本 (主图带日期 label,
+    // 副图无 label 防与主图重复; 缺锚时两边一起跳过)
+    if (d.tool === 'vline') {
+      const p = pts[0]
+      if (!p) continue
+      markLine.push({
+        xAxis: p.date,
+        lineStyle: { color: d.style.color, width: d.style.width, type: 'solid' },
+        label: { show: true, formatter: p.date, position: 'end', fontSize: 9, color: d.style.color },
+      })
+      subMarkLine.push({
+        xAxis: p.date,
+        lineStyle: { color: d.style.color, width: d.style.width, type: 'solid' },
+        label: { show: false },
       })
       continue
     }
@@ -202,5 +227,5 @@ export function drawingsToMarks(
     }
   }
 
-  return { markLine, markArea }
+  return { markLine, markArea, subMarkLine }
 }

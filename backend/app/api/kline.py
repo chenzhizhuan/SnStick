@@ -15,8 +15,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.identity.permissions import P_DATA_WRITE, require_perm
 from app.db_safe import is_valid_ext_ident
+from app.indicators.intraday import (
+    INTRADAY_PERIODS,
+    attach_intraday_plus,
+    resample_minutes,
+    to_minute_start_semantics,
+)
 from app.indicators.pipeline import compute_enriched, compute_enriched_single
-from app.indicators.plus import attach_plus_indicators
+from app.indicators.plus import _T_LOOKBACK_DAILY, attach_plus_indicators
 from app.market_time import cn_now, cn_today, in_continuous_session
 from app.price_limits import (
     is_no_limit_day,
@@ -401,6 +407,10 @@ def get_daily(
     start_date: Optional[str] = Query(None, description="起始日期 YYYY-MM-DD, 优先于 days"),
     end_date: Optional[str] = Query(None, description="截止日期 YYYY-MM-DD, 默认今天"),
     ext_columns: Optional[str] = Query(None, description="逗号分隔的 ext 列: config_id.field_name"),
+    plus_lookback: Optional[int] = Query(
+        None, ge=1, le=500,
+        description="私有指标量级缩放窗口 (默认 50=日K档; 4h 周期客户端传 160)",
+    ),
 ):
     """读取本地 enriched 表中某只股票的日 K。
 
@@ -460,7 +470,7 @@ def get_daily(
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
         # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
-        rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows)
+        rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows, lookback=_resolve_plus_lookback(plus_lookback))
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
         return _gzip_payload(
             request,
@@ -473,7 +483,7 @@ def get_daily(
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
     # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
-    rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows)
+    rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows, lookback=_resolve_plus_lookback(plus_lookback))
 
     resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
     return _gzip_payload(
@@ -488,12 +498,28 @@ def get_daily(
 _PLUS_WARMUP_DAYS = 250
 
 
-def _attach_plus_with_warmup(repo, asset_type: str, symbol: str, rows: list[dict]) -> list[dict]:
+def _resolve_plus_lookback(plus_lookback) -> int:
+    """plus_lookback 实参 → 有效档位。
+
+    HTTP 路径 FastAPI 已解析成 int|None; 直调 (测试/内部调用) 时默认值是
+    Query(None) 对象本身 — 真值判断 (or / if) 会把它当有效档位穿透到
+    _sma_series 的比较运算炸 TypeError。此处只认正整数, 其余 (None /
+    Query 对象 / 非法值) 回退日K默认档 50。
+    """
+    if isinstance(plus_lookback, int) and not isinstance(plus_lookback, bool) and plus_lookback > 0:
+        return plus_lookback
+    return _T_LOOKBACK_DAILY
+
+
+def _attach_plus_with_warmup(
+    repo, asset_type: str, symbol: str, rows: list[dict], lookback: int = _T_LOOKBACK_DAILY,
+) -> list[dict]:
     """MACD+/RSI+ 附着 (带窗口前历史 warmup)。
 
     EMA/RMA 递推指标只在返回窗口内算会因 warmup 不足偏离全历史口径
     (原版 enriched 落盘值); 取窗口前 250 日历日 close 前置递推对齐。
     历史读失败时退化为窗口内递推 (数值仍可用, 仅前期偏差)。
+    lookback: 量级缩放窗口 (日K默认 50; 4h 周期前端传 160 — Pine 周期预设档)。
     """
     if not rows:
         return rows
@@ -509,7 +535,7 @@ def _attach_plus_with_warmup(repo, asset_type: str, symbol: str, rows: list[dict
         warmup = [float(c) if c is not None else None for c in hist["close"].to_list()]
     except Exception:  # noqa: BLE001 — 预热读失败退化为窗口内递推
         logger.debug("plus warmup 读取失败 %s", symbol, exc_info=True)
-    attach_plus_indicators(rows, warmup_closes=warmup)
+    attach_plus_indicators(rows, warmup_closes=warmup, lookback=lookback)
     return rows
 
 
@@ -649,6 +675,10 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
 def get_daily_latest(
     request: Request,
     symbol: str = Query(..., description="标的代码,如 000001.SZ"),
+    plus_lookback: Optional[int] = Query(
+        None, ge=1, le=500,
+        description="私有指标量级缩放窗口 (默认 50=日K档; 4h 周期客户端传 160)",
+    ),
 ):
     """返回内存中的当日单行 K 线, 供详情页实时增量更新。"""
     repo = request.app.state.repo
@@ -658,7 +688,7 @@ def get_daily_latest(
         # 私有化指标 (MACD+/RSI+): 单行无法递推, 用带历史 warmup 的附着让末行
         # plus 值随行情刷新 (与 get_daily 同口径同预热)。
         try:
-            _attach_plus_with_warmup(repo, asset_type, symbol, [row])
+            _attach_plus_with_warmup(repo, asset_type, symbol, [row], lookback=_resolve_plus_lookback(plus_lookback))
         except Exception:  # noqa: BLE001 — 历史读失败时实时行退化为无 plus 字段
             logger.debug("daily/latest plus 指标重算失败 %s", symbol, exc_info=True)
     return {
@@ -1056,6 +1086,88 @@ def get_minute_range(
             **base_response,
             "sessions": sessions,
             "source": "local" if sessions else "none",
+        },
+        pref_key="minute_batch_compress",
+    )
+
+
+@router.get("/intraday")
+def get_intraday(
+    request: Request,
+    symbol: str = Query(..., description="标的代码"),
+    period: str = Query(..., description="聚合周期: 15m | 60m"),
+    days: int = Query(60, ge=1, le=60, description="最近交易日数量 (与 minute-range 同上限)"),
+):
+    """图表工作台分钟聚合周期K (15m/60m) + 私有指标 (MACD+/RSI+) 服务端附着。
+
+    私有化收口 (2026-10-14): MACD+/RSI+ 算法全部在服务端计算, 聚合口径与
+    迁移前前端实现逐字段一致 (见 indicators/intraday.py 模块注释)。
+    bars 的 date 标签 = "YYYY-MM-DD HH:mm" (桶内首根时间, 开始时刻语义)。
+    """
+    import polars as pl
+
+    minutes = {"15m": 15, "60m": 60}.get(period)
+    if minutes is None or minutes not in INTRADAY_PERIODS:
+        raise HTTPException(status_code=400, detail="period 仅支持 15m | 60m")
+
+    repo = request.app.state.repo
+    asset_type = repo.resolve_asset_type(symbol)
+    stock_info = (
+        _get_stock_info(repo, symbol)
+        if asset_type == "stock"
+        else _get_asset_info(repo, symbol, asset_type)
+    )
+    base_response = {
+        "symbol": symbol,
+        "name": stock_info.get("name"),
+        "asset_type": asset_type,
+        "period": period,
+        "requested_days": days,
+    }
+
+    # 指数分钟 K 不落本地仓库 (与 minute-range 同口径)
+    if asset_type == "index":
+        return _gzip_payload(
+            request,
+            {**base_response, "bars": [], "source": "none"},
+            pref_key="minute_batch_compress",
+        )
+
+    end = cn_today()
+    start = end - timedelta(days=days * 3 + 20)
+    minute = repo.get_minute_range([symbol], start, end, asset_type=asset_type)
+    if minute.is_empty() or "datetime" not in minute.columns:
+        return _gzip_payload(
+            request,
+            {**base_response, "bars": [], "source": "none"},
+            pref_key="minute_batch_compress",
+        )
+
+    minute = minute.with_columns(pl.col("datetime").dt.date().alias("_trade_date"))
+    trade_dates = sorted(minute["_trade_date"].unique().to_list())[-days:]
+    row_columns = [
+        column
+        for column in ("datetime", "open", "high", "low", "close", "volume", "amount")
+        if column in minute.columns
+    ]
+    rows = (
+        minute.filter(pl.col("_trade_date").is_in(trade_dates))
+        .sort("datetime")
+        .select(row_columns)
+        .to_dicts()
+    )
+
+    # 结束时刻 → 开始时刻语义换算 → 时段切桶聚合 → 私有指标附着
+    rows = to_minute_start_semantics(rows)
+    bars = resample_minutes(rows, minutes)
+    attach_intraday_plus(bars, minutes)
+
+    return _gzip_payload(
+        request,
+        {
+            **base_response,
+            "bars": bars,
+            "source": "local" if bars else "none",
         },
         pref_key="minute_batch_compress",
     )

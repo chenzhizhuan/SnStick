@@ -107,13 +107,41 @@ describe('drawingsToMarks', () => {
   })
 
   it('hline → 单点 price 的全宽 yAxis markLine', () => {
-    const { markLine } = drawingsToMarks(
+    const { markLine, subMarkLine } = drawingsToMarks(
       [obj('hline', [{ date: 'd1', price: 15.5 }])],
       dateIndexMap,
       dates,
     )
     expect(markLine.length).toBe(1)
     expect((markLine[0] as any).yAxis).toBe(15.5)
+    expect(subMarkLine).toEqual([])
+  })
+
+  it('vline → 单点 date 的全高 xAxis markLine + 副图联动副本', () => {
+    const { markLine, subMarkLine } = drawingsToMarks(
+      [obj('vline', [{ date: 'd2', price: 12.34 }])],
+      dateIndexMap,
+      dates,
+    )
+    // 主图: xAxis 锚定 + 顶部日期 label
+    expect(markLine.length).toBe(1)
+    expect((markLine[0] as any).xAxis).toBe('d2')
+    expect((markLine[0] as any).label.show).toBe(true)
+    expect((markLine[0] as any).label.formatter).toBe('d2')
+    // 副图联动: 同一 xAxis 锚, 无 label (防与主图重复)
+    expect(subMarkLine.length).toBe(1)
+    expect((subMarkLine[0] as any).xAxis).toBe('d2')
+    expect((subMarkLine[0] as any).label.show).toBe(false)
+  })
+
+  it('vline 缺锚时主图/副图两边一起跳过', () => {
+    const { markLine, subMarkLine } = drawingsToMarks(
+      [obj('vline', [{ date: 'gone', price: 1 }])],
+      dateIndexMap,
+      dates,
+    )
+    expect(markLine).toEqual([])
+    expect(subMarkLine).toEqual([])
   })
 
   it('fib → 6 档水平线 + 区间填充', () => {
@@ -179,8 +207,18 @@ describe('drawingsToMarks', () => {
 })
 
 describe('DRAW_TOOLS', () => {
-  it('光标 + 绘图四件套, key 唯一', () => {
-    expect(DRAW_TOOLS.map(t => t.key)).toEqual(['cursor', 'trendline', 'hline', 'fib', 'rect'])
-    expect(new Set(DRAW_TOOLS.map(t => t.key)).size).toBe(5)
+  it('光标 + 绘图五件套 (含垂直线), key 唯一', () => {
+    expect(DRAW_TOOLS.map(t => t.key)).toEqual(['cursor', 'trendline', 'hline', 'vline', 'fib', 'rect'])
+    expect(new Set(DRAW_TOOLS.map(t => t.key)).size).toBe(6)
+  })
+})
+
+describe('loadDrawings 过滤', () => {
+  it('vline 为合法 tool (旧库过滤不误杀垂直线)', () => {
+    const v = obj('vline', [{ date: 'd1', price: 9 }], 'v-1')
+    saveDrawings('000004.SZ', [v])
+    const out = loadDrawings('000004.SZ')
+    expect(out.length).toBe(1)
+    expect(out[0].tool).toBe('vline')
   })
 })

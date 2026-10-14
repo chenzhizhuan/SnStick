@@ -82,7 +82,8 @@ export const QK = {
   // Kline
   kline:                (symbol: string, start: string, end: string, extColumns?: string) =>
                            ['kline', symbol, start, end, extColumns ?? ''] as const,
-  klineLatest:          (symbol: string) => ['kline-latest', symbol] as const,
+  klineLatest:          (symbol: string, plusLookback?: number) =>
+                         ['kline-latest', symbol, plusLookback ?? ''] as const,
   stockLevels:          (symbol: string, days?: number) => ['stock-levels', symbol, days ?? 120] as const,
   klineMinute:          (symbol: string, date: string) =>
                              ['kline-minute', symbol, date] as const,
@@ -147,8 +148,12 @@ export const QK = {
   chartKlineDaily:       (symbol: string, days: number) => ['chart', 'kline-daily', symbol, days] as const,
   // 「往左加载更多」额外历史日K: 按日期区间拉更早数据, 与 chartKlineDaily 合并去重
   chartKlineDailyExtra:  (symbol: string, start: string, end: string) => ['chart', 'kline-daily-extra', symbol, start, end] as const,
-  // 原始 1 分钟K按 (symbol, days) 缓存, 5/15/30/60m 各周期 pane 共用同一份缓存重采样
-  chartMinuteRange:      (symbol: string, days: number) => ['chart', 'minute-range', symbol, days] as const,
+  // 4h 周期独立日K缓存: plus_lookback=160 档 (Pine 4h 预设), 与 1d 窗格的 50 档
+  // 缓存分开 — 同 symbol 两口径并存时互不污染; 实时增量走 160 档 latest 合并。
+  chartKlineDaily4h:     (symbol: string) => ['chart', 'kline-daily-4h', symbol] as const,
+  chartKlineDaily4hExtra: (symbol: string, start: string, end: string) => ['chart', 'kline-daily-4h-extra', symbol, start, end] as const,
+  // 分钟聚合周期K (15m/60m): 服务端聚合 + 私有指标附着 (迁移自前端现场计算)
+  chartIntraday:         (symbol: string, period: string) => ['chart', 'intraday', symbol, period] as const,
 } as const
 
 // ===== SSE 应该 invalidate 的 key 前缀列表 =====
