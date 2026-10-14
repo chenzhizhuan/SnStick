@@ -149,102 +149,87 @@ function fmtVolumeRatio(value: number | null, digits = 2): string {
 //    pieces 还会让 getVisualGradient 抛 TypeError。
 // 3. convertFromPixel({xAxisIndex}) 单轴 finder 返回 null 的同源问题
 //    说明 axis-based 渲染要自己精确控坐标。
-// 故改为 custom series renderItem: 像素级绝对锚定零轴 (api.coord + coordSys),
-// 面积/线全手工绘制 — Y 缩放、dataZoom、不对称数据下均精确; 穿零交点直线
-// 插值分割色段, 红绿段共享交点端点 (连续无断口)。
+// 2026-10-15 二次排查 (线上像素验证发现填充不可见, zrender 活体解剖):
+// 3. 「dataIndexInside===0 哨兵 + 闭包全量绘制」在 progressive 分块渲染下
+//    灾难性失效: 生产 dataZoom dispatch 触发了分块 (34 元素=17段×2份),
+//    首块渲染时轴布局未就绪, api.coord 返回离屏负坐标 (-2379px), 旧分块
+//    元素不清除 → 12 段全部画飞在画布左侧外。
+// 4. custom series 子元素 style.fill 传 plain-object 渐变不可靠: zrender
+//    按包围盒相对坐标解释 (global 缺省 false), 端点落在包围盒倍数空间,
+//    取色锚定完全错。正确姿势是 echarts.graphic.LinearGradient 实例 +
+//    globalCoord=true (绝对像素锚定; 像素实测: 半透明渐变 26280px/不透明 0)。
+// 5. getImageData 非预乘: 半透明填充 RGB 通道仍为原色只是 α 低 — 像素
+//    验证必须区分 α 层级, 否则把填充误计为不透明线。
+//
+// 最终架构: 逐数据项 renderItem — 每项只画 (前项→本项) 线段 + 其零轴夹域
+// 梯形; 无跨项全局假设 → 与 progressive 分块、dataZoom 窗口过滤天然兼容;
+// 穿零段插值交点, 红绿子段共享交点 (连续无断口); 线为直线段 (该密度下
+// 与 catmull-rom 视觉无差, TV LC 参考亦为直线段)。
 const RSI_PLUS_BULL = '#F04438'      // MACD+ 正能量柱红
 const RSI_PLUS_BEAR = '#12B76A'      // MACD+ 负能量柱绿
 const RSI_PLUS_BULL_FILL = 'rgba(240,68,56,0.45)'
+const RSI_PLUS_BULL_FILL_END = 'rgba(240,68,56,0)'
 const RSI_PLUS_BEAR_FILL = 'rgba(18,183,106,0.45)'
+const RSI_PLUS_BEAR_FILL_END = 'rgba(18,183,106,0)'
 
-/** 相邻点串按 zeroY 切割成色段 (穿零处直线插值交点, 两段共享端点 → 线连续) */
-function rsiPlusCutByZero(pts: { x: number; y: number }[], zeroY: number): { above: boolean; pts: { x: number; y: number }[] }[] {
-  const pieces: { above: boolean; pts: { x: number; y: number }[] }[] = []
-  let prev: { x: number; y: number } | null = null
-  for (const p of pts) {
-    const queue: { x: number; y: number }[] = []
-    if (prev && (prev.y <= zeroY) !== (p.y <= zeroY)) {
-      const t = (prev.y - zeroY) / (prev.y - p.y)
-      queue.push({ x: prev.x + (p.x - prev.x) * t, y: zeroY })
-    }
-    queue.push(p)
-    for (const q of queue) {
-      const above = q.y <= zeroY
-      const last = pieces[pieces.length - 1]
-      if (!last || last.above !== above) {
-        pieces.push({ above, pts: prev && prev.y !== q.y ? [prev] : [] })
-      }
-      pieces[pieces.length - 1].pts.push(q)
-    }
-    prev = p
-  }
-  return pieces.filter(pc => pc.pts.length >= 2)
-}
-
-/** catmull-rom → bezier path d (两点的短段回退直线) */
-function rsiPlusSmoothPath(pts: { x: number; y: number }[]): string | null {
-  if (pts.length < 3) return null
-  const at = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))]
-  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2)
-    d += ` C ${(p1.x + (p2.x - p0.x) / 6).toFixed(1)} ${(p1.y + (p2.y - p0.y) / 6).toFixed(1)} ${(p2.x - (p3.x - p1.x) / 6).toFixed(1)} ${(p2.y - (p3.y - p1.y) / 6).toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`
-  }
-  return d
-}
-
-/** RSI+ 序列 → custom series (零轴夹域渐变填充 + 正负突变分色平滑线) */
+/** RSI+ 序列 → custom series (逐项绘制: 正负分色线段 + 零轴夹域渐变梯形) */
 function buildRsiPlusSeries(vals: (number | null)[]): Record<string, any> {
   const renderItem = (params: any, api: any) => {
-    // data 全量行传入; 窗口内首行 (dataIndexInside===0) 触发整线绘制,
-    // 其余行返回空 — dataZoom X 过滤窗口时哨兵永远存活, 每帧仅一次实画
-    if (params.dataIndexInside !== 0) return
+    // 逐项自绘: 每个数据项只画 (前项→本项) 的线段及其零轴夹域梯形。
+    // 无跨项全局假设 → progressive 分块渲染下每块自洽, 不依赖轴在首块时
+    // 已就绪; dataZoom 窗口外的项被 echarts 过滤, 窗口内首项的左段由
+    // clip 裁剪, 均天然正确。dataIndex 用原始索引取闭包 vals (窗口内
+    // dataIndexInside 与 dataIndex 不同, 取值必须用原始索引)。
+    const di = params.dataIndex
+    if (di <= 0) return
+    const prevV = vals[di - 1]
+    const curV = vals[di]
+    if (prevV == null || curV == null) return
+
     const cs = params.coordSys
+    const [x1, y1] = api.coord([di - 1, prevV])
+    const [x2, y2] = api.coord([di, curV])
     const zeroY = api.coord([0, 0])[1]
     const topY = cs.y
     const botY = cs.y + cs.height
 
-    const pts: ({ x: number; y: number } | null)[] = []
-    for (let i = 0; i < vals.length; i++) {
-      if (vals[i] == null) { pts.push(null); continue }
-      const [x, y] = api.coord([i, vals[i]])
-      pts.push({ x, y })
+    // 穿零处直线插值交点 → 红绿子段共享交点 (连续无断口); 未穿零单段
+    let segs: { ax: number; ay: number; bx: number; by: number; above: boolean }[]
+    if ((y1 <= zeroY) !== (y2 <= zeroY)) {
+      const t = (y1 - zeroY) / (y1 - y2)
+      const xc = x1 + (x2 - x1) * t
+      segs = [
+        { ax: x1, ay: y1, bx: xc, by: zeroY, above: y1 <= zeroY },
+        { ax: xc, ay: zeroY, bx: x2, by: y2, above: y2 <= zeroY },
+      ]
+    } else {
+      segs = [{ ax: x1, ay: y1, bx: x2, by: y2, above: y1 <= zeroY }]
     }
-    // null 断开的连续段
-    const segs: { x: number; y: number }[][] = []
-    let cur: { x: number; y: number }[] = []
-    for (const p of pts) { if (p == null) { if (cur.length) segs.push(cur); cur = [] } else cur.push(p) }
-    if (cur.length) segs.push(cur)
 
     const children: any[] = []
-    for (const seg of segs) {
-      for (const pc of rsiPlusCutByZero(seg, zeroY)) {
-        // 面积: 正区红渐变 (grid 顶浓 → 零轴透明) / 负区绿渐变 (零轴透明 → grid 底浓)
-        // — createLinearGradient 绝对像素锚定, 不受形状包围盒语义影响
-        if (pc.pts.length >= 2) {
-          const poly = pc.pts.map(p => [p.x, p.y])
-          poly.push([pc.pts[pc.pts.length - 1].x, zeroY], [pc.pts[0].x, zeroY])
-          const grad = pc.above
-            ? { type: 'linear', x: 0, y: topY, x2: 0, y2: zeroY, colorStops: [
-                { offset: 0, color: RSI_PLUS_BULL_FILL },
-                { offset: 1, color: 'rgba(240,68,56,0)' }] }
-            : { type: 'linear', x: 0, y: zeroY, x2: 0, y2: botY, colorStops: [
-                { offset: 0, color: 'rgba(18,183,106,0)' },
-                { offset: 1, color: RSI_PLUS_BEAR_FILL }] }
-          children.push({
-            type: 'polygon', shape: { points: poly },
-            style: { fill: grad }, silent: true, z: 1,
-          })
-        }
-        // 分色线: 红段/绿段在交点处共享端点 → 连续
-        const color = pc.above ? RSI_PLUS_BULL : RSI_PLUS_BEAR
-        const d = rsiPlusSmoothPath(pc.pts)
-        if (d) {
-          children.push({ type: 'path', shape: { d }, style: { stroke: color, lineWidth: 1, fill: 'none' }, silent: true, z: 3 })
-        } else {
-          children.push({ type: 'line', shape: { x1: pc.pts[0].x, y1: pc.pts[0].y, x2: pc.pts[1].x, y2: pc.pts[1].y }, style: { stroke: color, lineWidth: 1 }, silent: true, z: 3 })
-        }
-      }
+    for (const s of segs) {
+      // 填充: (前点, 当前点, 当前点@零轴, 前点@零轴) 梯形 — 渐变用
+      // LinearGradient 实例 + globalCoord=true 绝对像素锚定 (grid 顶/底
+      // 浓 → 零轴透明), 与数据形状包围盒无关
+      const grad = s.above
+        ? new echarts.graphic.LinearGradient(0, topY, 0, zeroY, [
+            { offset: 0, color: RSI_PLUS_BULL_FILL },
+            { offset: 1, color: RSI_PLUS_BULL_FILL_END }], true)
+        : new echarts.graphic.LinearGradient(0, zeroY, 0, botY, [
+            { offset: 0, color: RSI_PLUS_BEAR_FILL_END },
+            { offset: 1, color: RSI_PLUS_BEAR_FILL }], true)
+      children.push({
+        type: 'polygon',
+        shape: { points: [[s.ax, s.ay], [s.bx, s.by], [s.bx, zeroY], [s.ax, zeroY]] },
+        style: { fill: grad }, silent: true, z: 1,
+      })
+      // 线段: ≥0 红 / <0 绿 (与 MACD+ 能量柱同口径)
+      children.push({
+        type: 'line',
+        shape: { x1: s.ax, y1: s.ay, x2: s.bx, y2: s.by },
+        style: { stroke: s.above ? RSI_PLUS_BULL : RSI_PLUS_BEAR, lineWidth: 1 },
+        silent: true, z: 3,
+      })
     }
     return { type: 'group', children }
   }
