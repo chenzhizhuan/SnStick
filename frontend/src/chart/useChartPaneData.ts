@@ -2,12 +2,16 @@
  * 图表工作台 pane 数据 hook — 周期路由 + 指标装配。
  *
  * - 1d:   api.klineDaily (后端 enriched 指标字段透传; 工作台只用 MA/MACD/RSI)
- * - 1m~60m: api.klineMinuteRange 拉 1 分钟原始K (按 symbol+days 缓存, 多周期共用),
+ * - 15m/60m: api.klineMinuteRange 拉 1 分钟原始K (按 symbol+days 缓存, 多周期共用),
  *           flatten → resample(周期) → enrichChartIndicators (前端现场算指标)
+ * - 4h:   日K源 (dailyRowsTo4hBars) → enrichChartIndicators (160 档)。
+ *           A 股全天 240 分钟 = 每天 1 根 4h 桶, 与日K行 OHLCV 逐字段等价;
+ *           分钟源仅 60 根 4h bars, 能量柱 SMA160 窗口永远不满 → 改走日K源
+ *           (500 天), 附带获得「往左加载更多」。
  *
  * 实时性 (P3 一期):
  * - 分钟K: 盘中 15s 轮询 range 接口 (后端在请求时实时拉当日分钟合并), 末根 K 随行情更新;
- * - 日K:   不进轮询 (staleTime Infinity), 由全局 SSE quotes_updated 推送 + klineDailyLatest
+ * - 日K/4h: 不进轮询 (staleTime Infinity), 由全局 SSE quotes_updated 推送 + klineDailyLatest
  *          单行增量合并 (见 useQuoteStream 的 chart 窗格注册表), 末根实时价自动覆盖。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -17,7 +21,7 @@ import { QK } from '@/lib/queryKeys'
 import { chartMinuteRangeRefetchInterval } from '@/lib/kline'
 import type { OHLC } from '@/components/EChartsCandlestick'
 import { DEFAULT_PERIOD, MINUTE_FETCH_DAYS, periodDef, type Period } from './periods'
-import { flattenSessions, resampleMinutes } from './minuteResample'
+import { flattenSessions, resampleMinutes, type ResampledBar } from './minuteResample'
 import { resampleDaily } from './dailyResample'
 import { enrichChartIndicators, titanLookbackForMinutes } from './indicators'
 
@@ -36,6 +40,24 @@ export function mergeDailyRows(base: KlineRow[], extra: KlineRow[]): KlineRow[] 
   for (const r of extra) map.set(r.date, r)
   for (const r of base) map.set(r.date, r)
   return [...map.values()].sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/** 4h 周期专用: 日K行 → 与分钟聚合等价的 240 分钟 bars。
+ *  A 股全天交易 = 240 分钟 = 恰好 1 根 4h 桶, 日K行 OHLCV 与分钟聚合桶逐字段
+ *  等价 (open=首根 open / close=末根 close / high·low=全天极值 / volume=全量和)。
+ *  用日K源 (500 天) 替代分钟源 (60 天) 的原因: 能量柱 SMA160 窗口在 60 根
+ *  4h bars 下永远不满 → hist 全 null (4h 无 MACD+ 能量柱); 500 天 >> 160。
+ *  date 标签拼 " 09:30" 保持分钟周期标签格式 (跨周期字典序对齐不断)。 */
+export function dailyRowsTo4hBars(rows: KlineRow[]): ResampledBar[] {
+  return rows.map(r => ({
+    date: `${r.date} 09:30`,
+    open: r.open,
+    high: r.high,
+    low: r.low,
+    close: r.close,
+    volume: r.volume ?? 0,
+    amount: (r['amount'] as number | null | undefined) ?? null,
+  }))
 }
 
 /** 日期串加减 N 天 ("YYYY-MM-DD", 正=向后/负=向前)。 */
@@ -82,12 +104,17 @@ export interface ChartPaneData {
 
 export function useChartPaneData(symbol: string, period: Period) {
   const def = periodDef(period)
-  // 分钟级 (15m/60m/4h) 走 1 分钟K → resampleMinutes; 日级以上走日K → resampleDaily
+  // 分钟级 (15m/60m/4h) 走 1 分钟K → resampleMinutes; 日级以上走日K → resampleDaily。
+  // 例外: 4h (minutes=240) 档能量柱需 SMA160 窗口, 分钟源仅 60 根 4h bars 不够 →
+  // 改走日K源 (每天 1 根 4h 桶与日K行 OHLCV 等价), 前端现场算指标 (160 档)。
   const isMinute = def.minutes !== undefined
+  const is4h = def.minutes === 240
+  // 4h 与日级周期同源 (日K query, 同 key 共享缓存); 指标仍前端现场算
+  const dailySourced = !isMinute || is4h
   const dailyAgg = def.dailyAgg
 
   const daily = useQuery({
-    enabled: !isMinute && !!symbol,
+    enabled: dailySourced && !!symbol,
     queryKey: QK.chartKlineDaily(symbol, DAILY_FETCH_DAYS),
     queryFn: () => api.klineDaily(symbol, DAILY_FETCH_DAYS),
     staleTime: Infinity,
@@ -99,7 +126,7 @@ export function useChartPaneData(symbol: string, period: Period) {
   const [extraRanges, setExtraRanges] = useState<{ start: string; end: string }[]>([])
   const lastRange = extraRanges.length > 0 ? extraRanges[extraRanges.length - 1] : null
   const extra = useQuery({
-    enabled: !isMinute && !!symbol && !!lastRange,
+    enabled: dailySourced && !!symbol && !!lastRange,
     queryKey: QK.chartKlineDailyExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? ''),
     queryFn: () => api.klineDaily(symbol, 0, { start: lastRange!.start, end: lastRange!.end }),
     staleTime: Infinity,
@@ -126,7 +153,7 @@ export function useChartPaneData(symbol: string, period: Period) {
   mergedRowsRef.current = mergedRows
 
   const minute = useQuery({
-    enabled: isMinute && !!symbol,
+    enabled: isMinute && !is4h && !!symbol,
     queryKey: QK.chartMinuteRange(symbol, MINUTE_FETCH_DAYS),
     queryFn: () => api.klineMinuteRange(symbol, MINUTE_FETCH_DAYS),
     staleTime: 60_000,
@@ -137,9 +164,15 @@ export function useChartPaneData(symbol: string, period: Period) {
   })
 
   const data = useMemo<OHLC[] | undefined>(() => {
-    if (!isMinute) {
+    if (dailySourced) {
       if (mergedRows.length === 0 && !daily.isLoading) return []
       if (mergedRows.length === 0) return undefined
+      // 4h: 日K行 → 240 分钟等价 bars → 前端现场算全部指标 (泰坦 160 档口径,
+      // 覆盖后端 50 档透传值 — Pine 4h 周期预设就是 160)
+      if (is4h) {
+        const bars = dailyRowsTo4hBars(mergedRows)
+        return enrichChartIndicators(bars, titanLookbackForMinutes(240))
+      }
       // 1d 原生透传; 2d/4d/1w/1M 按交易日聚合后, 指标取桶内末值透传
       const mapped = mergedRows.map(mapDailyRow)
       const agged = dailyAgg ? resampleDaily(mapped, dailyAgg) : mapped
@@ -159,15 +192,15 @@ export function useChartPaneData(symbol: string, period: Period) {
     // (MA60 warm-up 往前 60 根即可); 需把 useMemo 引用比较改为自建可变缓冲。
     // 当前数据量无感知, 按渐进式原则等真实卡顿信号再动 (重构数据流有引入
     // 新 bug 的风险, 参见本轮修复的交互层闭包类问题)。
-  }, [isMinute, daily.isLoading, mergedRows, dailyAgg, minute.data, def.minutes])
+  }, [dailySourced, is4h, daily.isLoading, mergedRows, dailyAgg, minute.data, def.minutes])
 
-  // 能否继续加载: 日K路径 + 有数据 + 额外查询未进行中 (防止拖拽连续触发重复请求)
-  const canLoadMore = !isMinute && mergedRows.length > 0 && !extra.isFetching
-  const isLoadingMore = !isMinute && extra.isFetching
+  // 能否继续加载: 日K源路径 (日级周期 + 4h) + 有数据 + 额外查询未进行中 (防止拖拽连续触发重复请求)
+  const canLoadMore = dailySourced && mergedRows.length > 0 && !extra.isFetching
+  const isLoadingMore = dailySourced && extra.isFetching
 
   /** 触发「往左加载更多」: 以当前最早日期为锚, 再向前拉 EXTRA_HISTORY_DAYS 天。 */
   const loadMore = useCallback(() => {
-    if (isMinute) return
+    if (!dailySourced) return
     const rows = mergedRowsRef.current
     if (rows.length === 0) return
     const earliest = rows[0].date
@@ -178,13 +211,13 @@ export function useChartPaneData(symbol: string, period: Period) {
       if (prev.some(r => r.start <= startDate && r.end >= endDate)) return prev
       return [...prev, { start: startDate, end: endDate }]
     })
-  }, [isMinute])
+  }, [dailySourced])
 
   return {
     data,
-    name: !isMinute ? daily.data?.name : minute.data?.name,
-    isLoading: !isMinute ? daily.isLoading : minute.isLoading,
-    error: !isMinute ? daily.error : minute.error,
+    name: dailySourced ? daily.data?.name : minute.data?.name,
+    isLoading: dailySourced ? daily.isLoading : minute.isLoading,
+    error: dailySourced ? daily.error : minute.error,
     loadMore,
     canLoadMore,
     isLoadingMore,
