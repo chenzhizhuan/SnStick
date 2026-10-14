@@ -12,7 +12,7 @@ import { PERIODS, DEFAULT_PERIOD, type Period } from './periods'
 import type { ChartStyle } from './ChartTopbar'
 import type { DrawTool } from './drawings'
 
-const DRAW_TOOL_KEYS = ['cursor', 'trendline', 'hline', 'fib', 'rect'] as const
+const DRAW_TOOL_KEYS = ['cursor', 'trendline', 'hline', 'vline', 'fib', 'rect'] as const
 
 /** 工作台可用的副图指标 — 图表模块特例: 仅保留私有化线路 MACD+/RSI+
  *  (泰坦 T5.0 优化版; 原版 MACD/RSI 按钮已移除, 其数据字段保留供信号检测

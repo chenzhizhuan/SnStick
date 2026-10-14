@@ -205,7 +205,7 @@ export function Chart() {
           <span className="ml-auto hidden truncate text-[10px] text-muted xl:inline">
             {workspace.drawTool !== 'cursor'
               ? `绘制模式: ${workspace.drawTool} — 在图上拖拽落定, Esc 回光标`
-              : '←→ 平移 · ↑↓ 缩放 · 双击重置 · Alt+T 画线 · 点窗格切换快捷键作用窗'}
+              : '←→ 平移 · ↑↓ 缩放 · 双击重置 · Alt+T/H/V/F/R 画线 · 点窗格切换快捷键作用窗'}
           </span>
         </div>
 

@@ -74,6 +74,9 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
   const datesRef = useRef<string[]>([])
   const dates = useMemo(() => (data ? data.map(d => d.date) : []), [data])
   datesRef.current = dates
+  // vline 副图落点时取该根收盘价作锚 (渲染只用 date, price 仅合法性锥)
+  const dataRef = useRef(data)
+  dataRef.current = data
   // dataZoom 监听器闭包需要实时取 range/period (handleChartReady 的 useCallback deps 不含二者)
   const rangeKeyRef = useRef(pane.range)
   rangeKeyRef.current = pane.range
@@ -205,6 +208,25 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
     return { date: ds[idx], price }
   }, [])
 
+  /** 像素 → 副图锚点 (vline 专用): 副图区命中时用该副图 x 轴换算 idx (各 grid
+   *  共享同一 dates 类目, 换算结果与主图一致), price 取该根收盘价 — 垂直线与
+   *  价格无关, 副图也能落点, 主副图联动显示。 */
+  const pixelToSubAnchor = useCallback((chart: ECharts, x: number, y: number): DrawPoint | null => {
+    let grids: unknown
+    try { grids = (chart.getOption() as any)?.grid } catch { return null }
+    if (!Array.isArray(grids) || grids.length < 2) return null
+    for (let g = 1; g < grids.length; g++) {
+      if (!chart.containPixel({ gridIndex: g }, [x, y])) continue
+      const coord = chart.convertFromPixel({ xAxisIndex: g }, [x, y])
+      const idx = Math.round(Number(Array.isArray(coord) ? coord[0] : NaN))
+      const ds = datesRef.current
+      if (!Number.isFinite(idx) || idx < 0 || idx >= ds.length) return null
+      const close = dataRef.current?.[idx]?.close
+      return { date: ds[idx], price: Number.isFinite(close) ? (close as number) : 0 }
+    }
+    return null
+  }, [])
+
   /** 联动定位点: x 为 idx 像素, y 从上往下扫描出主图 grid 内的第一个合法像素。
  *  axisTrigger 要求 x/y 落在 grid 内才处理 axesInfo; 主副图间的间隙 (信息栏/间距)
  *  会使 getHeight()/2 之类取点失手, containPixel 扫描步进 4px 微秒级、稳定命中。 */
@@ -296,10 +318,12 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
     zr.on('mousedown', (e: { offsetX: number; offsetY: number }) => {
       const tool = drawToolRef.current
       if (tool === 'cursor' || !paneSymbolRef.current || datesRef.current.length === 0) return
+      // vline 额外允许副图区落点 (主图优先, 不中再扫副图)
       const a = pixelToAnchor(chart, e.offsetX, e.offsetY)
+        ?? (tool === 'vline' ? pixelToSubAnchor(chart, e.offsetX, e.offsetY) : null)
       if (!a) return
-      if (tool === 'hline') {
-        // 水平线: 单点即时落定
+      if (tool === 'hline' || tool === 'vline') {
+        // 水平线/垂直线: 单点即时落定
         commitDrawing({ id: nextDrawId(), tool, points: [a], style: { ...DEFAULT_DRAW_STYLE } })
         return
       }
@@ -330,7 +354,7 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
       commitDrawing(draft)
       setPending(null)
     })
-  }, [syncApi, pane.id, commitDrawing, pixelToAnchor])
+  }, [syncApi, pane.id, commitDrawing, pixelToAnchor, pixelToSubAnchor])
 
   useEffect(() => () => { if (zoomRafRef.current) window.cancelAnimationFrame(zoomRafRef.current) }, [])
 
@@ -345,7 +369,7 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
       // 绘图工具: Alt+字母 (e.code 免键盘布局差异); Esc / Alt+C 回光标
       if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         const toolMap: Record<string, DrawTool> = {
-          KeyT: 'trendline', KeyH: 'hline', KeyF: 'fib', KeyR: 'rect', KeyC: 'cursor',
+          KeyT: 'trendline', KeyH: 'hline', KeyV: 'vline', KeyF: 'fib', KeyR: 'rect', KeyC: 'cursor',
         }
         const tool = toolMap[e.code]
         if (tool) {

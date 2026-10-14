@@ -1,14 +1,16 @@
 /**
  * 绘图工具竖条 — TV 左侧工具栏观感, workspace 级单选。
- * 选中非「光标」工具后, 在任意 pane 主图区按下拖拽即绘制 (ChartPane 内状态机接管)。
+ * 选中非「光标」工具后, 在任意 pane 主图区按下拖拽即绘制 (ChartPane 内状态机接管);
+ *  垂直线 (vline) 额外支持在副图区落点 (主副图联动显示)。
  */
-import { Minus, MousePointer2, Percent, Square, TrendingUp } from 'lucide-react'
+import { Minus, MousePointer2, MoveVertical, Percent, Square, TrendingUp } from 'lucide-react'
 import { DRAW_TOOLS, type DrawTool } from './drawings'
 
 const ICONS: Record<DrawTool, typeof MousePointer2> = {
   cursor: MousePointer2,
   trendline: TrendingUp,
   hline: Minus,
+  vline: MoveVertical,
   fib: Percent,
   rect: Square,
 }
@@ -18,6 +20,7 @@ const SHORTCUTS: Record<DrawTool, string> = {
   cursor: 'Esc / Alt+C',
   trendline: 'Alt+T',
   hline: 'Alt+H',
+  vline: 'Alt+V',
   fib: 'Alt+F',
   rect: 'Alt+R',
 }
