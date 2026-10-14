@@ -22,11 +22,11 @@ def test_darwin_frozen_uses_app_support_outside_bundle(tmp_path, monkeypatch):
     monkeypatch.setattr(config_mod, "_IS_FROZEN", True)
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(Path, "home", lambda: home)
-    assert _user_data_root() == home / "Library" / "Application Support" / "TSP"
+    assert _user_data_root() == home / "Library" / "Application Support" / "SNS"
 
 
 def test_windows_frozen_keeps_exe_sibling_data(tmp_path, monkeypatch):
-    exe = tmp_path / "TSP" / "TSP.exe"
+    exe = tmp_path / "SNS" / "TSP.exe"
     monkeypatch.setattr(config_mod, "_IS_FROZEN", True)
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(sys, "executable", str(exe))
@@ -62,7 +62,7 @@ def test_darwin_bundle_data_migrates_to_new_location(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "platform", "darwin")
-    monkeypatch.setattr(sys, "executable", str(bundle_data.parent / "TSP"))
+    monkeypatch.setattr(sys, "executable", str(bundle_data.parent / "SNS"))
 
     _repo_with_data_dir(new_dir)._migrate_legacy_data_dir()
 
@@ -81,7 +81,7 @@ def test_migration_skips_when_new_location_has_data(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "platform", "darwin")
-    monkeypatch.setattr(sys, "executable", str(bundle_data.parent / "TSP"))
+    monkeypatch.setattr(sys, "executable", str(bundle_data.parent / "SNS"))
 
     _repo_with_data_dir(new_dir)._migrate_legacy_data_dir()
 
@@ -94,21 +94,21 @@ def test_migration_noop_without_legacy(tmp_path, monkeypatch):
     new_dir.mkdir()
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "platform", "darwin")
-    monkeypatch.setattr(sys, "executable", str(tmp_path / "TSP.app" / "Contents" / "MacOS" / "TSP"))
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "TSP.app" / "Contents" / "MacOS" / "SNS"))
     _repo_with_data_dir(new_dir)._migrate_legacy_data_dir()
     assert list(new_dir.iterdir()) == []
 
 
 def test_windows_sibling_legacy_still_migrates(tmp_path, monkeypatch):
     """既有行为回归: Windows 旧版兄弟目录 TickFlowStockPanel_Data 照常搬迁。"""
-    new_dir = tmp_path / "TSP" / "data"
+    new_dir = tmp_path / "SNS" / "data"
     new_dir.mkdir(parents=True)
-    legacy = tmp_path / "TSP" / "TickFlowStockPanel_Data"
+    legacy = tmp_path / "SNS" / "TickFlowStockPanel_Data"
     _make_real_data(legacy)
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(sys, "executable", str(tmp_path / "TSP" / "TSP.exe"))
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "SNS" / "TSP.exe"))
 
     _repo_with_data_dir(new_dir)._migrate_legacy_data_dir()
 
@@ -118,7 +118,7 @@ def test_windows_sibling_legacy_still_migrates(tmp_path, monkeypatch):
 
 def test_migration_same_path_guard(tmp_path, monkeypatch):
     """防御: legacy 候选与当前 data_dir 同一路径时不动 (Windows 逻辑回归中的边界)。"""
-    data_dir = tmp_path / "TSP" / "data"
+    data_dir = tmp_path / "SNS" / "data"
     _make_real_data(data_dir)
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)

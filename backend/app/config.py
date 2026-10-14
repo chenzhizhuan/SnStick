@@ -47,7 +47,7 @@ def _user_data_root() -> Path:
     if _IS_FROZEN:
         # macOS: 数据放 .app 包外 (升级替换 App 不丢数据), 位置为 mac 惯例路径
         if sys.platform == "darwin":
-            return Path.home() / "Library" / "Application Support" / "TSP"
+            return Path.home() / "Library" / "Application Support" / "SNS"
         # Windows/Linux: exe 同级的 data/ 子目录 (与程序同一总目录, 覆盖安装不丢数据)
         exe_dir = Path(sys.executable).resolve().parent
         return exe_dir / "data"

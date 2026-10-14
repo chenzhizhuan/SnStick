@@ -206,7 +206,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="TSP",
+    name="SNS",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -228,7 +228,7 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="TSP",
+    name="SNS",
 )
 
 # ── macOS: 封装成 .app 包 ────────────────────────────────────────────
@@ -254,8 +254,8 @@ if _IS_MACOS:
         bundle_identifier="com.tickflow.stockpanel",
         version=APP_VERSION,   # → CFBundleShortVersionString / CFBundleVersion
         info_plist={
-            "CFBundleName": "Tick Stock Panel",
-            "CFBundleDisplayName": "TSP",
+            "CFBundleName": "SnStick",
+            "CFBundleDisplayName": "SNS",
             "CFBundleVersion": APP_VERSION,
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "10.13",
