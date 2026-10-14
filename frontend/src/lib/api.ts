@@ -293,6 +293,13 @@ export interface KlineRow {
   macd_dea?: number | null
   macd_hist?: number | null
   rsi_14?: number | null
+  /** 私有化指标线路 (MACD+/RSI+): 后端 indicators/plus.py 现场附着, 不落盘 */
+  macd_plus_dif?: number | null
+  macd_plus_dea?: number | null
+  macd_plus_hist?: number | null
+  rsi_plus_6?: number | null
+  rsi_plus_14?: number | null
+  rsi_plus_24?: number | null
   vol_ratio_5d?: number | null
   /** 后端 _maybe_inject_live_candle 注入的当日实时行标记 (收盘定版后消失) */
   is_live?: boolean

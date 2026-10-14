@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from app.identity.permissions import P_DATA_WRITE, require_perm
 from app.db_safe import is_valid_ext_ident
 from app.indicators.pipeline import compute_enriched, compute_enriched_single
+from app.indicators.plus import attach_plus_indicators
 from app.market_time import cn_now, cn_today, in_continuous_session
 from app.price_limits import (
     is_no_limit_day,
@@ -458,6 +459,8 @@ def get_daily(
         rows = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end)).to_dicts()
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
+        # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着, 不落盘不回补
+        rows = attach_plus_indicators(rows)
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
         return _gzip_payload(
             request,
@@ -469,6 +472,8 @@ def get_daily(
 
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
+    # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着, 不落盘不回补
+    rows = attach_plus_indicators(rows)
 
     resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
     return _gzip_payload(
@@ -619,6 +624,23 @@ def get_daily_latest(
     repo = request.app.state.repo
     asset_type = repo.resolve_asset_type(symbol)
     row = _latest_live_candle(request, symbol, asset_type, refresh_asset=False)
+    if row is not None:
+        # 私有化指标 (MACD+/RSI+): 单行无法递推, 取最近历史 close 序列 + 当日
+        # 实时 close 现场重算, 让末行 plus 值随行情刷新 (与 get_daily 同口径)。
+        try:
+            hist = repo.get_daily_asset(
+                asset_type, symbol,
+                cn_today() - timedelta(days=150), cn_today(),
+                columns=["date", "close"],
+            ).sort("date")
+            hist_rows = [
+                {"date": d, "close": c}
+                for d, c in hist.select(["date", "close"]).iter_rows()
+                if c is not None and math.isfinite(float(c)) and float(c) > 0
+            ]
+            attach_plus_indicators([*hist_rows, row])
+        except Exception:  # noqa: BLE001 — 历史读失败时实时行退化为无 plus 字段
+            logger.debug("daily/latest plus 指标重算失败 %s", symbol, exc_info=True)
     return {
         "symbol": symbol,
         "row": row,
