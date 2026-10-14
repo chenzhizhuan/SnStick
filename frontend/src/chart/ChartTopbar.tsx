@@ -70,7 +70,7 @@ function SingleSelect<T extends string>({ value, options, onChange, placeholder,
 }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const [panelPos, setPanelPos] = useState<{ top: number; left: number; minW: number } | null>(null)
 
   /** 重算面板位置: 按钮 rects + 面板实测(首次未渲染按行高估计) → 视口内夹取。 */
@@ -115,7 +115,6 @@ function SingleSelect<T extends string>({ value, options, onChange, placeholder,
     // 滚动容器) 实时重定位; 分屏窄窗格/底部窗格下不再越位或脱锚。
     window.addEventListener('scroll', updatePos, true)
     window.addEventListener('resize', updatePos)
-    updatePos()
     return () => {
       document.removeEventListener('mousedown', onDoc)
       window.removeEventListener('scroll', updatePos, true)
@@ -123,12 +122,21 @@ function SingleSelect<T extends string>({ value, options, onChange, placeholder,
     }
   }, [open, updatePos])
 
-  // 打开即定位 (layout 阶段, 首帧不闪): 未挂载按行高估计 → 挂载后 (panelPos 变化
-  // 触发重跑) 实测校正; 值不变时引用稳定, 不会循环。关闭时清空 → 重开无旧坐标残留。
+  // 打开即定位 (layout 阶段, 首帧不闪): 面板未挂载时按行高估计位置。
+  // 关闭时清空 → 重开无旧坐标残留。
+  // 注意: 依赖里不能放 panelPos — effect 依赖自身 setState 的输出形成自引用循环
+  // (实测 React 嵌套更新计数爆栈 #185), 挂载后的实测校正改走 ref 回调一次性触发。
   useLayoutEffect(() => {
     if (!open) { setPanelPos(null); return }
     updatePos()
-  }, [open, updatePos, panelPos])
+  }, [open, updatePos])
+
+  /** 面板 ref 回调: 挂载时按实测尺寸校正一次 (估计 → 实测的翻转/夹取修正)。
+   *  useCallback 引用稳定 — 后续 re-render (仅 style 变) 不重触发, 不会循环。 */
+  const onPanelRef = useCallback((el: HTMLDivElement | null) => {
+    panelRef.current = el
+    if (el) updatePos()
+  }, [updatePos])
 
   const selected = options.find(o => o.key === value)
   const displayLabel = selected?.label ?? placeholder ?? '选择'
@@ -147,7 +155,7 @@ function SingleSelect<T extends string>({ value, options, onChange, placeholder,
       </button>
       {open && panelPos && createPortal(
         <div
-          ref={panelRef}
+          ref={onPanelRef}
           className="fixed z-50 rounded-lg border border-border/60 bg-surface shadow-lg"
           style={{ top: panelPos.top, left: panelPos.left, minWidth: panelPos.minW }}
         >
