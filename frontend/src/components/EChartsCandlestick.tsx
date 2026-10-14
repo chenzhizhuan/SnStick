@@ -342,10 +342,29 @@ export const SUB_CHARTS: SubChartDef[] = [
         name: 'RSI+',
         type: 'line',
         data: data.map(d => d.rsi_plus != null ? Number(d.rsi_plus) : '-'),
-        // 原生 RSI 主色蓝 (替代泰坦 -100→+100 红→暖白渐变)
+        // 线色由 buildVisualMap 按值分段 (正红/负绿 — MACD+ 能量柱同色系),
+        // 此处 lineStyle.color 仅作 visualMap 不可用时的兜底
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#3B82F6' },
-        itemStyle: { color: '#3B82F6' },
+        lineStyle: { width: 1, color: '#F04438' },
+        itemStyle: { color: '#F04438' },
+        // 零轴夹域渐变填充 (TV Lightweight Charts area 同款观感, 参考用户
+        // 提供的 index.html): 面积只填线与零轴之间 (origin: 0, ECharts 5.4+);
+        // 垂直线性渐变 — 正区红/负区绿 (MACD+ 能量柱色系 rgba(240,68,56) /
+        // rgba(18,183,106)), 靠近 ±100 极值处最浓, 向零轴线性衰减至透明。
+        // Y 轴固定 ±100 时零轴恰在 grid 中点 (offset 0.5); Y 缩放后渐变锚点
+        // 随像素错位属近似 (TV LC 同款实现亦锚 pane 像素)。
+        areaStyle: {
+          origin: 0,
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(240,68,56,0.45)' },   // +100 极值 (MACD+ 正能量柱红)
+              { offset: 0.5, color: 'rgba(240,68,56,0)' },     // 零轴处衰减至透明
+              { offset: 0.5, color: 'rgba(18,183,106,0)' },    // 零轴处 (负侧起点, 透明)
+              { offset: 1, color: 'rgba(18,183,106,0.45)' },   // -100 极值 (MACD+ 负能量柱绿)
+            ],
+          },
+        },
         // 共享零轴灰线 (多空分界: RSI+>0 ⟺ 价在 EMA26 上方)
         markLine: {
           silent: true, symbol: 'none', animation: false,
@@ -355,11 +374,30 @@ export const SUB_CHARTS: SubChartDef[] = [
         },
       },
     ],
+    // 线分段变色: RSI+ ≥0 红 / <0 绿 (与 MACD+ 能量柱 v>=0 同口径; 按值
+    // 映射线色, 与渐变填充正负分色同步)。注意 pieces 必须覆盖全值域边界
+    // (-100~100) — 缺边界的 gte/lt 会让 visualMeta.stops 为空, echarts 5.5
+    // 的 getVisualGradient 取 colorStopsInRange[0].coord 直接 TypeError
+    // (visualMap+areaStyle 组合实测崩溃), 补全后线分段色与 area 渐变共存。
+    buildVisualMap: (_data, seriesIndices) => [
+      {
+        show: false,
+        type: 'piecewise',
+        seriesIndex: seriesIndices,
+        dimension: 0,
+        pieces: [
+          { gte: 0, lte: 100, color: '#F04438' },
+          { gt: -100, lt: 0, color: '#12B76A' },
+        ],
+      },
+    ],
     buildInfo: (d) => {
       if (!d) return []
       const v = d.rsi_plus
+      // 信息栏同步正负分色 (与 MACD+ 能量柱信息栏同款深一档红绿)
+      const c = v != null && v >= 0 ? '#C74040' : '#2D9B65'
       return [
-        { label: 'RSI+', color: '#3B82F6', value: v != null ? v.toFixed(1) : '—' },
+        { label: 'RSI+', color: c, value: v != null ? v.toFixed(1) : '—' },
       ]
     },
   },
