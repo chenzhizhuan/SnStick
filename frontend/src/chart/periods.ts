@@ -1,7 +1,10 @@
 /**
  * 图表工作台周期定义 — /chart 唯一权威。
  *
- * 分钟级 (15m/60m/4h): 拉 1 分钟K → resampleMinutes 聚合 → enrichChartIndicators
+ * 分钟级 (15m/60m): 拉 1 分钟K → resampleMinutes 聚合 → enrichChartIndicators
+ * 4h (minutes=240): 日K源 (与日K行 OHLCV 等价) → enrichChartIndicators (160 档),
+ *                   分钟源 60 天只有 60 根 4h bars, 能量柱 SMA160 窗口不满 (见
+ *                   useChartPaneData.dailyRowsTo4hBars)
  * 日级以上 (1d/2d/4d/1w/1M): 拉日K → resampleDaily 聚合 → 后端 enriched 指标透传
  *
  * 分钟周期 date 标签统一为 "YYYY-MM-DD HH:mm" — 与日K "YYYY-MM-DD" 字典序兼容,
