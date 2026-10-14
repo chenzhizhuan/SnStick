@@ -107,21 +107,31 @@ def compute_rsi_plus(closes: list[float | None], n: int) -> list[float | None]:
     return out
 
 
-def attach_plus_indicators(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def attach_plus_indicators(
+    rows: list[dict[str, Any]],
+    warmup_closes: list[float | None] | None = None,
+) -> list[dict[str, Any]]:
     """对日K行序列附着 MACD+/RSI+ 字段 (原地写回并返回 rows)。
 
     kline API 输出前统一调用: enriched/live 两条路径与实时注入行均覆盖。
     rows 按时间升序; close 缺失行输出 None (前端按 '-' 渲染)。
+
+    warmup_closes: 窗口之前的更早历史 close 序列 (升序) — EMA/RMA 是递推指标,
+    只在返回窗口内递推会因 warmup 不足偏离全历史口径 (原版 enriched 落盘值);
+    调用方 (kline.py) 取窗口前 250 日历日历史前置递推, 与原版对齐。
     """
     if not rows:
         return rows
-    closes = [r.get("close") for r in rows]
+    warmup = warmup_closes or []
+    closes = [*warmup, *[r.get("close") for r in rows]]
     macd = compute_macd_plus(closes)
     rsi = {n: compute_rsi_plus(closes, n) for n in _RSI_PLUS_WINDOWS}
+    off = len(warmup)
     for i, r in enumerate(rows):
-        r["macd_plus_dif"] = macd["macd_plus_dif"][i]
-        r["macd_plus_dea"] = macd["macd_plus_dea"][i]
-        r["macd_plus_hist"] = macd["macd_plus_hist"][i]
+        j = off + i
+        r["macd_plus_dif"] = macd["macd_plus_dif"][j]
+        r["macd_plus_dea"] = macd["macd_plus_dea"][j]
+        r["macd_plus_hist"] = macd["macd_plus_hist"][j]
         for n in _RSI_PLUS_WINDOWS:
-            r[f"rsi_plus_{n}"] = rsi[n][i]
+            r[f"rsi_plus_{n}"] = rsi[n][j]
     return rows

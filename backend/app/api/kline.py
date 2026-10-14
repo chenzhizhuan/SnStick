@@ -459,8 +459,8 @@ def get_daily(
         rows = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end)).to_dicts()
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
-        # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着, 不落盘不回补
-        rows = attach_plus_indicators(rows)
+        # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
+        rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows)
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
         return _gzip_payload(
             request,
@@ -472,8 +472,8 @@ def get_daily(
 
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
-    # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着, 不落盘不回补
-    rows = attach_plus_indicators(rows)
+    # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
+    rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows)
 
     resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
     return _gzip_payload(
@@ -481,6 +481,36 @@ def get_daily(
         _attach_ext(resp, repo, symbol, ext_columns),
         pref_key="daily_batch_compress",
     )
+
+
+# 私有化指标 (MACD+/RSI+) 递推预热窗口: 250 日历日 ≈ 170 交易日,
+# EMA26+DEA9 递推残差 (25/27)^170 ≈ 1e-7, 与原版全历史落盘值对齐。
+_PLUS_WARMUP_DAYS = 250
+
+
+def _attach_plus_with_warmup(repo, asset_type: str, symbol: str, rows: list[dict]) -> list[dict]:
+    """MACD+/RSI+ 附着 (带窗口前历史 warmup)。
+
+    EMA/RMA 递推指标只在返回窗口内算会因 warmup 不足偏离全历史口径
+    (原版 enriched 落盘值); 取窗口前 250 日历日 close 前置递推对齐。
+    历史读失败时退化为窗口内递推 (数值仍可用, 仅前期偏差)。
+    """
+    if not rows:
+        return rows
+    warmup: list[float | None] = []
+    try:
+        first = rows[0].get("date")
+        first_d = first if isinstance(first, date) else date.fromisoformat(str(first)[:10])
+        hist = repo.get_daily_asset(
+            asset_type, symbol,
+            first_d - timedelta(days=_PLUS_WARMUP_DAYS), first_d - timedelta(days=1),
+            columns=["date", "close"],
+        ).sort("date")
+        warmup = [float(c) if c is not None else None for c in hist["close"].to_list()]
+    except Exception:  # noqa: BLE001 — 预热读失败退化为窗口内递推
+        logger.debug("plus warmup 读取失败 %s", symbol, exc_info=True)
+    attach_plus_indicators(rows, warmup_closes=warmup)
+    return rows
 
 
 def _attach_ext(resp: dict, repo, symbol: str, ext_columns: Optional[str]) -> dict:
@@ -625,20 +655,10 @@ def get_daily_latest(
     asset_type = repo.resolve_asset_type(symbol)
     row = _latest_live_candle(request, symbol, asset_type, refresh_asset=False)
     if row is not None:
-        # 私有化指标 (MACD+/RSI+): 单行无法递推, 取最近历史 close 序列 + 当日
-        # 实时 close 现场重算, 让末行 plus 值随行情刷新 (与 get_daily 同口径)。
+        # 私有化指标 (MACD+/RSI+): 单行无法递推, 用带历史 warmup 的附着让末行
+        # plus 值随行情刷新 (与 get_daily 同口径同预热)。
         try:
-            hist = repo.get_daily_asset(
-                asset_type, symbol,
-                cn_today() - timedelta(days=150), cn_today(),
-                columns=["date", "close"],
-            ).sort("date")
-            hist_rows = [
-                {"date": d, "close": c}
-                for d, c in hist.select(["date", "close"]).iter_rows()
-                if c is not None and math.isfinite(float(c)) and float(c) > 0
-            ]
-            attach_plus_indicators([*hist_rows, row])
+            _attach_plus_with_warmup(repo, asset_type, symbol, [row])
         except Exception:  # noqa: BLE001 — 历史读失败时实时行退化为无 plus 字段
             logger.debug("daily/latest plus 指标重算失败 %s", symbol, exc_info=True)
     return {

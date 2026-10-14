@@ -87,3 +87,19 @@ def test_plus_handles_none_close() -> None:
     rsi = compute_rsi_plus(closes, 6)
     assert rsi[1] is None
     assert rsi[3] is not None
+
+
+def test_attach_plus_warmup_aligns_full_series() -> None:
+    """带 warmup 的窗口附着 = 全序列计算 (API 窗口口径 vs enriched 全历史落盘口径)。"""
+    closes = _random_closes(300, seed=99)
+    # 全序列基准
+    base_rows = [{"close": c} for c in closes]
+    attach_plus_indicators(base_rows)
+    # 窗口 = 末 50 行, warmup = 前 250 行 (模拟 kline API 裁剪窗口 + 预热)
+    window = [{"close": c} for c in closes[-50:]]
+    attach_plus_indicators(window, warmup_closes=closes[:-50])
+    for i, (b, w) in enumerate(zip(base_rows[-50:], window)):
+        for f in (*MACD_PLUS_FIELDS, *RSI_PLUS_FIELDS):
+            assert math.isclose(b[f], w[f], rel_tol=1e-6, abs_tol=1e-9), (
+                f"warmup 偏离 idx={i} {f}: {b[f]} vs {w[f]}"
+            )
