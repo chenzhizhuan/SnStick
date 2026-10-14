@@ -18,10 +18,10 @@
 ;   - 卸载入口 (控制面板可见)
 ; ===========================================================================
 
-#define MyAppName          "TSP"
+#define MyAppName          "SNS"
 #define MyAppNameEN       "SnStick"
 #define MyAppExeName      "TSP.exe"
-#define MyAppPublisher    "TSP"
+#define MyAppPublisher    "SNS"
 
 ; 版本号: 从 frontend/package.json 读取, 与 Release tag 保持一致
 ; 手动指定更可靠 (CI 传入 /DMyAppVersion)
