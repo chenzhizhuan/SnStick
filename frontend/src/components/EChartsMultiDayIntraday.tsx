@@ -4,6 +4,7 @@ import type { ECharts, EChartsOption } from 'echarts'
 import type { MinuteKlineRow, MinuteKlineSession } from '@/lib/api'
 import { computeIntradayAverage, formatMinuteTime, FULL_DAY_TIMES } from '@/lib/intraday-chart'
 import { useChartTheme } from '@/lib/theme'
+import { installEChartsZoomFix } from '@/lib/echartsZoomFix'
 
 const COLORS = {
   up: '#C74040',
@@ -152,6 +153,8 @@ export function EChartsMultiDayIntraday({
   const chartRef = useRef<ECharts | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const priceDoubleClickHandlerRef = useRef<((event: { offsetX: number; offsetY: number }) => void) | null>(null)
+  // zoom 坐标矫正垫片卸载器 (chart 创建时安装, 卸载时调用)
+  const zoomFixRemoverRef = useRef<(() => void) | null>(null)
   const onPriceDoubleClickRef = useRef(onPriceDoubleClick)
   onPriceDoubleClickRef.current = onPriceDoubleClick
   const model = useMemo(() => buildModel(sessions), [sessions])
@@ -172,6 +175,9 @@ export function EChartsMultiDayIntraday({
     if (!chart) {
       chart = echarts.init(container, undefined, { renderer: 'canvas' })
       chartRef.current = chart
+      // 页面 CSS zoom 下 zrender 的 offsetX 是显示坐标 → 悬停/双击取价偏移;
+      // 垫片在 capture 阶段重定义为布局坐标 (无 zoom 时零开销退化)。
+      zoomFixRemoverRef.current = installEChartsZoomFix(container)
       resizeObserverRef.current = new ResizeObserver(() => chart?.resize())
       resizeObserverRef.current.observe(container)
 
@@ -399,6 +405,8 @@ export function EChartsMultiDayIntraday({
       chartRef.current?.getZr().off('dblclick', priceDoubleClickHandlerRef.current)
     }
     resizeObserverRef.current?.disconnect()
+    zoomFixRemoverRef.current?.()
+    zoomFixRemoverRef.current = null
     chartRef.current?.dispose()
     chartRef.current = null
   }, [])

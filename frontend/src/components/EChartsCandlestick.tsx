@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { chartTheme, getTheme, useTheme } from '@/lib/theme'
+import { installEChartsZoomFix } from '@/lib/echartsZoomFix'
 import { fmtPct } from '@/lib/format'
 import * as echarts from 'echarts'
 import type { ECharts, EChartsOption } from 'echarts'
@@ -1063,6 +1064,10 @@ export function EChartsCandlestick({
 
     const chart = echarts.init(el, undefined, { renderer: 'canvas' })
     chartRef.current = chart
+    // 页面 CSS zoom (tf-page-zoom) 下 Chrome 的 offsetX 是显示坐标, zrender 当布局
+    // 坐标用 → 十字光标/点击/拖拽整体左偏、右侧区域悬停不到。垫片在 capture 阶段
+    // 重定义 offsetX/offsetY 为布局坐标; 无 zoom 时零开销退化 (详见 echartsZoomFix.ts)。
+    const removeZoomFix = installEChartsZoomFix(el)
 
     // 信息栏内容由本组件直接写 innerHTML; 悬停显隐与悬停 K 线变化共用这一处写入口
     const writeInfoBar = () => {
@@ -1165,6 +1170,7 @@ export function EChartsCandlestick({
       hoverEl.removeEventListener('mouseleave', handlePointerLeave)
       chart.getZr().off('dblclick', handlePriceDoubleClick)
       ro.disconnect()
+      removeZoomFix()
       chart.dispose()
       chartRef.current = null
     }
