@@ -4,6 +4,7 @@ import type { ECharts, EChartsOption } from 'echarts'
 import type { MinuteKlineRow, PriceLimitInfo } from '@/lib/api'
 import { computeIntradayAverage, formatMinuteTime, FULL_DAY_TIMES, summarizeMinutes, type DailySummary } from '@/lib/intraday-chart'
 import { useChartTheme, type ChartTheme } from '@/lib/theme'
+import { installEChartsZoomFix } from '@/lib/echartsZoomFix'
 
 type YMode = 'adaptive' | 'limit'
 
@@ -439,6 +440,8 @@ export function EChartsIntraday({
   const roRef = useRef<ResizeObserver | null>(null)
   const moRef = useRef<MutationObserver | null>(null)
   const priceDoubleClickHandlerRef = useRef<((event: { offsetX: number; offsetY: number }) => void) | null>(null)
+  // zoom 坐标矫正垫片卸载器 (chart 创建时安装, dispose 时卸载)
+  const zoomFixRemoverRef = useRef<(() => void) | null>(null)
   const dataRef = useRef(data)
   dataRef.current = data
   const currentPriceRef = useRef(currentPrice)
@@ -475,6 +478,9 @@ export function EChartsIntraday({
     if (!chart) {
       chart = echarts.init(el, undefined, { renderer: 'canvas' })
       chartRef.current = chart
+      // 页面 CSS zoom 下 zrender 的 offsetX 是显示坐标 → 十字/双击取价偏移;
+      // 垫片在 capture 阶段重定义为布局坐标 (无 zoom 时零开销退化)。
+      zoomFixRemoverRef.current = installEChartsZoomFix(el)
       // 强制 canvas 使用十字光标，覆盖 ECharts 默认的 pointer
       const forceCursor = () => {
         const canvases = el.querySelectorAll('canvas')
@@ -561,6 +567,8 @@ export function EChartsIntraday({
       }
       moRef.current?.disconnect()
       roRef.current?.disconnect()
+      zoomFixRemoverRef.current?.()
+      zoomFixRemoverRef.current = null
       chartRef.current?.dispose()
       chartRef.current = null
       moRef.current = null
