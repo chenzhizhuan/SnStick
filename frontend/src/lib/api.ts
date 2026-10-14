@@ -293,7 +293,7 @@ export interface KlineRow {
   macd_dea?: number | null
   macd_hist?: number | null
   rsi_14?: number | null
-  /** 私有化指标线路 (泰坦 T5.0): 后端 indicators/plus.py 现场附着, 不落盘 */
+  /** 私有化指标线路 (泰坦 T5.0): 服务端 indicators/plus.py 现场附着, 不落盘 */
   macd_plus_dif?: number | null
   macd_plus_dea?: number | null
   macd_plus_hist?: number | null
@@ -302,6 +302,33 @@ export interface KlineRow {
   /** 后端 _maybe_inject_live_candle 注入的当日实时行标记 (收盘定版后消失) */
   is_live?: boolean
   [key: string]: any
+}
+
+/** 图表工作台分钟聚合周期 bar (15m/60m): 服务端聚合 + 私有指标附着。
+ *  MACD+/RSI+ 全部在服务端计算 (私有化收口), 前端不携带算法。 */
+export interface IntradayPlusBar {
+  /** 桶内首根时间 "YYYY-MM-DD HH:mm" (开始时刻语义, 跨周期字典序对齐) */
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  amount: number | null
+  macd_plus_dif: number | null
+  macd_plus_dea: number | null
+  macd_plus_hist: number | null
+  rsi_plus: number | null
+}
+
+export interface KlineIntradayResponse {
+  symbol: string
+  name?: string
+  asset_type: 'stock' | 'etf' | 'index'
+  period: string
+  requested_days: number
+  bars: IntradayPlusBar[]
+  source: 'local' | 'none'
 }
 
 export interface KlineDailyResponse {
@@ -2808,16 +2835,23 @@ export const api = {
   redetectCapabilities: () =>
     request<CapabilitiesResponse>('/api/capabilities/redetect', { method: 'POST' }),
 
-  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string) =>
+  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string, plusLookback?: number) =>
     request<KlineDailyResponse>(
       (dateRange
         ? `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
         : `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`)
-      + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : ''),
+      + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : '')
+      + (plusLookback ? `&plus_lookback=${plusLookback}` : ''),
     ),
-  klineDailyLatest: (symbol: string) =>
+  klineDailyLatest: (symbol: string, plusLookback?: number) =>
     request<KlineDailyLatestResponse>(
-      `/api/kline/daily/latest?symbol=${encodeURIComponent(symbol)}`,
+      `/api/kline/daily/latest?symbol=${encodeURIComponent(symbol)}`
+      + (plusLookback ? `&plus_lookback=${plusLookback}` : ''),
+    ),
+  /** 图表工作台分钟聚合周期K (15m/60m): 服务端聚合 + MACD+/RSI+ 附着 (私有化收口) */
+  klineIntraday: (symbol: string, period: '15m' | '60m', days = 60) =>
+    request<KlineIntradayResponse>(
+      `/api/kline/intraday?symbol=${encodeURIComponent(symbol)}&period=${period}&days=${days}`,
     ),
   klineDailyBatch: (symbols: string[], days = 12) =>
     request<{ data: Record<string, KlineRow[]> }>('/api/kline/daily-batch', {

@@ -13,6 +13,7 @@ import { ChartPane } from '@/chart/ChartPane'
 import { ChartSyncProvider } from '@/chart/ChartSyncContext'
 import { DrawingToolbar } from '@/chart/DrawingToolbar'
 import { clearChartLiveSymbols, setChartLiveSymbols } from '@/chart/liveSymbols'
+import { isMinutePeriod } from '@/chart/periods'
 import { useChartWorkspace, type PaneConfig, type SplitTemplate } from '@/chart/useChartLayout'
 import { cn } from '@/lib/cn'
 
@@ -132,11 +133,15 @@ export function Chart() {
     for (const id of targets) updatePane(id, { range: null })
   }, [workspace.sync.reset, workspace.panes, updatePane])
 
-  // P3 实时K线: 把当前所有窗格的 symbol 注册进全局 SSE 增量表
+  // P3 实时K线: 把日级窗格的 symbol 注册进全局 SSE 增量表
   // (quotes_updated 推送时, useQuoteStream 拉当日单行合并进日K缓存尾部)。
-  // setChartLiveSymbols 内部按 Set 去重, 窗格配置变化无副作用。
+  // 两套口径: 4h 窗格 → 160 档 plus 增量 (kline-daily-4h 缓存);
+  // 其余日级窗格 → 默认 50 档 (kline-daily 缓存)。分钟窗格 (15m/60m) 走
+  // intraday 轮询不注册。setChartLiveSymbols 内部按 Set 去重无副作用。
   useEffect(() => {
-    setChartLiveSymbols(workspace.panes.map(p => p.symbol))
+    const dailyPanes = workspace.panes.filter(p => !isMinutePeriod(p.period) && p.period !== '4h')
+    const panes4h = workspace.panes.filter(p => p.period === '4h')
+    setChartLiveSymbols(dailyPanes.map(p => p.symbol), panes4h.map(p => p.symbol))
     return () => clearChartLiveSymbols()
   }, [workspace.panes])
 

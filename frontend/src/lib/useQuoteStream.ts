@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { SSE_INVALIDATE_PREFIXES, QK } from './queryKeys'
 import { klineDailyLatestQueryOptions, mergeLatestKlineRow } from './kline'
-import { getChartLiveSymbols } from '@/chart/liveSymbols'
+import { getChartLiveSymbols, getChartLiveSymbols4h } from '@/chart/liveSymbols'
 import { getQueryConfig } from './useQueryConfig'
 import { toast } from '@/components/Toast'
 import { pushAlertToasts } from '@/components/AlertToast'
@@ -185,7 +185,9 @@ export function useQuoteStream(
         }
 
         // 图表工作台日K实时增量 (P3 一期): 活跃窗格 symbol → 拉当日实时单行 →
-        // 合并进 ['chart','kline-daily',symbol,*] 缓存尾部, 末根 K 实时价自动覆盖。
+        // 合并进对应缓存尾部, 末根 K 实时价自动覆盖。
+        // 两套口径 (私有化收口): 1d/2d/4d/1w/1M 默认 50 档 → kline-daily 缓存;
+        // 4h 带 plus_lookback=160 → kline-daily-4h 专用缓存 (同 symbol 互不污染)。
         // 触发源为 SSE 推送 (盘后无推送自动静止), 与实时行情开关联动 (enabledRef 已判)。
         const chartSymbols = getChartLiveSymbols()
         for (const symbol of chartSymbols) {
@@ -193,6 +195,21 @@ export function useQuoteStream(
             .then((latest) => {
               if (!latest.row) return
               const queries = qc.getQueryCache().findAll({ queryKey: ['chart', 'kline-daily', symbol] })
+              for (const query of queries) {
+                qc.setQueryData<KlineDailyResponse>(
+                  query.queryKey,
+                  current => mergeLatestKlineRow(current, latest),
+                )
+              }
+            })
+            .catch(() => {})
+        }
+        const chartSymbols4h = getChartLiveSymbols4h()
+        for (const symbol of chartSymbols4h) {
+          void qc.fetchQuery({ ...klineDailyLatestQueryOptions(symbol, 160), staleTime: 0 })
+            .then((latest) => {
+              if (!latest.row) return
+              const queries = qc.getQueryCache().findAll({ queryKey: ['chart', 'kline-daily-4h', symbol] })
               for (const query of queries) {
                 qc.setQueryData<KlineDailyResponse>(
                   query.queryKey,

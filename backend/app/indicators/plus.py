@@ -24,8 +24,9 @@
                         / rsi_plus (单一值, ±100)
 API 层附着 (kline.py), 不进 enriched 同步管线不落盘 — 算法升级即时生效于全部历史。
 
-前端平行克隆: frontend/src/chart/indicators.ts (分钟周期线路, 同口径)。
-渲染颜色 (泰坦 T5.0 副图): 见 EChartsCandlestick SUB_CHARTS macd_plus/rsi_plus。
+前端分钟周期线路已收归本模块的服务端实现 (indicators/intraday.py),
+前端 chart/indicators.ts 不再携带任何私有算法。
+渲染颜色: 见 EChartsCandlestick SUB_CHARTS macd_plus/rsi_plus。
 """
 from __future__ import annotations
 
@@ -203,8 +204,9 @@ def compute_rsi_plus(closes: list[float | None]) -> list[float | None]:
 def attach_plus_indicators(
     rows: list[dict[str, Any]],
     warmup_closes: list[float | None] | None = None,
+    lookback: int = _T_LOOKBACK_DAILY,
 ) -> list[dict[str, Any]]:
-    """对日K行序列附着 MACD+/RSI+ 字段 (原地写回并返回 rows)。
+    """对K行序列附着 MACD+/RSI+ 字段 (原地写回并返回 rows)。
 
     kline API 输出前统一调用: enriched/live 两条路径与实时注入行均覆盖。
     rows 按时间升序; close 缺失行输出 None (前端按 '-' 渲染)。
@@ -212,12 +214,14 @@ def attach_plus_indicators(
     warmup_closes: 窗口之前的更早历史 close 序列 (升序) — EMA/DEMA 是递推
     指标, 只在返回窗口内递推会因 warmup 不足偏离全历史口径; 调用方 (kline.py)
     取窗口前 300 日历日历史前置递推, 覆盖 DEMA61 递推深度 + 量级标尺 50 窗口。
+    lookback: 量级缩放回看窗口 (日K=50; 分钟聚合周期 15m→200 / 60m→160,
+    见 intraday.py 的 Pine 周期预设表)。
     """
     if not rows:
         return rows
     warmup = warmup_closes or []
     closes = [*warmup, *[r.get("close") for r in rows]]
-    macd = compute_macd_plus(closes)
+    macd = compute_macd_plus(closes, lookback=lookback)
     rsi = compute_rsi_plus(closes)
     off = len(warmup)
     for i, r in enumerate(rows):

@@ -93,23 +93,27 @@ describe('dailyRowsTo4hBars (4h 周期日K数据源)', () => {
     }
   })
 
-  it('能量柱窗口修复: 200 行日K (4h=200 根) > SMA160 窗口 → 末行 macd_plus_hist 有值', () => {
-    const rows: KlineRow[] = []
-    let c = 10
-    let d = new Date('2026-01-05T12:00:00')
-    for (let i = 0; i < 200; i++) {
-      // 模拟有波动的价格序列 (否则 |raw| 全 0 → hist 全 0 也算"有值"但弱化验证)
-      c = 10 + Math.sin(i / 7) * 2 + (i % 3) * 0.1
-      rows.push({ ...row(d.toISOString().slice(0, 10), Number(c.toFixed(4))) })
-      d = new Date(d.getTime() + 86400000)
-    }
-    const bars = dailyRowsTo4hBars(rows)
-    const enriched = enrichChartIndicators(bars, 160) // titanLookbackForMinutes(240) === 160
-    const last = enriched[enriched.length - 1]
-    expect(last.macd_plus_hist).not.toBeNull()
-    expect(Number.isFinite(last.macd_plus_hist as number)).toBe(true)
-    // 而分钟源 60 根 < 160 窗口 → 全 null (修复前的症状, 回归锚点)
-    const short = enrichChartIndicators(dailyRowsTo4hBars(rows.slice(-60)), 160)
-    expect(short.every(b => b.macd_plus_hist == null)).toBe(true)
+  it('私有指标透传: 服务端附着的 plus 字段原样保留, 前端不再计算', () => {
+    // 私有化收口: enrichChartIndicators 只算公开指标, macd_plus_*/rsi_plus
+    // 从输入 bar 透传 (服务端 /api/kline/intraday 附着)
+    const bars = [
+      { ...dailyRowsTo4hBars([row('2026-10-14')])[0], close: 10.5 },
+      { ...dailyRowsTo4hBars([row('2026-10-15')])[0], close: 10.8 },
+    ] as import('./indicators').IntradayInputBar[]
+    bars[0].macd_plus_dif = 1.5
+    bars[0].macd_plus_dea = 1.2
+    bars[0].macd_plus_hist = 0.3
+    bars[0].rsi_plus = 42.5
+    // 第二根不带 plus 字段 → 透传为 null (服务端窗口前缀无值语义)
+    const enriched = enrichChartIndicators(bars)
+    expect(enriched[0].macd_plus_dif).toBe(1.5)
+    expect(enriched[0].macd_plus_dea).toBe(1.2)
+    expect(enriched[0].macd_plus_hist).toBe(0.3)
+    expect(enriched[0].rsi_plus).toBe(42.5)
+    expect(enriched[1].macd_plus_dif).toBeNull()
+    expect(enriched[1].rsi_plus).toBeNull()
+    // 公开指标照常计算
+    expect(enriched[0].macd_dif).toBe(0) // 首行 EMA 同起步
+    expect(enriched[1].macd_dif).not.toBeNull()
   })
 })

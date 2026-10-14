@@ -29,10 +29,10 @@ export function klineDailyQueryOptions(
   }
 }
 
-export function klineDailyLatestQueryOptions(symbol: string) {
+export function klineDailyLatestQueryOptions(symbol: string, plusLookback?: number) {
   return {
-    queryKey: QK.klineLatest(symbol),
-    queryFn: () => api.klineDailyLatest(symbol),
+    queryKey: QK.klineLatest(symbol, plusLookback),
+    queryFn: () => api.klineDailyLatest(symbol, plusLookback),
   }
 }
 
