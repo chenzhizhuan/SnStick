@@ -1,19 +1,18 @@
 /**
  * 图表工作台前端指标库 — 聚合周期 (15/60/240m) 的指标现场计算。
  *
- * 工作台展示 MACD/RSI 副图 (+ 私有化克隆 MACD+/RSI+) 与主图 MA 叠加,
- * 本库只算这几类; KDJ/BOLL/OBV/CCI 已随指标精简移除 (共享组件 SUB_CHARTS
- * 仍保留其渲染能力供其他页面使用, 数据层不再为其供数)。
+ * 原版 MACD/RSI (工作台已移除其按钮, 数据保留供信号检测等):
+ *   - MACD: EMA(α=2/(n+1)) 12/26 → DIF; DEA=EMA9(DIF); HIST=2*(DIF-DEA)
+ *   - RSI:  RMA(α=1/n) on gain/loss (Wilder)
  *
- * 口径与后端 indicators/pipeline.py 逐式一致 (跨周期前端算 vs 日线后端算,
- * 同参同公式, 仅递推浮点微差):
- *   - MA:   滚动均值, 窗口不足为 null
- *   - MACD: EMA(α=2/(n+1), adjust=False 首值起步) 12/26 → DIF; DEA=EMA9(DIF); HIST=2*(DIF-DEA)
- *   - RSI:  RMA(α=1/n) on gain/loss (Wilder); 首行 delta 置 0; avgLoss=0 → 1e-12 兕底
- *
- * 私有化线路 (MACD+/RSI+): 与后端 indicators/plus.py 平行的前端克隆。
- * ★ 后端私有算法替换后, computeMACDPlus/computeRSIPlus 需同步同口径,
- *   保持输出字段名 (macd_plus_* 与 rsi_plus_*) 不变。
+ * 私有化线路 (MACD+/RSI+) — 泰坦 T5.0 优化版指标 (与后端 indicators/plus.py
+ * 平行同口径移植, 算法源: 泰坦量化策略(天机版)-T5.0.pine):
+ *   - 优化版MACD: DIF=EMA12-EMA26; DEA=EMA9(DIF);
+ *     能量柱 = (子午线K5 - 子午线K61) × 量级缩放系数
+ *     子午线 = exp(DEMA(log(close), N)), DEMA(s,N)=2·EMA(s,N)-EMA(EMA(s,N),N)
+ *     量级缩放 = SMA|DIF-DEA| / SMA|raw| (lookback 窗口)
+ *   - 优化版RSI: (close-EMA26)/近50根最大乖离×100 (±100 单值;
+ *     RSI>0 ⟺ 价格在 EMA26 上方; 乖离创 50 根新高时 = ±100)
  */
 import type { ResampledBar } from './minuteResample'
 
@@ -28,12 +27,12 @@ export interface ChartIndicatorFields {
   rsi_6?: number | null
   rsi_14?: number | null
   rsi_24?: number | null
+  /** 私有化线路 (泰坦 T5.0): macd_plus_hist = 能量柱 (非标准 MACD 柱) */
   macd_plus_dif?: number | null
   macd_plus_dea?: number | null
   macd_plus_hist?: number | null
-  rsi_plus_6?: number | null
-  rsi_plus_14?: number | null
-  rsi_plus_24?: number | null
+  /** 私有化线路 (泰坦 T5.0 优化版RSI): ±100 单值 */
+  rsi_plus?: number | null
 }
 
 export type EnrichedBar = ResampledBar & ChartIndicatorFields
@@ -66,7 +65,38 @@ function rma(values: (number | null)[], alpha: number): (number | null)[] {
   return out
 }
 
-// ── 单指标 ──────────────────────────────────────────────
+/** 滚动均值 (Pine ta.sma 语义): 窗口不足 n 输出 null。 */
+function smaSeries(values: (number | null)[], n: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null)
+  let sum = 0
+  let count = 0
+  let start = 0
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i]
+    if (v == null) { sum = 0; count = 0; start = i + 1; continue }
+    sum += v
+    count++
+    if (count > n) { sum -= values[start]!; count--; start++ }
+    if (count === n) out[i] = sum / n
+  }
+  return out
+}
+
+/** 滚动最大 (Pine ta.highest 语义): 窗口不足 n 输出 null。 */
+function rollingMax(values: (number | null)[], n: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null)
+  const queue: number[] = []
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i]
+    if (v == null) { queue.length = 0; continue }
+    queue.push(v)
+    if (queue.length > n) queue.shift()
+    if (queue.length === n) out[i] = Math.max(...queue)
+  }
+  return out
+}
+
+// ── 原版指标 (工作台按钮已移除, 数据供信号检测/信息栏) ──────
 
 function computeMACD(closes: number[]): { dif: (number | null)[]; dea: (number | null)[]; hist: (number | null)[] } {
   const emaA = rma(closes, 2 / (12 + 1))
@@ -96,30 +126,72 @@ function computeRSI(closes: number[], n: number): (number | null)[] {
   })
 }
 
-// ── 私有化指标克隆 (MACD+ / RSI+) ─────────────────────────
-// 与后端 indicators/plus.py 平行的独立线路; 输出 macd_plus_* 与 rsi_plus_* 字段。
-// ★ 后端私有算法替换后需同步此两函数口径 (字段名保持不变)。
+// ── 私有化指标 (泰坦 T5.0 优化版) — 与后端 plus.py 同口径 ──
 
-function computeMACDPlus(closes: number[]): { dif: (number | null)[]; dea: (number | null)[]; hist: (number | null)[] } {
-  // 当前 = 原版 MACD 克隆 (EMA12/26 → DIF, EMA9 → DEA, HIST=2*(DIF-DEA))
+/** 泰坦 T5.0 量级缩放回看 (Pine util_getPresetLookback): <60m=200, <1d=160。
+ *  日K 在后端算 (50), 此处仅分钟线路使用。 */
+export function titanLookbackForMinutes(minutes: number): number {
+  return minutes < 60 ? 200 : 160
+}
+
+/** 泰坦子午线: exp(DEMA(log(close), N))。导出供 SUB_CHARTS 能量柱着色复用。 */
+export function meridianDemaLog(closes: number[], length: number): (number | null)[] {
+  const alpha = 2 / (length + 1)
+  const e1 = rma(closes.map(c => (c > 0 ? Math.log(c) : null)), alpha)
+  const e2 = rma(e1, alpha)
+  return e1.map((a, i) => {
+    const b = e2[i]
+    if (a == null || b == null) return null
+    const dema = 2 * a - b
+    return Number.isFinite(dema) ? Math.exp(dema) : null
+  })
+}
+
+/** 优化版MACD (泰坦 f_optMacd): DIF/DEA/能量柱。 */
+export function computeMACDPlus(closes: number[], lookback: number): { dif: (number | null)[]; dea: (number | null)[]; hist: (number | null)[] } {
   const emaA = rma(closes, 2 / (12 + 1))
   const emaB = rma(closes, 2 / (26 + 1))
-  const dif = closes.map((_, i) => emaA[i]! - emaB[i]!)
+  const dif = closes.map((_, i) => (emaA[i] != null && emaB[i] != null ? emaA[i]! - emaB[i]! : null))
   const dea = rma(dif, 2 / (9 + 1))
-  const hist = dif.map((v, i) => 2 * (v - dea[i]!))
+
+  const m5 = meridianDemaLog(closes, 5)
+  const m61 = meridianDemaLog(closes, 61)
+  const raw = m5.map((a, i) => (a != null && m61[i] != null ? a - m61[i]! : null))
+
+  // 量级标尺: 能量柱按 (DIF-DEA) 平均绝对幅度校准
+  const absDH = dif.map((d, i) => (d != null && dea[i] != null ? Math.abs(d - dea[i]!) : null))
+  const absRaw = raw.map(v => (v != null ? Math.abs(v) : null))
+  const ref = smaSeries(absDH, lookback)
+  const mag = smaSeries(absRaw, lookback)
+  const hist = raw.map((r, i) => {
+    const m = mag[i]
+    const rf = ref[i]
+    if (r == null || m == null || rf == null) return null
+    return r * (rf / Math.max(m, 1e-5))
+  })
   return { dif, dea, hist }
 }
 
-function computeRSIPlus(closes: number[], n: number): (number | null)[] {
-  // 当前 = 原版 RSI 克隆 (Wilder RMA, α=1/n)
-  return computeRSI(closes, n)
+/** 优化版RSI (泰坦 f_optRsi): ±100 单值 (归一化乖离振荡器)。 */
+export function computeRSIPlus(closes: number[]): (number | null)[] {
+  const ma = rma(closes, 2 / (26 + 1))
+  const diff = closes.map((c, i) => (ma[i] != null ? c - ma[i]! : null))
+  const absDiff = diff.map(v => (v != null ? Math.abs(v) : null))
+  const mx = rollingMax(absDiff, 50)
+  return diff.map((d, i) => {
+    if (d == null) return null
+    const m = mx[i]
+    if (m == null || m === 0) return 0 // Pine: nz(_mx) != 0 ? ... : 0.0
+    return (d / m) * 100
+  })
 }
 
 // ── 入口 ────────────────────────────────────────────────
 
-/** 对聚合周期 bars 现场计算工作台所需指标 (MA + MACD/RSI 原版与私有化克隆 +)。
- *  输出字段直接对应 EChartsCandlestick OHLC (含 macd_plus_* 与 rsi_plus_*)。 */
-export function enrichChartIndicators(bars: ResampledBar[]): EnrichedBar[] {
+/** 对聚合周期 bars 现场计算工作台所需指标。
+ *  macdLookback: 泰坦量级缩放回看 (分钟周期按 Pine 预设表: <60m=200, ≥60m=160)。
+ *  输出字段直接对应 EChartsCandlestick OHLC (含 macd_plus_* 与 rsi_plus)。 */
+export function enrichChartIndicators(bars: ResampledBar[], macdLookback = 160): EnrichedBar[] {
   const closes = bars.map(b => b.close)
   const out: EnrichedBar[] = bars.map(b => ({ ...b }))
 
@@ -131,10 +203,8 @@ export function enrichChartIndicators(bars: ResampledBar[]): EnrichedBar[] {
   const rsi6 = computeRSI(closes, 6)
   const rsi14 = computeRSI(closes, 14)
   const rsi24 = computeRSI(closes, 24)
-  const macdPlus = computeMACDPlus(closes)
-  const rsiPlus6 = computeRSIPlus(closes, 6)
-  const rsiPlus14 = computeRSIPlus(closes, 14)
-  const rsiPlus24 = computeRSIPlus(closes, 24)
+  const macdPlus = computeMACDPlus(closes, macdLookback)
+  const rsiPlus = computeRSIPlus(closes)
 
   for (let i = 0; i < out.length; i++) {
     const o = out[i]
@@ -151,9 +221,7 @@ export function enrichChartIndicators(bars: ResampledBar[]): EnrichedBar[] {
     o.macd_plus_dif = macdPlus.dif[i]
     o.macd_plus_dea = macdPlus.dea[i]
     o.macd_plus_hist = macdPlus.hist[i]
-    o.rsi_plus_6 = rsiPlus6[i]
-    o.rsi_plus_14 = rsiPlus14[i]
-    o.rsi_plus_24 = rsiPlus24[i]
+    o.rsi_plus = rsiPlus[i]
   }
   return out
 }

@@ -14,13 +14,14 @@ import type { DrawTool } from './drawings'
 
 const DRAW_TOOL_KEYS = ['cursor', 'trendline', 'hline', 'fib', 'rect'] as const
 
-/** 工作台可用的副图指标 (原版 MACD/RSI + 私有化克隆 MACD+/RSI+)。
+/** 工作台可用的副图指标 — 图表模块特例: 仅保留私有化线路 MACD+/RSI+
+ *  (泰坦 T5.0 优化版; 原版 MACD/RSI 按钮已移除, 其数据字段保留供信号检测
+ *  与其他页面使用)。
  *  EChartsCandlestick SUB_CHARTS 里的其余指标 (vol/kdj/obv/cci) 与 BOLL 叠加
- *  供其他页面 (个股弹窗/指数页) 使用, 工作台层不再暴露; 旧持久化里的
- *  已废弃 key 由 normalizePane 过滤, 避免无按钮可关的幽灵副图。
- *  MACD+/RSI+ 为独立私有线路: 后端 indicators/plus.py (算法替换点),
- *  前端 chart/indicators.ts computeMACDPlus/computeRSIPlus。 */
-export const PANE_INDICATORS: readonly string[] = ['macd', 'rsi', 'macd_plus', 'rsi_plus']
+ *  供其他页面 (个股弹窗/指数页) 使用; 旧持久化里的已废弃 key (含 macd/rsi)
+ *  由 normalizePane 过滤, 避免无按钮可关的幽灵副图。
+ *  MACD+/RSI+ 算法: 后端 indicators/plus.py + 前端 chart/indicators.ts 同口径。 */
+export const PANE_INDICATORS: readonly string[] = ['macd_plus', 'rsi_plus']
 
 /** 信号开关 (默认全关, TV 同款按需开启) */
 export interface PaneSignals {
@@ -36,7 +37,7 @@ export interface PaneConfig {
   name?: string
   period: Period
   chartStyle: ChartStyle
-  /** 已激活副图 key 列表 (工作台仅 macd/rsi) */
+  /** 已激活副图 key 列表 (工作台仅 macd_plus/rsi_plus) */
   activeIndicators: string[]
   /** 当前可见范围 key; 手动缩放后置 null (高亮清除) */
   range?: string | null
@@ -88,7 +89,8 @@ export function defaultPane(id: string, opts: { symbol?: string; name?: string; 
     name: opts.name,
     period: opts.period ?? DEFAULT_PERIOD,
     chartStyle: 'candle',
-    activeIndicators: ['macd', 'rsi'],
+    // 图表模块特例: 默认激活私有化线路 MACD+/RSI+ (泰坦 T5.0)
+    activeIndicators: ['macd_plus', 'rsi_plus'],
     range: null,
     signals: {},
     sync: 'follow',

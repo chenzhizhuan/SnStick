@@ -6,11 +6,11 @@
  *   - date 标签 = 桶内首根的日期 "YYYY-MM-DD" (与日K同格式, 字典序兼容)。
  *
  * 指标字段 (ma5/ma10/ma20/ma60, macd_dif/dea/hist, rsi_6/14/24,
- * macd_plus_* 与 rsi_plus_* 私有化线路) 不在聚合层重算 — 聚合K线的指标用末根的值
+ * macd_plus_* 与 rsi_plus 私有化线路) 不在聚合层重算 — 聚合K线的指标用末根的值
  * 透传 (近似: 周/月级别指标看趋势, 不需要精确逐根重算)。
  * 如需精确, 可在 useChartPaneData 聚合后重新 enrichChartIndicators, 但对周/月
  * 级别意义不大 (数据点少, 指标曲线平滑度足够)。
- * (工作台只展示 MACD/RSI, kdj/boll/obv/cci 字段已不再进入数据层)
+ * (原版 MACD/RSI 按钮已从工作台移除, 字段保留; kdj/boll/obv/cci 不再透传)
  */
 import type { OHLC } from '@/components/EChartsCandlestick'
 
@@ -46,13 +46,11 @@ export function resampleDaily(bars: OHLC[], period: number): OHLC[] {
       cur.rsi_6 = b.rsi_6 ?? cur.rsi_6
       cur.rsi_14 = b.rsi_14 ?? cur.rsi_14
       cur.rsi_24 = b.rsi_24 ?? cur.rsi_24
-      // 私有化指标线路 (MACD+/RSI+) 同口径末值透传
+      // 私有化指标线路 (泰坦 T5.0) 同口径末值透传
       cur.macd_plus_dif = b.macd_plus_dif ?? cur.macd_plus_dif
       cur.macd_plus_dea = b.macd_plus_dea ?? cur.macd_plus_dea
       cur.macd_plus_hist = b.macd_plus_hist ?? cur.macd_plus_hist
-      cur.rsi_plus_6 = b.rsi_plus_6 ?? cur.rsi_plus_6
-      cur.rsi_plus_14 = b.rsi_plus_14 ?? cur.rsi_plus_14
-      cur.rsi_plus_24 = b.rsi_plus_24 ?? cur.rsi_plus_24
+      cur.rsi_plus = b.rsi_plus ?? cur.rsi_plus
       cur.is_live = b.is_live
       count++
     }

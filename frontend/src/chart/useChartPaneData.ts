@@ -19,7 +19,7 @@ import type { OHLC } from '@/components/EChartsCandlestick'
 import { DEFAULT_PERIOD, MINUTE_FETCH_DAYS, periodDef, type Period } from './periods'
 import { flattenSessions, resampleMinutes } from './minuteResample'
 import { resampleDaily } from './dailyResample'
-import { enrichChartIndicators } from './indicators'
+import { enrichChartIndicators, titanLookbackForMinutes } from './indicators'
 
 /** 分钟K轮询间隔 (盘中 15s; 盘后后端返回不变数据, 成本低可接受, 后续可加停表)。 */
 const MINUTE_REFRESH_MS = 15_000
@@ -47,7 +47,7 @@ export function shiftDate(dateStr: string, days: number): string {
 
 /** KlineRow (日K) → OHLC: 后端 enriched 指标字段直接透传, 与个股分析页同源。
  * rsi_6/24 不在 KlineRow 显式字段里, 走索引签名取值。
- * (工作台只展示 MACD/RSI, kdj/boll/obv/cci 字段不再透传) */
+ * (原版 MACD/RSI 按钮已从工作台移除, 字段保留供信号检测; kdj/boll/obv/cci 不再透传) */
 function mapDailyRow(r: KlineRow): OHLC {
   return {
     date: r.date,
@@ -66,13 +66,11 @@ function mapDailyRow(r: KlineRow): OHLC {
     rsi_6: (r['rsi_6'] as number | null | undefined) ?? null,
     rsi_14: r.rsi_14 ?? null,
     rsi_24: (r['rsi_24'] as number | null | undefined) ?? null,
-    // 私有化指标线路 (MACD+/RSI+): 后端 indicators/plus.py API 层附着
+    // 私有化指标线路 (泰坦 T5.0): 后端 indicators/plus.py API 层附着
     macd_plus_dif: (r['macd_plus_dif'] as number | null | undefined) ?? null,
     macd_plus_dea: (r['macd_plus_dea'] as number | null | undefined) ?? null,
     macd_plus_hist: (r['macd_plus_hist'] as number | null | undefined) ?? null,
-    rsi_plus_6: (r['rsi_plus_6'] as number | null | undefined) ?? null,
-    rsi_plus_14: (r['rsi_plus_14'] as number | null | undefined) ?? null,
-    rsi_plus_24: (r['rsi_plus_24'] as number | null | undefined) ?? null,
+    rsi_plus: (r['rsi_plus'] as number | null | undefined) ?? null,
     is_live: r.is_live === true,
   }
 }
@@ -152,7 +150,8 @@ export function useChartPaneData(symbol: string, period: Period) {
     const flat = flattenSessions(sessions)
     if (flat.length === 0) return []
     const resampled = resampleMinutes(flat, def.minutes!)
-    return enrichChartIndicators(resampled)
+    // 泰坦量级缩放回看 (Pine 预设表): <60m=200, ≥60m=160
+    return enrichChartIndicators(resampled, titanLookbackForMinutes(def.minutes!))
     // PERF(backlog B): 盘中轮询只有末根 K 变化, 此处却每 15s 全量
     // flatten(~4800 根 1 分K)→resample→7 类指标全序列重算 (O(n), 当前 ~几 ms)。
     // 触发线: 分钟K 放开到 60+ 天 (1 分K ~14400 根) 或 Profiler 实测 >50ms。
