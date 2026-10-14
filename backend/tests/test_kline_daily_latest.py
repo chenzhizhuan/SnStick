@@ -83,6 +83,10 @@ def test_daily_latest_returns_only_current_memory_row(monkeypatch) -> None:
     body = response.json()
     assert body["symbol"] == "600000.SH"
     assert body["source"] == "live"
+    # macd_plus_*/rsi_plus 是 /daily/latest 实时行新增字段 (与 get_daily 同口径)。
+    # _FakeRepo 无 get_daily_asset → warmup 静默失败 → 单行窗口退化计算:
+    # dif/dea 退化为 0.0 (EMA 无历史), hist=None (SMA50 窗口不足),
+    # rsi_plus=0.0 (Pine nz 口径)。生产环境 warmup 正常, 数值非退化。
     assert body["row"] == {
         "symbol": "600000.SH",
         "date": date.today().isoformat(),
@@ -95,6 +99,10 @@ def test_daily_latest_returns_only_current_memory_row(monkeypatch) -> None:
         "change_pct": None,
         "ma5": 10.2,
         "is_live": True,
+        "macd_plus_dif": 0.0,
+        "macd_plus_dea": 0.0,
+        "macd_plus_hist": None,
+        "rsi_plus": 0.0,
     }
     assert repo.latest_asset_calls == 0
 
