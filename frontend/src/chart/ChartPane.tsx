@@ -208,16 +208,18 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
     return { date: ds[idx], price }
   }, [])
 
-  /** 像素 → 副图锚点 (vline 专用): 副图区命中时用该副图 x 轴换算 idx (各 grid
+  /** 像素 → 副图锚点 (vline 专用): 副图区命中时用该副图坐标换算 idx (各 grid
    *  共享同一 dates 类目, 换算结果与主图一致), price 取该根收盘价 — 垂直线与
-   *  价格无关, 副图也能落点, 主副图联动显示。 */
+   *  价格无关, 副图也能落点, 主副图联动显示。
+   *  注意 convertFromPixel 的 finder 必须能定位完整坐标系: 仅传 xAxisIndex
+   *  时 echarts 5.5 实测返回 null, 用已命中确认的 {gridIndex} 即可。 */
   const pixelToSubAnchor = useCallback((chart: ECharts, x: number, y: number): DrawPoint | null => {
     let grids: unknown
     try { grids = (chart.getOption() as any)?.grid } catch { return null }
     if (!Array.isArray(grids) || grids.length < 2) return null
     for (let g = 1; g < grids.length; g++) {
       if (!chart.containPixel({ gridIndex: g }, [x, y])) continue
-      const coord = chart.convertFromPixel({ xAxisIndex: g }, [x, y])
+      const coord = chart.convertFromPixel({ gridIndex: g }, [x, y])
       const idx = Math.round(Number(Array.isArray(coord) ? coord[0] : NaN))
       const ds = datesRef.current
       if (!Number.isFinite(idx) || idx < 0 || idx >= ds.length) return null
