@@ -66,6 +66,13 @@ function mapDailyRow(r: KlineRow): OHLC {
     rsi_6: (r['rsi_6'] as number | null | undefined) ?? null,
     rsi_14: r.rsi_14 ?? null,
     rsi_24: (r['rsi_24'] as number | null | undefined) ?? null,
+    // 私有化指标线路 (MACD+/RSI+): 后端 indicators/plus.py API 层附着
+    macd_plus_dif: (r['macd_plus_dif'] as number | null | undefined) ?? null,
+    macd_plus_dea: (r['macd_plus_dea'] as number | null | undefined) ?? null,
+    macd_plus_hist: (r['macd_plus_hist'] as number | null | undefined) ?? null,
+    rsi_plus_6: (r['rsi_plus_6'] as number | null | undefined) ?? null,
+    rsi_plus_14: (r['rsi_plus_14'] as number | null | undefined) ?? null,
+    rsi_plus_24: (r['rsi_plus_24'] as number | null | undefined) ?? null,
     is_live: r.is_live === true,
   }
 }

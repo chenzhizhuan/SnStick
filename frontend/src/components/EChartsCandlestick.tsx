@@ -23,6 +23,14 @@ export interface OHLC {
   rsi_6?: number | null
   rsi_14?: number | null
   rsi_24?: number | null
+  /** 私有化指标线路 (MACD+/RSI+): 后端 indicators/plus.py 附着 (日K) /
+   *  前端 chart/indicators.ts 现场计算 (分钟周期) */
+  macd_plus_dif?: number | null
+  macd_plus_dea?: number | null
+  macd_plus_hist?: number | null
+  rsi_plus_6?: number | null
+  rsi_plus_14?: number | null
+  rsi_plus_24?: number | null
   kdj_k?: number | null
   kdj_d?: number | null
   kdj_j?: number | null
@@ -264,6 +272,84 @@ export const SUB_CHARTS: SubChartDef[] = [
         { label: 'RSI6', color: '#FACC15', value: d.rsi_6 != null ? d.rsi_6.toFixed(1) : '—' },
         { label: 'RSI14', color: '#3B82F6', value: d.rsi_14 != null ? d.rsi_14.toFixed(1) : '—' },
         { label: 'RSI24', color: '#8B5CF6', value: d.rsi_24 != null ? d.rsi_24.toFixed(1) : '—' },
+      ]
+    },
+  },
+  // ── 私有化指标克隆 (MACD+ / RSI+) — 独立线路, 数据源 macd_plus_*/rsi_plus_*
+  //    (后端 indicators/plus.py / 前端 chart/indicators.ts 的克隆供数);
+  //    线色与原版区分, 切换后一图可同屏对比原版与私有版 ──
+  {
+    key: 'macd_plus',
+    label: 'MACD+',
+    height: 72,
+    buildSeries: (data) => [
+      {
+        name: 'DIF+',
+        type: 'line',
+        data: data.map(d => d.macd_plus_dif != null ? Number(d.macd_plus_dif) : '-'),
+        smooth: true, symbol: 'none', animation: false,
+        lineStyle: { width: 1, color: '#22D3EE' },
+        itemStyle: { color: '#22D3EE' },
+      },
+      {
+        name: 'DEA+',
+        type: 'line',
+        data: data.map(d => d.macd_plus_dea != null ? Number(d.macd_plus_dea) : '-'),
+        smooth: true, symbol: 'none', animation: false,
+        lineStyle: { width: 1, color: '#FB923C' },
+        itemStyle: { color: '#FB923C' },
+      },
+      {
+        name: 'MACD+',
+        type: 'bar',
+        data: data.map(d => {
+          const v = d.macd_plus_hist
+          if (v == null) return '-'
+          return {
+            value: Number(v),
+            itemStyle: { color: Number(v) >= 0 ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)' },
+          }
+        }),
+        barWidth: '40%',
+        animation: false,
+      },
+    ],
+    buildInfo: (d) => {
+      if (!d) return []
+      return [
+        { label: 'DIF+', color: '#22D3EE', value: d.macd_plus_dif != null ? d.macd_plus_dif.toFixed(3) : '—' },
+        { label: 'DEA+', color: '#FB923C', value: d.macd_plus_dea != null ? d.macd_plus_dea.toFixed(3) : '—' },
+        { label: 'MACD+', color: d.macd_plus_hist != null && d.macd_plus_hist >= 0 ? '#C74040' : '#2D9B65', value: d.macd_plus_hist != null ? d.macd_plus_hist.toFixed(3) : '—' },
+      ]
+    },
+  },
+  {
+    key: 'rsi_plus',
+    label: 'RSI+',
+    height: 72,
+    yAxisConfig: { min: 0, max: 100 },
+    buildSeries: (data, context) => {
+      // 与原版 RSI 同形态: 零轴震荡 (RSI-50 → ±50) 时映射, 信息栏显示原值
+      const shift = context.rsiZeroAxis ? 50 : 0
+      const rsiLine = (key: 'rsi_plus_6' | 'rsi_plus_14' | 'rsi_plus_24', color: string, name: string) => ({
+        name, type: 'line',
+        data: data.map(d => d[key] != null ? Number(d[key]) - shift : '-'),
+        smooth: true, symbol: 'none', animation: false,
+        lineStyle: { width: 1, color },
+        itemStyle: { color },
+      })
+      return [
+        rsiLine('rsi_plus_6', '#22D3EE', 'RSI6+'),
+        rsiLine('rsi_plus_14', '#A3E635', 'RSI14+'),
+        rsiLine('rsi_plus_24', '#FB923C', 'RSI24+'),
+      ]
+    },
+    buildInfo: (d) => {
+      if (!d) return []
+      return [
+        { label: 'RSI6+', color: '#22D3EE', value: d.rsi_plus_6 != null ? d.rsi_plus_6.toFixed(1) : '—' },
+        { label: 'RSI14+', color: '#A3E635', value: d.rsi_plus_14 != null ? d.rsi_plus_14.toFixed(1) : '—' },
+        { label: 'RSI24+', color: '#FB923C', value: d.rsi_plus_24 != null ? d.rsi_plus_24.toFixed(1) : '—' },
       ]
     },
   },

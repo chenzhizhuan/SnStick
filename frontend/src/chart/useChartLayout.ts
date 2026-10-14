@@ -14,11 +14,13 @@ import type { DrawTool } from './drawings'
 
 const DRAW_TOOL_KEYS = ['cursor', 'trendline', 'hline', 'fib', 'rect'] as const
 
-/** 工作台可用的副图指标 (只保留 MACD/RSI)。
+/** 工作台可用的副图指标 (原版 MACD/RSI + 私有化克隆 MACD+/RSI+)。
  *  EChartsCandlestick SUB_CHARTS 里的其余指标 (vol/kdj/obv/cci) 与 BOLL 叠加
  *  供其他页面 (个股弹窗/指数页) 使用, 工作台层不再暴露; 旧持久化里的
- *  已废弃 key 由 normalizePane 过滤, 避免无按钮可关的幽灵副图。 */
-export const PANE_INDICATORS: readonly string[] = ['macd', 'rsi']
+ *  已废弃 key 由 normalizePane 过滤, 避免无按钮可关的幽灵副图。
+ *  MACD+/RSI+ 为独立私有线路: 后端 indicators/plus.py (算法替换点),
+ *  前端 chart/indicators.ts computeMACDPlus/computeRSIPlus。 */
+export const PANE_INDICATORS: readonly string[] = ['macd', 'rsi', 'macd_plus', 'rsi_plus']
 
 /** 信号开关 (默认全关, TV 同款按需开启) */
 export interface PaneSignals {

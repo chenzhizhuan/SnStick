@@ -301,7 +301,7 @@ export function ChartTopbar({ symbol, name, period, chartStyle, activeIndicators
 
         <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
 
-        {/* 指标开关 (副图; 工作台只提供 MACD/RSI, 其余指标不在此暴露) */}
+        {/* 指标开关 (副图; 原版 MACD/RSI + 私有化克隆 MACD+/RSI+) */}
         <div className="flex shrink-0 items-center gap-1">
           {PANE_INDICATORS.map(key => {
             const def = SUB_CHARTS.find(s => s.key === key)
