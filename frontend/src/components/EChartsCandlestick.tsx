@@ -138,6 +138,134 @@ function fmtVolumeRatio(value: number | null, digits = 2): string {
   return value == null ? '—' : `${value.toFixed(digits)}x`
 }
 
+// ── RSI+ custom series 渲染 (零轴夹域渐变 + 正负突变分色线) ─────────────
+//
+// 为何不用 line series + areaStyle + visualMap 组合 (2026-10-14 排查记录):
+// 1. ECharts 5.5 的 series 渐变 colorStops 锚定「形状包围盒」而非 grid —
+//    offset 0.5 只有在 |max|==|min| (数据对称) 时才恰为零轴; 真实行情数据
+//    不对称时红绿分界与透明点全部错位 (实验数据对称时"通过"属巧合)。
+// 2. piecewise visualMap 对带 areaStyle 的 line series 不产生段落线色
+//    (单 grid/多 grid 全变体实测, 线恒为 lineStyle 兜底色); 缺边界的
+//    pieces 还会让 getVisualGradient 抛 TypeError。
+// 3. convertFromPixel({xAxisIndex}) 单轴 finder 返回 null 的同源问题
+//    说明 axis-based 渲染要自己精确控坐标。
+// 故改为 custom series renderItem: 像素级绝对锚定零轴 (api.coord + coordSys),
+// 面积/线全手工绘制 — Y 缩放、dataZoom、不对称数据下均精确; 穿零交点直线
+// 插值分割色段, 红绿段共享交点端点 (连续无断口)。
+const RSI_PLUS_BULL = '#F04438'      // MACD+ 正能量柱红
+const RSI_PLUS_BEAR = '#12B76A'      // MACD+ 负能量柱绿
+const RSI_PLUS_BULL_FILL = 'rgba(240,68,56,0.45)'
+const RSI_PLUS_BEAR_FILL = 'rgba(18,183,106,0.45)'
+
+/** 相邻点串按 zeroY 切割成色段 (穿零处直线插值交点, 两段共享端点 → 线连续) */
+function rsiPlusCutByZero(pts: { x: number; y: number }[], zeroY: number): { above: boolean; pts: { x: number; y: number }[] }[] {
+  const pieces: { above: boolean; pts: { x: number; y: number }[] }[] = []
+  let prev: { x: number; y: number } | null = null
+  for (const p of pts) {
+    const queue: { x: number; y: number }[] = []
+    if (prev && (prev.y <= zeroY) !== (p.y <= zeroY)) {
+      const t = (prev.y - zeroY) / (prev.y - p.y)
+      queue.push({ x: prev.x + (p.x - prev.x) * t, y: zeroY })
+    }
+    queue.push(p)
+    for (const q of queue) {
+      const above = q.y <= zeroY
+      const last = pieces[pieces.length - 1]
+      if (!last || last.above !== above) {
+        pieces.push({ above, pts: prev && prev.y !== q.y ? [prev] : [] })
+      }
+      pieces[pieces.length - 1].pts.push(q)
+    }
+    prev = p
+  }
+  return pieces.filter(pc => pc.pts.length >= 2)
+}
+
+/** catmull-rom → bezier path d (两点的短段回退直线) */
+function rsiPlusSmoothPath(pts: { x: number; y: number }[]): string | null {
+  if (pts.length < 3) return null
+  const at = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))]
+  let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2)
+    d += ` C ${(p1.x + (p2.x - p0.x) / 6).toFixed(1)} ${(p1.y + (p2.y - p0.y) / 6).toFixed(1)} ${(p2.x - (p3.x - p1.x) / 6).toFixed(1)} ${(p2.y - (p3.y - p1.y) / 6).toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`
+  }
+  return d
+}
+
+/** RSI+ 序列 → custom series (零轴夹域渐变填充 + 正负突变分色平滑线) */
+function buildRsiPlusSeries(vals: (number | null)[]): Record<string, any> {
+  const renderItem = (params: any, api: any) => {
+    // data 全量行传入; 窗口内首行 (dataIndexInside===0) 触发整线绘制,
+    // 其余行返回空 — dataZoom X 过滤窗口时哨兵永远存活, 每帧仅一次实画
+    if (params.dataIndexInside !== 0) return
+    const cs = params.coordSys
+    const zeroY = api.coord([0, 0])[1]
+    const topY = cs.y
+    const botY = cs.y + cs.height
+
+    const pts: ({ x: number; y: number } | null)[] = []
+    for (let i = 0; i < vals.length; i++) {
+      if (vals[i] == null) { pts.push(null); continue }
+      const [x, y] = api.coord([i, vals[i]])
+      pts.push({ x, y })
+    }
+    // null 断开的连续段
+    const segs: { x: number; y: number }[][] = []
+    let cur: { x: number; y: number }[] = []
+    for (const p of pts) { if (p == null) { if (cur.length) segs.push(cur); cur = [] } else cur.push(p) }
+    if (cur.length) segs.push(cur)
+
+    const children: any[] = []
+    for (const seg of segs) {
+      for (const pc of rsiPlusCutByZero(seg, zeroY)) {
+        // 面积: 正区红渐变 (grid 顶浓 → 零轴透明) / 负区绿渐变 (零轴透明 → grid 底浓)
+        // — createLinearGradient 绝对像素锚定, 不受形状包围盒语义影响
+        if (pc.pts.length >= 2) {
+          const poly = pc.pts.map(p => [p.x, p.y])
+          poly.push([pc.pts[pc.pts.length - 1].x, zeroY], [pc.pts[0].x, zeroY])
+          const grad = pc.above
+            ? { type: 'linear', x: 0, y: topY, x2: 0, y2: zeroY, colorStops: [
+                { offset: 0, color: RSI_PLUS_BULL_FILL },
+                { offset: 1, color: 'rgba(240,68,56,0)' }] }
+            : { type: 'linear', x: 0, y: zeroY, x2: 0, y2: botY, colorStops: [
+                { offset: 0, color: 'rgba(18,183,106,0)' },
+                { offset: 1, color: RSI_PLUS_BEAR_FILL }] }
+          children.push({
+            type: 'polygon', shape: { points: poly },
+            style: { fill: grad }, silent: true, z: 1,
+          })
+        }
+        // 分色线: 红段/绿段在交点处共享端点 → 连续
+        const color = pc.above ? RSI_PLUS_BULL : RSI_PLUS_BEAR
+        const d = rsiPlusSmoothPath(pc.pts)
+        if (d) {
+          children.push({ type: 'path', shape: { d }, style: { stroke: color, lineWidth: 1, fill: 'none' }, silent: true, z: 3 })
+        } else {
+          children.push({ type: 'line', shape: { x1: pc.pts[0].x, y1: pc.pts[0].y, x2: pc.pts[1].x, y2: pc.pts[1].y }, style: { stroke: color, lineWidth: 1 }, silent: true, z: 3 })
+        }
+      }
+    }
+    return { type: 'group', children }
+  }
+
+  return {
+    name: 'RSI+',
+    type: 'custom',
+    coordinateSystem: 'cartesian2d',
+    data: vals.map((v, i) => [i, v]),
+    renderItem,
+    clip: true, silent: true, animation: false, z: 3,
+    // 共享零轴灰线 (多空分界: RSI+>0 ⟺ 价在 EMA26 上方) — 挂 custom series 上
+    markLine: {
+      silent: true, symbol: 'none', animation: false,
+      data: [{ yAxis: 0 }],
+      lineStyle: { color: 'rgba(156,163,175,0.6)', width: 1 },
+      label: { show: false },
+    },
+  }
+}
+
 export const SUB_CHARTS: SubChartDef[] = [
   {
     key: 'vol',
@@ -337,64 +465,11 @@ export const SUB_CHARTS: SubChartDef[] = [
     height: 72,
     // 泰坦优化版RSI: ±100 量程 (天然零轴形态, 无需 rsiZeroAxis 映射)
     yAxisConfig: { min: -100, max: 100 },
-    buildSeries: (data) => [
-      {
-        name: 'RSI+',
-        type: 'line',
-        data: data.map(d => d.rsi_plus != null ? Number(d.rsi_plus) : '-'),
-        // 线色由 buildVisualMap 按值分段 (正红/负绿 — MACD+ 能量柱同色系),
-        // 此处 lineStyle.color 仅作 visualMap 不可用时的兜底
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#F04438' },
-        itemStyle: { color: '#F04438' },
-        // 零轴夹域渐变填充 (TV Lightweight Charts area 同款观感, 参考用户
-        // 提供的 index.html): 面积只填线与零轴之间 (origin: 0, ECharts 5.4+);
-        // 垂直线性渐变 — 正区红/负区绿 (MACD+ 能量柱色系 rgba(240,68,56) /
-        // rgba(18,183,106)), 靠近 ±100 极值处最浓, 向零轴线性衰减至透明。
-        // Y 轴固定 ±100 时零轴恰在 grid 中点 (offset 0.5); Y 缩放后渐变锚点
-        // 随像素错位属近似 (TV LC 同款实现亦锚 pane 像素)。
-        areaStyle: {
-          origin: 0,
-          color: {
-            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(240,68,56,0.45)' },   // +100 极值 (MACD+ 正能量柱红)
-              { offset: 0.5, color: 'rgba(240,68,56,0)' },     // 零轴处衰减至透明
-              { offset: 0.5, color: 'rgba(18,183,106,0)' },    // 零轴处 (负侧起点, 透明)
-              { offset: 1, color: 'rgba(18,183,106,0.45)' },   // -100 极值 (MACD+ 负能量柱绿)
-            ],
-          },
-        },
-        // 共享零轴灰线 (多空分界: RSI+>0 ⟺ 价在 EMA26 上方)
-        markLine: {
-          silent: true, symbol: 'none', animation: false,
-          data: [{ yAxis: 0 }],
-          lineStyle: { color: 'rgba(156,163,175,0.6)', width: 1 },
-          label: { show: false },
-        },
-      },
-    ],
-    // 线分段变色: RSI+ ≥0 红 / <0 绿 (与 MACD+ 能量柱 v>=0 同口径; 按值
-    // 映射线色, 与渐变填充正负分色同步)。注意 pieces 必须覆盖全值域边界
-    // (-100~100) — 缺边界的 gte/lt 会让 visualMeta.stops 为空, echarts 5.5
-    // 的 getVisualGradient 取 colorStopsInRange[0].coord 直接 TypeError
-    // (visualMap+areaStyle 组合实测崩溃), 补全后线分段色与 area 渐变共存。
-    buildVisualMap: (_data, seriesIndices) => [
-      {
-        show: false,
-        type: 'piecewise',
-        seriesIndex: seriesIndices,
-        dimension: 0,
-        pieces: [
-          { gte: 0, lte: 100, color: '#F04438' },
-          { gt: -100, lt: 0, color: '#12B76A' },
-        ],
-      },
-    ],
+    buildSeries: (data) => [buildRsiPlusSeries(data.map(d => d.rsi_plus != null ? Number(d.rsi_plus) : null))],
     buildInfo: (d) => {
       if (!d) return []
       const v = d.rsi_plus
-      // 信息栏同步正负分色 (与 MACD+ 能量柱信息栏同款深一档红绿)
+      // 信息栏同步正负分色 (与 MACD+ 能量柱信息栏同款深红绿)
       const c = v != null && v >= 0 ? '#C74040' : '#2D9B65'
       return [
         { label: 'RSI+', color: c, value: v != null ? v.toFixed(1) : '—' },
@@ -1113,7 +1188,8 @@ function buildOption(
     subSeries.forEach((s: any) => {
       series.push({ ...s, xAxisIndex: xAxisIdx, yAxisIndex: yAxisIdx })
     })
-    // 副图级 visualMap (如 RSI+ 线按值渐变): seriesIndex 需全局索引, 此处回填
+    // 副图级 visualMap 机制保留 (seriesIndex 需全局索引, 此处回填);
+    // RSI+ 已改 custom series 自绘分色, 当前无副图再走此路径
     const vm = def.buildVisualMap?.(data, Array.from({ length: series.length - seriesStart }, (_, k) => seriesStart + k))
     if (vm) visualMaps.push(...vm)
 
