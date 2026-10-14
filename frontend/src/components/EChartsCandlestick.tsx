@@ -5,6 +5,7 @@ import { fmtPct } from '@/lib/format'
 import * as echarts from 'echarts'
 import type { ECharts, EChartsOption } from 'echarts'
 import { drawingsToMarks, type DrawingObject } from '@/chart/drawings'
+import { meridianDemaLog } from '@/chart/indicators'
 
 export interface OHLC {
   date: string
@@ -23,14 +24,12 @@ export interface OHLC {
   rsi_6?: number | null
   rsi_14?: number | null
   rsi_24?: number | null
-  /** 私有化指标线路 (MACD+/RSI+): 后端 indicators/plus.py 附着 (日K) /
-   *  前端 chart/indicators.ts 现场计算 (分钟周期) */
+  /** 私有化指标线路 (泰坦 T5.0): macd_plus_hist = 能量柱 (非标准 MACD 柱);
+   *  rsi_plus = 优化版RSI (±100 单值) */
   macd_plus_dif?: number | null
   macd_plus_dea?: number | null
   macd_plus_hist?: number | null
-  rsi_plus_6?: number | null
-  rsi_plus_14?: number | null
-  rsi_plus_24?: number | null
+  rsi_plus?: number | null
   kdj_k?: number | null
   kdj_d?: number | null
   kdj_j?: number | null
@@ -98,6 +97,8 @@ export interface SubChartDef {
   buildInfo: (d: OHLC | null) => { label: string; color: string; value: string }[]
   /** Y 轴特殊配置 */
   yAxisConfig?: Record<string, any>
+  /** 可选: 副图级 visualMap (如 RSI+ 线按值渐变色); seriesIndices 为本副图 series 的全局索引 */
+  buildVisualMap?: (data: OHLC[], seriesIndices: number[]) => any[] | undefined
 }
 
 // ===== 成交量 N 日均量 =====
@@ -275,51 +276,95 @@ export const SUB_CHARTS: SubChartDef[] = [
       ]
     },
   },
-  // ── 私有化指标克隆 (MACD+ / RSI+) — 独立线路, 数据源 macd_plus_*/rsi_plus_*
-  //    (后端 indicators/plus.py / 前端 chart/indicators.ts 的克隆供数);
-  //    线色与原版区分, 切换后一图可同屏对比原版与私有版 ──
+  // ── 私有化指标 (MACD+ / RSI+) — 泰坦 T5.0 优化版, 颜色/形态逐式仿造 Pine 副图:
+  //    DIF 白线 / DEA 黄线 / 能量柱按 K5 趋势 + 幅度渐变透明度;
+  //    RSI+ 单线 ±100, 线色 -100(跌色)→+100(涨色) 数值渐变, 零轴灰线 ──
   {
     key: 'macd_plus',
     label: 'MACD+',
     height: 72,
-    buildSeries: (data) => [
-      {
-        name: 'DIF+',
-        type: 'line',
-        data: data.map(d => d.macd_plus_dif != null ? Number(d.macd_plus_dif) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#22D3EE' },
-        itemStyle: { color: '#22D3EE' },
-      },
-      {
-        name: 'DEA+',
-        type: 'line',
-        data: data.map(d => d.macd_plus_dea != null ? Number(d.macd_plus_dea) : '-'),
-        smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FB923C' },
-        itemStyle: { color: '#FB923C' },
-      },
-      {
-        name: 'MACD+',
-        type: 'bar',
-        data: data.map(d => {
-          const v = d.macd_plus_hist
-          if (v == null) return '-'
-          return {
-            value: Number(v),
-            itemStyle: { color: Number(v) >= 0 ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)' },
-          }
-        }),
-        barWidth: '40%',
-        animation: false,
-      },
-    ],
+    buildSeries: (data) => {
+      // 能量柱着色 (泰坦 optMacd_getHistColor): 方向由 K5 趋势状态决定, 强度由幅度渐变
+      const closes = data.map(d => d.close)
+      const k5 = meridianDemaLog(closes, 5)
+      const hists = data.map(d => d.macd_plus_hist)
+      const K5_TREND_N = 20        // Pine meridianColorChangeVariable
+      const HIST_GRAD_WIN = 100    // Pine baseHistMax 回看
+      const rgba = (r: number, g: number, b: number, a: number) =>
+        `rgba(${r},${g},${b},${a.toFixed(3)})`
+      const col = (hist: number, k5Now: number | null, k5Prev: number | null, close: number, histMax: number) => {
+        // K5 趋势状态色
+        const k5Up = k5Now != null && k5Prev != null && close > k5Now && k5Now > k5Prev
+        const k5Dn = k5Now != null && k5Prev != null && close < k5Now && k5Now < k5Prev
+        const k5Color = k5Up ? TITAN.up : k5Dn ? TITAN.down : TITAN.neutral
+        // 方向基准色 (泰坦逻辑)
+        let base: [number, number, number]
+        if (hist >= 0) base = k5Color === TITAN.down ? TITAN.neutral : TITAN.up
+        else base = k5Color === TITAN.up ? TITAN.neutral : TITAN.down
+        // 幅度渐变: Pine from_gradient(|hist|, 0, histMax, new(c,60), new(c,0))
+        //   → 透明度 60%→0%, 即 alpha 0.4→1.0 线性
+        const t = Math.min(Math.abs(hist) / (histMax > 0 ? histMax : 1), 1)
+        const alpha = 0.4 + 0.6 * t
+        return rgba(base[0], base[1], base[2], alpha)
+      }
+      // 滚动 |hist| 最大 (100 根; Pine nz(baseHistMax, 1.0) → 不足用 1.0)
+      let hmax = 1.0
+      const hmaxArr: number[] = []
+      const win: number[] = []
+      for (let i = 0; i < hists.length; i++) {
+        const h = hists[i]
+        if (h == null) { hmaxArr.push(hmax); continue }
+        win.push(Math.abs(h))
+        if (win.length > HIST_GRAD_WIN) win.shift()
+        hmax = win.length === HIST_GRAD_WIN ? Math.max(...win) : 1.0
+        hmaxArr.push(hmax)
+      }
+      return [
+        {
+          name: 'DIF+',
+          type: 'line',
+          data: data.map(d => d.macd_plus_dif != null ? Number(d.macd_plus_dif) : '-'),
+          smooth: true, symbol: 'none', animation: false,
+          lineStyle: { width: 1, color: '#FFFFFF' },   // Pine: color.white
+          itemStyle: { color: '#FFFFFF' },
+        },
+        {
+          name: 'DEA+',
+          type: 'line',
+          data: data.map(d => d.macd_plus_dea != null ? Number(d.macd_plus_dea) : '-'),
+          smooth: true, symbol: 'none', animation: false,
+          lineStyle: { width: 1, color: '#FFFF00' },   // Pine: color.yellow
+          itemStyle: { color: '#FFFF00' },
+        },
+        {
+          name: 'MACD+',
+          type: 'bar',
+          data: data.map((d, i) => {
+            const v = hists[i]
+            if (v == null) return '-'
+            return {
+              value: Number(v),
+              itemStyle: { color: col(v, k5[i], i >= K5_TREND_N ? k5[i - K5_TREND_N] : null, d.close, hmaxArr[i]) },
+            }
+          }),
+          barWidth: '40%',
+          animation: false,
+          // 共享零轴 (Pine hline(0, gray 40%))
+          markLine: {
+            silent: true, symbol: 'none', animation: false,
+            data: [{ yAxis: 0 }],
+            lineStyle: { color: 'rgba(156,163,175,0.6)', width: 1 },
+            label: { show: false },
+          },
+        },
+      ]
+    },
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: 'DIF+', color: '#22D3EE', value: d.macd_plus_dif != null ? d.macd_plus_dif.toFixed(3) : '—' },
-        { label: 'DEA+', color: '#FB923C', value: d.macd_plus_dea != null ? d.macd_plus_dea.toFixed(3) : '—' },
-        { label: 'MACD+', color: d.macd_plus_hist != null && d.macd_plus_hist >= 0 ? '#C74040' : '#2D9B65', value: d.macd_plus_hist != null ? d.macd_plus_hist.toFixed(3) : '—' },
+        { label: 'DIF+', color: '#FFFFFF', value: d.macd_plus_dif != null ? d.macd_plus_dif.toFixed(3) : '—' },
+        { label: 'DEA+', color: '#FFFF00', value: d.macd_plus_dea != null ? d.macd_plus_dea.toFixed(3) : '—' },
+        { label: '能量柱', color: d.macd_plus_hist != null && d.macd_plus_hist >= 0 ? TITAN.upCss : TITAN.downCss, value: d.macd_plus_hist != null ? d.macd_plus_hist.toFixed(3) : '—' },
       ]
     },
   },
@@ -327,29 +372,42 @@ export const SUB_CHARTS: SubChartDef[] = [
     key: 'rsi_plus',
     label: 'RSI+',
     height: 72,
-    yAxisConfig: { min: 0, max: 100 },
-    buildSeries: (data, context) => {
-      // 与原版 RSI 同形态: 零轴震荡 (RSI-50 → ±50) 时映射, 信息栏显示原值
-      const shift = context.rsiZeroAxis ? 50 : 0
-      const rsiLine = (key: 'rsi_plus_6' | 'rsi_plus_14' | 'rsi_plus_24', color: string, name: string) => ({
-        name, type: 'line',
-        data: data.map(d => d[key] != null ? Number(d[key]) - shift : '-'),
+    // 泰坦优化版RSI: ±100 量程 (天然零轴形态, 无需 rsiZeroAxis 映射)
+    yAxisConfig: { min: -100, max: 100 },
+    buildSeries: (data) => [
+      {
+        name: 'RSI+',
+        type: 'line',
+        data: data.map(d => d.rsi_plus != null ? Number(d.rsi_plus) : '-'),
+        // 线色由 visualMap 按值渐变 (Pine from_gradient(-100→100, down→up))
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color },
-        itemStyle: { color },
-      })
-      return [
-        rsiLine('rsi_plus_6', '#22D3EE', 'RSI6+'),
-        rsiLine('rsi_plus_14', '#A3E635', 'RSI14+'),
-        rsiLine('rsi_plus_24', '#FB923C', 'RSI24+'),
-      ]
-    },
+        lineStyle: { width: 2 },   // Pine: linewidth = 2
+        itemStyle: { color: '#FFDFB9' },
+        // 共享零轴 (Pine hline(0, gray 40%))
+        markLine: {
+          silent: true, symbol: 'none', animation: false,
+          data: [{ yAxis: 0 }],
+          lineStyle: { color: 'rgba(156,163,175,0.6)', width: 1 },
+          label: { show: false },
+        },
+      },
+    ],
+    buildVisualMap: (_data, seriesIndices) => [
+      {
+        show: false,
+        type: 'continuous',
+        seriesIndex: seriesIndices.slice(0, 1),
+        min: -100,
+        max: 100,
+        inRange: { color: [TITAN.downCss, TITAN.upCss] },
+        dimension: 0,
+      },
+    ],
     buildInfo: (d) => {
       if (!d) return []
+      const v = d.rsi_plus
       return [
-        { label: 'RSI6+', color: '#22D3EE', value: d.rsi_plus_6 != null ? d.rsi_plus_6.toFixed(1) : '—' },
-        { label: 'RSI14+', color: '#A3E635', value: d.rsi_plus_14 != null ? d.rsi_plus_14.toFixed(1) : '—' },
-        { label: 'RSI24+', color: '#FB923C', value: d.rsi_plus_24 != null ? d.rsi_plus_24.toFixed(1) : '—' },
+        { label: 'RSI+', color: v != null ? (v >= 0 ? TITAN.upCss : TITAN.downCss) : '#8E8E96', value: v != null ? v.toFixed(1) : '—' },
       ]
     },
   },
@@ -504,6 +562,16 @@ const THEME = {
   ma20: '#F97316',
   ma60: '#8B5CF6',
   bg: 'transparent',
+}
+
+/** 泰坦 T5.0 副图配色 (Pine input 默认): 涨暖白 / 跌红 / 中性黄 */
+const TITAN = {
+  up: [255, 223, 185] as [number, number, number],
+  upCss: '#FFDFB9',
+  down: [226, 77, 63] as [number, number, number],
+  downCss: '#E24D3F',
+  neutral: [255, 255, 0] as [number, number, number],
+  neutralCss: '#FFFF00',
 }
 
 /** 当前主题的图表调色板 (buildOption/信息栏在渲染时调用; 主题切换由组件 effect 触发重建)。 */
@@ -1004,6 +1072,8 @@ function buildOption(
 
   // ===== 子图区域 =====
   let curTop = topPad + candleAvail + candleBottomPad
+  // 副图级 visualMap 聚合 (如 RSI+ 线色按值 -100→+100 渐变)
+  const visualMaps: any[] = []
 
   activeSubDefs.forEach((def, i) => {
     const gridIdx = i + 1
@@ -1046,10 +1116,14 @@ function buildOption(
 
     xAxisIndices.push(xAxisIdx)
 
+    const seriesStart = series.length
     const subSeries = def.buildSeries(data, { compact, volumeCompare, rsiZeroAxis })
     subSeries.forEach((s: any) => {
       series.push({ ...s, xAxisIndex: xAxisIdx, yAxisIndex: yAxisIdx })
     })
+    // 副图级 visualMap (如 RSI+ 线按值渐变): seriesIndex 需全局索引, 此处回填
+    const vm = def.buildVisualMap?.(data, Array.from({ length: series.length - seriesStart }, (_, k) => seriesStart + k))
+    if (vm) visualMaps.push(...vm)
 
     curTop += INFO_BAR_H + def.height + SUB_GAP_PX
   })
@@ -1099,6 +1173,7 @@ function buildOption(
       },
     },
     graphic: infoGraphics.length > 0 ? infoGraphics : undefined,
+    visualMap: visualMaps.length > 0 ? visualMaps : undefined,
     grid: grids,
     xAxis: xAxes,
     yAxis: yAxes,

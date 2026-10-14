@@ -49,7 +49,7 @@ function renderTopbar(onChange: (patch: ChartTopbarPatch) => void) {
           name="贵州茅台"
           period="1d"
           chartStyle="candle"
-          activeIndicators={['macd', 'rsi']}
+          activeIndicators={['macd_plus', 'rsi_plus']}
           onChange={onChange}
         />
       </QueryClientProvider>,
@@ -57,21 +57,22 @@ function renderTopbar(onChange: (patch: ChartTopbarPatch) => void) {
   })
 }
 
-it('指标按钮只有 MACD 与 RSI (成交量/KDJ/OBV/CCI/BOLL 已移除)', async () => {
+it('指标按钮只有 MACD+ 与 RSI+ (图表模块特例: 原版 MACD/RSI 及其余指标已移除)', async () => {
   const patches: ChartTopbarPatch[] = []
   renderTopbar(p => patches.push(p))
 
   const labels = [...document.querySelectorAll('button')].map(b => b.textContent?.trim())
-  expect(labels).toContain('MACD')
-  expect(labels).toContain('RSI')
-  for (const gone of ['成交量', 'KDJ', 'OBV', 'CCI', 'BOLL', 'RSI零轴']) {
-    expect(labels).not.toContain(gone)
+  expect(labels).toContain('MACD+')
+  expect(labels).toContain('RSI+')
+  for (const gone of ['MACD', 'RSI', '成交量', 'KDJ', 'OBV', 'CCI', 'BOLL', 'RSI零轴']) {
+    // 严格相等判定 (MACD+ 不应误伤匹配 MACD)
+    expect(labels.some(l => l === gone)).toBe(false)
   }
 
-  // 点击 RSI 关闭 → toggleIndicator patch
-  const rsiBtn = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'RSI')
+  // 点击 RSI+ 关闭 → toggleIndicator patch
+  const rsiBtn = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'RSI+')
   await act(async () => { rsiBtn!.click() })
-  expect(patches.some(p => p.toggleIndicator === 'rsi')).toBe(true)
+  expect(patches.some(p => p.toggleIndicator === 'rsi_plus')).toBe(true)
 })
 
 it('真实鼠标点击能选中周期下拉选项 (portal 面板不被外部点击判定误关)', async () => {
