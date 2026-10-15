@@ -323,14 +323,13 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* v3.2: 运行状态统计条 (ref-04 范式) — 数据日期/本地覆盖/预警/行情状态/数据源, 全部复用已有查询 */}
+      {/* v3.2: 运行状态统计条 (ref-04 范式) — 数据日期/本地覆盖/预警/行情状态, 全部复用已有查询 */}
       {!hasNoData && (
-        <div className="mb-1.5 grid grid-cols-5 gap-1">
+        <div className="mb-1.5 grid grid-cols-4 gap-1">
           <KpiCell label="数据日期" value={currentDate || '—'} sub={selectedDate ? '历史回看' : '最新数据'} />
           <KpiCell label="本地数据" value={tradingDays != null ? `${tradingDays} 天` : '—'} sub={`覆盖至 ${latestDate ?? '—'}`} />
           <KpiCell label="近 7 日预警" value={alertsStats.data?.total ?? '—'} sub="监控触发记录" />
           <KpiCell label="行情状态" value={quoteRunning ? '实时' : '非实时'} sub={quoteMode === 'full_market' ? '全市场' : quoteMode === 'watchlist' ? '自选实时' : quoteAge(data.quote_status?.quote_age_ms)} tone={quoteRunning ? 'accent' : 'neutral'} />
-          <KpiCell label="数据源" value={providerLabel} sub={activeProvider} />
         </div>
       )}
 
