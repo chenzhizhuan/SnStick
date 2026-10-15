@@ -21,7 +21,8 @@ import {
   useToggleRealtimeQuotes,
 } from '@/lib/useSharedMutations'
 import { QK } from '@/lib/queryKeys'
-import { compareByDefaultNav } from '@/lib/navOrder'
+import { getPageScale } from '@/lib/pageZoom'
+import { compareByDefaultNav, defaultNavIndex, seedHiddenForNewUser } from '@/lib/navOrder'
 import {
   Settings,
   DatabaseZap,
@@ -508,7 +509,160 @@ function capSquareCls(c: { id: string; usable: boolean }) {
   return c.usable ? 'bg-accent' : c.id === 'daily' ? 'bg-danger' : 'bg-warning/80'
 }
 
-// 侧边栏桌面三态: expanded(14rem) / rail(3.5rem 图标条) / hidden(0 + 左缘悬浮按钮)。
+function DataSourceHealthBadge({ matrix }: { matrix: CapabilityMatrix | undefined }) {
+  const caps = matrix?.capabilities ?? []
+  const loading = caps.length === 0
+  const usableCount = caps.filter(c => c.usable).length
+  const down = caps.filter(c => !c.usable)
+  // 日K是核心能力 (其他一切派生于它): 挂了用危险色; 一般缺项琥珀; 全可用绿
+  const level = loading
+    ? 'loading'
+    : down.length === 0 ? 'ok' : down.some(c => c.id === 'daily') ? 'danger' : 'warn'
+  const countCls = level === 'ok' ? 'text-accent/80'
+    : level === 'danger' ? 'text-danger'
+    : level === 'warn' ? 'text-warning'
+    : 'text-muted'
+
+  // 悬浮卡: 侧栏 aside 是 overflow-hidden, 用 fixed 定位逃逸裁剪 (坐标取自徽标实时位置)。
+  // 徽标靠近屏幕顶部时居中定位会把卡片上半截推出视口 → 渲染后按实际高度钳制进视口。
+  const linkRef = useRef<HTMLAnchorElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+  const closeTimer = useRef<number | undefined>(undefined)
+  const [popPos, setPopPos] = useState<{ left: number; top: number } | null>(null)
+  const openPop = () => {
+    window.clearTimeout(closeTimer.current)
+    const rect = linkRef.current?.getBoundingClientRect()
+    // rect 是视觉坐标, fixed 定位值是 #root 布局坐标 (缩放层), 需 ÷ scale 换算。
+    if (rect) {
+      const z = getPageScale()
+      setPopPos({ left: rect.right / z, top: (rect.top + rect.height / 2) / z })
+    }
+  }
+  const closePop = () => {
+    window.setTimeout(() => setPopPos(null), 80)
+  }
+  useEffect(() => () => window.clearTimeout(closeTimer.current), [])
+  useLayoutEffect(() => {
+    if (!popPos || !popRef.current) return
+    const h = popRef.current.offsetHeight
+    const margin = 8
+    const minCenter = margin + h / 2
+    const maxCenter = window.innerHeight / getPageScale() - margin - h / 2
+    const clamped = Math.min(maxCenter, Math.max(minCenter, popPos.top))
+    if (clamped !== popPos.top) setPopPos({ ...popPos, top: clamped })
+  }, [popPos])
+
+  return (
+    <>
+      <NavLink
+        ref={linkRef}
+        to="/settings?tab=data-sources"
+        aria-label={`数据源能力 ${usableCount}/${caps.length || 5} 可用, 点击前往数据源配置`}
+        onMouseEnter={openPop}
+        onMouseLeave={closePop}
+        onFocus={openPop}
+        onBlur={closePop}
+        onKeyDown={e => { if (e.key === 'Escape') setPopPos(null) }}
+        className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
+      >
+        <DatabaseZap className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-foreground transition-colors" />
+        {/* 能力方格 (按注册顺序: 实时/日K/分钟/除权/财务), 与悬浮卡逐格同色对应 */}
+        <span className="flex items-center gap-1 shrink-0">
+          {loading
+            ? Array.from({ length: 5 }, (_, i) => (
+                <span key={i} className="h-2 w-2 rounded-[2px] bg-muted animate-pulse" />
+              ))
+            : caps.map(c => (
+                <span key={c.id} className={`h-2 w-2 rounded-[2px] ${capSquareCls(c)}`} />
+              ))}
+        </span>
+        {!loading && (
+          <span className={`ml-auto text-[10px] font-mono font-bold leading-none shrink-0 ${countCls}`}>
+            {usableCount}/{caps.length}
+          </span>
+        )}
+      </NavLink>
+      {popPos && (
+        <div
+          ref={popRef}
+          className="fixed z-50 -translate-y-1/2 pl-3"
+          style={{ left: popPos.left, top: popPos.top }}
+          onMouseEnter={() => window.clearTimeout(closeTimer.current)}
+          onMouseLeave={closePop}
+        >
+          <motion.div
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+            className="w-64 rounded-md border border-border bg-surface py-2.5 pl-3 pr-3.5 shadow-2xl shadow-black/40"
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                <DatabaseZap className="h-3.5 w-3.5 text-accent" />
+                数据源能力
+              </span>
+              <span className={`text-[10px] font-mono font-bold ${countCls}`}>
+                {loading ? '获取中…' : `${usableCount}/${caps.length} 可用`}
+              </span>
+            </div>
+            <div className="space-y-1.5 border-t border-border/60 pt-2">
+              {loading ? (
+                <div className="py-0.5 text-[11px] text-muted">正在获取能力路由状态…</div>
+              ) : caps.map(c => (
+                <div key={c.id} className="flex min-w-0 items-center gap-2">
+                  <span className={`h-2 w-2 shrink-0 rounded-[2px] ${capSquareCls(c)}`} />
+                  <span className="shrink-0 text-xs font-medium text-secondary">{c.label}</span>
+                  <span className="ml-auto flex min-w-0 shrink items-center gap-1.5">
+                    {c.usable ? (
+                      <>
+                        <span className="truncate text-[11px] text-muted">{c.effective_display}</span>
+                        <CheckCircle2 className="h-3 w-3 shrink-0 text-accent" />
+                      </>
+                    ) : (
+                      <span className="text-[11px] text-muted/70">未接入</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {/* 分时有分钟K功能替身 (intraday_monitor_support 三路可达), 不单独占能力格, 在此备注 */}
+            <div className="mt-1.5 text-[10px] leading-relaxed text-muted/70">
+              分时信号监控可由分钟 K 数据驱动，不单独设能力格
+            </div>
+            <div className="mt-2 flex items-center gap-1 border-t border-border/60 pt-1.5 text-[10px] text-muted">
+              点击前往数据源配置
+              <ChevronRight className="h-3 w-3" />
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function AIConfigBadge({ configured, model }: { configured?: boolean; model?: string }) {
+  const descText = configured ? (model || '已接入模型') : '接入策略生成模型'
+  return (
+    <NavLink
+      to="/settings?tab=ai"
+      className="group relative flex items-center gap-2 overflow-hidden rounded-md py-1.5 pl-2.5 pr-2 transition-colors duration-150 hover:bg-elevated/70"
+      title={`AI 配置 — ${descText}`}
+    >
+      <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted group-hover:text-foreground transition-colors" />
+      {configured ? (
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-secondary group-hover:text-foreground transition-colors">
+          {model || '已接入模型'}
+        </span>
+      ) : (
+        <>
+          <span className="text-[11px] text-secondary group-hover:text-foreground transition-colors">AI 配置</span>
+          <span className="ml-auto text-[11px] font-mono leading-none text-muted">未配置</span>
+        </>
+      )}
+      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${configured ? 'bg-bear' : 'bg-warning'}`} />
+    </NavLink>
+  )
+}
 
 // 侧边栏桌面三态: expanded(14rem) / rail(3.5rem 图标条) / hidden(0 + 左缘悬浮按钮)。
 // 移动端 (<768px) 不参与三态 — aside 以抽屉呈现 (见 Layout 内 drawerOpen)。
