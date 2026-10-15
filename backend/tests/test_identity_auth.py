@@ -175,6 +175,39 @@ class TestRefresh:
         assert ia.is_valid_session(token) is True  # 会话保留
 
     @pytest.mark.asyncio
+    async def test_refresh_transient_error_keeps_session(self):
+        """asyncpg 瞬时故障 (连接超时 OSError/TimeoutError): 零感知保留陈旧快照。
+
+        实测事故: agti 公网链路超时抛非 IdentityUnavailableError 异常冒泡
+        到 auth_middleware → 页面主查询 500 (连板梯队「行情接口暂时不可用」)。
+        """
+        token = ia._create_session(_make_user(roles=("common",)))
+        with ia._sessions_lock:
+            ia._sessions[ia._hash_token(token)]["last_refresh"] = time.time() - ia.SNAPSHOT_TTL - 1
+        # asyncpg connect timeout: CancelledError → OSError('timed out')
+        with patch(
+            "app.services.identity_auth.get_user_by_id",
+            AsyncMock(side_effect=OSError("timed out")),
+        ):
+            ok = await ia.refresh_session(token)
+        assert ok is True
+        assert ia.is_valid_session(token) is True  # 会话保留
+        assert ia.get_identity(token)["roles"] == ("common",)  # 快照未被破坏
+
+    @pytest.mark.asyncio
+    async def test_refresh_transient_error_backoff_within_ttl(self):
+        """瞬时故障后推进 last_refresh: TTL 窗口内后续请求不重试 (不连环挂满超时)。"""
+        token = ia._create_session(_make_user())
+        with ia._sessions_lock:
+            ia._sessions[ia._hash_token(token)]["last_refresh"] = time.time() - ia.SNAPSHOT_TTL - 1
+        probe = AsyncMock(side_effect=TimeoutError("connect timeout"))
+        with patch("app.services.identity_auth.get_user_by_id", probe):
+            await ia.refresh_session(token)  # 第一次: 尝试并失败
+            await ia.refresh_session(token)  # 第二次: 退避期内不查库
+        probe.assert_called_once()
+        assert ia.is_valid_session(token) is True
+
+    @pytest.mark.asyncio
     async def test_refresh_user_deleted_invalidates(self):
         token = ia._create_session(_make_user())
         with ia._sessions_lock:

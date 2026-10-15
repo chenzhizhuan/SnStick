@@ -226,6 +226,11 @@ async def refresh_session(token: str) -> bool:
     Returns:
       True  = 已刷新或无需刷新
       False = 用户已被停用/删除 (会话应失效)
+
+    容错铁律: 刷新是「锦上添花」— 任何瞬时故障都不能把 500 甩给业务请求。
+    (实测: agti 公网链路 RTT 235ms + 丢包 50%, asyncpg 连接超时抛 OSError/
+    TimeoutError 而非 IdentityUnavailableError, 冒泡到 auth_middleware 后
+    连板梯队/intraday 等页面主查询整体 500, 前端显示「行情接口暂时不可用」。)
     """
     s = _get_session(token)
     if s is None:
@@ -236,7 +241,15 @@ async def refresh_session(token: str) -> bool:
     try:
         user = await get_user_by_id(s["user_id"])
     except IdentityUnavailableError:
-        return True  # DB 不可用: 保留陈旧快照 (抖动零感知)
+        return True  # DB 不可用: 保留陈旧快照 (抖动零感知, 池检查零成本可即刻重试)
+    except Exception as e:
+        # asyncpg 瞬时故障 (连接超时/断连/OSError 等): 同样零感知保留陈旧快照。
+        logger.warning("identity refresh transient error (keep stale snapshot): %s", e)
+        with _sessions_lock:
+            # 失败也推进 last_refresh: 库持续超时时不让 TTL 窗口内每个请求
+            # 都挂满 connect_timeout (5s); 角色变更最多延迟一个 TTL 生效, 可接受。
+            s["last_refresh"] = now
+        return True
     with _sessions_lock:
         if user is None:
             _sessions.pop(_hash_token(token), None)
