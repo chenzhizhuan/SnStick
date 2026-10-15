@@ -107,6 +107,9 @@ _DEPLOY_KEYS = frozenset({
     "data_source_job_timeout_s", "data_source_long_job_timeout_s",
     # 策略监控后台总开关 (main.py 线程读)
     "strategy_monitor_enabled",
+    # 首次使用引导标记 — 部署级 (2026-10-15 语义修正): 引导页面向管理员配置
+    # 数据源/Key, 是部署级一次性事件; 曾为用户级导致每个新账号都重见引导页。
+    "onboarding_completed",
     # 监控中心个股通知 ext 字段 (告警轮询读)
     "monitor_ext_fields",
 })
@@ -114,7 +117,6 @@ _DEPLOY_KEYS = frozenset({
 _USER_KEYS = frozenset({
     "nav_order", "nav_hidden",
     "watchlist_columns", "screener_result_columns",
-    "onboarding_completed",
     "watchlist_groups_in_nav",
     "minute_intraday_refresh", "minute_intraday_refresh_interval",
     "sse_refresh_pages",
@@ -1278,8 +1280,17 @@ def set_screener_result_columns(columns: list[dict]) -> list[dict]:
 # ===== 首次使用引导 =====
 
 def get_onboarding_completed() -> bool:
-    """是否已完成首次使用向导。默认 False（新用户）。"""
-    return bool(load().get("onboarding_completed", False))
+    """引导页完成标记 (部署级)。
+
+    兼容迁移: 该键在 v0.3.8 前为用户级 — 升级后全局层缺失时, 回读当前
+    用户层的残留旧值兑底 (升级前完成过引导的账号 — 通常是管理员 — 不因
+    键迁移重复见引导页; 全新部署无残留 → False → 管理员首登正常引导)。
+    """
+    merged = load()
+    if "onboarding_completed" in merged:
+        return bool(merged["onboarding_completed"])
+    legacy = _load_layer(_user_path()).get("onboarding_completed")
+    return bool(legacy)
 
 
 def set_onboarding_completed(done: bool = True) -> bool:

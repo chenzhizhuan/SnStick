@@ -53,12 +53,13 @@ def _make_legacy_data(data_dir: Path) -> None:
     (old / "sessions.json").write_text("[]", encoding="utf-8")
     (old / "secrets.json").write_text("{}", encoding="utf-8")
     # preferences: 部署级 + 用户级混合
+    # (onboarding_completed 2026-10-15 起为部署级 — 引导页是部署级一次性事件)
     (old / "preferences.json").write_text(
         json.dumps(
             {
                 "realtime_data_provider": "tickflow",  # 部署级
                 "nav_order": ["a", "b"],  # 用户级
-                "onboarding_completed": True,  # 用户级
+                "onboarding_completed": True,  # 部署级 (引导页面向管理员, 全局一次)
             }
         ),
         encoding="utf-8",
@@ -149,10 +150,11 @@ class TestApply:
         assert local_pref.exists()
         user_part = json.loads(local_pref.read_text(encoding="utf-8"))
         assert user_part["nav_order"] == ["a", "b"]
-        assert user_part["onboarding_completed"] is True
+        assert "onboarding_completed" not in user_part
         assert "realtime_data_provider" not in user_part
         deploy_part = json.loads(global_pref.read_text(encoding="utf-8"))
         assert deploy_part["realtime_data_provider"] == "tickflow"
+        assert deploy_part["onboarding_completed"] is True
         assert "nav_order" not in deploy_part
 
     def test_idempotent(self, _isolated_data_dir):
