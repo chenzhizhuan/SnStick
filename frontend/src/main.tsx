@@ -90,9 +90,9 @@ async function initUserKeyNamespace() {
 async function bootstrap() {
   await initializeFrontendExtensions()
   await initUserKeyNamespace()
-  // 页面包能力桥: 运行时页面包经 shim 读取宿主 api/QK/cn/format
+  // 页面插件能力桥: 运行时页面插件经 shim 读取宿主 api/QK/cn/format
   installTspExtBridge({ api, QK, cn, format })
-  // 运行时页面包: 必须在 router 模块求值(finalize + 建路由表)之前挂载
+  // 运行时页面插件: 必须在 router 模块求值(finalize + 建路由表)之前挂载
   await loadRuntimePageExtensions()
   const { router } = await import('./router')
   ReactDOM.createRoot(document.getElementById('root')!).render(

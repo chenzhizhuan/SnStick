@@ -51,8 +51,35 @@ class TickflowKeyIn(BaseModel):
     api_key: str
 
 
+def _effective_onboarding(stored: bool, request: Request) -> bool:
+    """引导页可见性策略 — 只面向管理员。
+
+    数据源/Key 配置是部署级管理动作: 非管理员用户恒视为「已完成」,
+    任何时候不被引导页带去配置 (避免误操作); 管理员返回存储值
+    (全新部署 False → 首登引导, 完成后全局层 True → 所有人不再见)。
+    单密码/桌面形态无角色概念, 保持存储值。
+    会话快照零 DB 查询 (与 /api/auth/me 同源, identity_auth.get_identity)。
+    """
+    from app.services import identity_auth
+
+    try:
+        from app.identity.user_context import identity_enabled
+
+        if not identity_enabled():
+            return stored
+        token = request.cookies.get("tf_session")
+        identity = identity_auth.get_identity(token) if token else None
+        roles = tuple((identity or {}).get("roles") or ())
+        if "admin" in roles:
+            return stored
+        return True
+    except Exception as e:  # noqa: BLE001 — 身份判定异常时保守返回存储值, 不阻断设置页
+        logger.warning("effective onboarding policy fallback to stored: %s", e)
+        return stored
+
+
 @router.get("")
-def get_settings() -> dict:
+def get_settings(request: Request) -> dict:
     """返回当前配置概况(Key 脱敏)。"""
     from app.config import settings
     from app.services import preferences
@@ -81,8 +108,8 @@ def get_settings() -> dict:
         "probe_log": probe_log(),
         "missing_caps": missing_caps(),
         "extras_caps": extras_caps(),
-        # 首次使用引导
-        "onboarding_completed": preferences.get_onboarding_completed(),
+        # 首次使用引导 (部署级; 非管理员恒视为已完成 — 见 _effective_onboarding)
+        "onboarding_completed": _effective_onboarding(preferences.get_onboarding_completed(), request),
         # 配置文件位置 (AI 与数据源 Key 统一存放, 支持外部编辑后热加载)
         "secrets_path": str(secrets_store.file_path()),
         # AI 配置
