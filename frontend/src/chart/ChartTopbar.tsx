@@ -60,7 +60,9 @@ function Pill({ active, label, title, onClick, activeClass = 'bg-accent/20 text-
  *  触发器: 圆角按钮 (h-7, 与搜索框同高) + 当前值 + ChevronDown; 面板: 选项列表当前项高亮。
  *  value=null 且有 placeholder 时显示占位文本 (范围栏手动缩放后 = "自定义")。
  *  面板经 createPortal 挂 body + fixed 定位 (父级 overflow 裁剪不了): 位置按视口边界
- *  自动翻转/夹取 — 下方放不下翻到按钮上方, 右缘越界向左夹回; 打开期间滚动/缩放实时重定位。 */
+ *  自动翻转/夹取 — 下方放不下翻到按钮上方, 右缘越界向左夹回; 打开期间滚动/缩放实时重定位。
+ *  坐标换算: html zoom (tf-page-zoom) 下 rect 是显示坐标而 fixed top/left 按布局坐标
+ *  解释, 写入前 ÷ zoom (无 zoom 为 1) — 不换算则面板向左上偏移 (1-zoom)×视口距离。 */
 function SingleSelect<T extends string>({ value, options, onChange, placeholder, title }: {
   value: T | null
   options: { key: T; label: string; title?: string }[]
@@ -78,22 +80,33 @@ function SingleSelect<T extends string>({ value, options, onChange, placeholder,
     const btn = btnRef.current
     if (!btn) { setPanelPos(null); return }
     const r = btn.getBoundingClientRect()
+    // html CSS zoom (tf-page-zoom 界面缩放, 默认 0.9): 面板挂 body 处于 zoom 树内,
+    // fixed 的 top/left 按「布局坐标」解释, 而 rect 是「显示坐标」— 不换算则面板
+    // 渲染位置 = 目标 × zoom, 向左上偏移 (1-zoom)×视口距离 (实测 459→413.1)。
+    // 显示坐标 ÷ zoom = 布局坐标 (与 echartsZoomFix 同一套换算); 无 zoom 时为 1。
+    const zf = (() => {
+      const z = parseFloat(getComputedStyle(document.documentElement).zoom)
+      return Number.isFinite(z) && z > 0 ? z : 1
+    })()
     const vw = window.innerWidth || r.right
     const vh = window.innerHeight || r.bottom
     const M = 8 // 视口安全边距
     const GAP = 4 // 按钮↔面板间距
-    // 面板尺寸: 首帧未挂载时按行高 ~30px 估计 (py-1.5 + text-xs 行高 + 2px 边框)
-    const pw = Math.max(panelRef.current?.offsetWidth ?? 0, r.width)
-    const ph = panelRef.current?.offsetHeight ?? options.length * 30 + 2
+    // 面板尺寸: offsetWidth/offsetHeight 为布局像素 → ×zf 转显示像素参与夹取;
+    // 首帧未挂载时按行高 ~30px (布局) 估计 (py-1.5 + text-xs 行高 + 2px 边框)
+    const pw = Math.max((panelRef.current?.offsetWidth ?? 0) * zf, r.width)
+    const ph = (panelRef.current?.offsetHeight ?? options.length * 30 + 2) * zf
     // 垂直: 默认按钮下方; 下方放不下且上方更宽裕 → 翻转到按钮上方
     let top = r.bottom + GAP
     if (top + ph > vh - M && r.top - GAP - ph >= M) top = r.top - GAP - ph
     // 水平: 左对齐按钮, 右缘越界向左夹回 (面板宽于按钮时也不倒出视口)
     let left = r.left
     if (left + pw > vw - M) left = Math.max(M, vw - M - pw)
-    // 值不变时返回 prev (引用稳定) — panelPos 进 layout effect 依赖也不致死循环
+    // 夹取在显示坐标系完成后, 写入前 ÷ zoom 换算布局坐标 (面板 minWidth 同步换算,
+    // 使显示宽度与按钮一致); 值不变时返回 prev (引用稳定) — panelPos 进 layout
+    // effect 依赖也不致死循环
     setPanelPos(prev => {
-      const next = { top, left, minW: r.width }
+      const next = { top: top / zf, left: left / zf, minW: r.width / zf }
       return prev && prev.top === next.top && prev.left === next.left && prev.minW === next.minW
         ? prev
         : next

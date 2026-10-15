@@ -27,6 +27,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount())
   host.remove()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
@@ -121,4 +122,44 @@ it('点击面板外部: 面板关闭且不触发选择', async () => {
   option = [...document.querySelectorAll('body > div button')].find(b => b.textContent?.trim() === '周')
   expect(option).toBeFalsy()
   expect(patches).toHaveLength(0)
+})
+
+it('html zoom (tf-page-zoom) 下面板坐标按布局坐标写入: 显示坐标 ÷ zoom', async () => {
+  // 背景: 面板 fixed 挂 body 处于 <html zoom> 树内, top/left 按布局坐标解释而
+  // rect 返回显示坐标 — 不换算则面板渲染位置 = 目标 × zoom, 向左上偏移
+  // (1-zoom)×视口距离 (线上实测: 按钮 left 459 → 面板显示 413.1)。
+  // jsdom 无 CSS zoom: 注入 documentElement.zoom=0.9, 按钮 rect 给显示坐标。
+  const origGCS = window.getComputedStyle.bind(window)
+  vi.spyOn(window, 'getComputedStyle').mockImplementation(((el: Element, pseudo?: string) => {
+    if (el === document.documentElement) {
+      return { zoom: '0.9' } as unknown as CSSStyleDeclaration
+    }
+    return origGCS(el, pseudo)
+  }) as typeof window.getComputedStyle)
+
+  const patches: ChartTopbarPatch[] = []
+  renderTopbar(p => patches.push(p))
+
+  const trigger = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === '天')
+  expect(trigger).toBeTruthy()
+  // 显示坐标 (zoom 0.9 后): 按钮 left=459, bottom=121, 宽 58.8
+  trigger!.getBoundingClientRect = () => ({
+    x: 459, y: 95.9, left: 459, top: 95.9, right: 517.8, bottom: 121,
+    width: 58.8, height: 25.2, toJSON: () => ({}),
+  }) as DOMRect
+
+  await realClick(trigger!)
+
+  // 面板: body 直下带 fixed class 的 div
+  const panel = [...document.body.children].find(
+    el => el.tagName === 'DIV' && (el as HTMLElement).className.includes('fixed'),
+  ) as HTMLElement | undefined
+  expect(panel).toBeTruthy()
+
+  // 期望 (布局坐标 = 显示坐标 ÷ 0.9): left=510, top=(121+4)/0.9≈138.89, minWidth=58.8/0.9≈65.33
+  // 旧 bug (直接写显示坐标): left=459, top=125 → 渲染后显示 413.1/112.5, 向左上偏
+  expect(parseFloat(panel!.style.left)).toBeCloseTo(510, 4)
+  expect(parseFloat(panel!.style.top)).toBeCloseTo(125 / 0.9, 4)
+  expect(parseFloat(panel!.style.minWidth)).toBeCloseTo(58.8 / 0.9, 4)
+  expect(parseFloat(panel!.style.left)).not.toBe(459)
 })
