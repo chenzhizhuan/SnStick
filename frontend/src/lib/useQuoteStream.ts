@@ -1,13 +1,13 @@
 import { useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { SSE_INVALIDATE_PREFIXES, QK } from './queryKeys'
-import { klineDailyLatestQueryOptions, mergeLatestKlineRow } from './kline'
-import { getChartLiveSymbols, getChartLiveSymbols4h } from '@/chart/liveSymbols'
+import { klineDailyLatestQueryOptions, mergeLatestKlineRow, mergeLiveIntoIntraday } from './kline'
+import { getChartLiveSymbols, getChartLiveSymbols4h, getChartLiveSymbolsMinute } from '@/chart/liveSymbols'
 import { getQueryConfig } from './useQueryConfig'
 import { toast } from '@/components/Toast'
 import { pushAlertToasts } from '@/components/AlertToast'
 import { feedReviewEvent } from './reviewStore'
-import type { KlineDailyResponse, StrategyAlertEvent } from './api'
+import type { KlineDailyResponse, KlineIntradayResponse, StrategyAlertEvent } from './api'
 
 // ===== 全局 SSE 连接状态 (模块级 store, 仿 AlertToast.tsx 模式) =====
 // 实时行情 SSE 断开时 UI 无感知 → 会漏掉策略告警。这里暴露连接状态,
@@ -214,6 +214,26 @@ export function useQuoteStream(
                 qc.setQueryData<KlineDailyResponse>(
                   query.queryKey,
                   current => mergeLatestKlineRow(current, latest),
+                )
+              }
+            })
+            .catch(() => {})
+        }
+        // 分钟窗格 (15m/60m) 末根实时叠加: 同一 SSE 推送把实时价合并进 intraday
+        // 聚合缓存末根 (close 覆盖 + high/low 吸收极值), 分屏分钟窗格与日K/4h
+        // 窗格同节奏跳动 (此前仅 15s 轮询, 用户观感"左侧几乎不动"); 15s 轮询仍
+        // 保留 — SSE 只补现价, 量/私有指标由轮询权威回填。同 symbol 多周期窗格
+        // (如 60m+4h) 双口径缓存独立, findAll 前缀匹配同时覆盖 15m/60m 两键。
+        const chartSymbolsMinute = getChartLiveSymbolsMinute()
+        for (const symbol of chartSymbolsMinute) {
+          void qc.fetchQuery({ ...klineDailyLatestQueryOptions(symbol), staleTime: 0 })
+            .then((latest) => {
+              if (!latest.row) return
+              const queries = qc.getQueryCache().findAll({ queryKey: ['chart', 'intraday', symbol] })
+              for (const query of queries) {
+                qc.setQueryData<KlineIntradayResponse>(
+                  query.queryKey,
+                  current => mergeLiveIntoIntraday(current, latest),
                 )
               }
             })

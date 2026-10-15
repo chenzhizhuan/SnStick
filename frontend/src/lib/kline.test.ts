@@ -1,13 +1,15 @@
 /**
  * 图表工作台分钟轮询停表 — chartMinuteRangeRefetchInterval (minute-range/sessions
- * 结构) 与 chartIntradayRefetchInterval (intraday 聚合/bars 结构) 分支单测。
+ * 结构) 与 chartIntradayRefetchInterval (intraday 聚合/bars 结构) 分支单测,
+ * 及 mergeLiveIntoIntraday 分钟末根 SSE 实时叠加单测。
  *
  * cnToday/cnNowHHMM 按 Asia/Shanghai 取北京墙钟, 用例一律以 UTC 瞬间 setSystemTime
  * 换算到目标北京时刻, 避免测试机时区影响。
  * 参照日期: 2026-09-30 为周三, 2026-10-03 为周六。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chartIntradayRefetchInterval, chartMinuteRangeRefetchInterval } from './kline'
+import { chartIntradayRefetchInterval, chartMinuteRangeRefetchInterval, mergeLiveIntoIntraday } from './kline'
+import type { IntradayPlusBar, KlineDailyLatestResponse, KlineIntradayResponse } from './api'
 
 const MS = 15_000
 const HEARTBEAT = 300_000
@@ -180,5 +182,80 @@ describe('chartIntradayRefetchInterval 停表 (intraday 聚合响应 bars 结构
     const fn = chartIntradayRefetchInterval(MS)
     const q = intradayQuery('local', [{ date: '2026-09-29 14:00' }])
     expect(fn(q)).toBe(HEARTBEAT)
+  })
+})
+
+describe('mergeLiveIntoIntraday 分钟末根实时叠加', () => {
+  /** 构造 intraday 聚合 bar (在走的那根)。 */
+  const bar = (over: Partial<IntradayPlusBar> = {}): IntradayPlusBar => ({
+    date: '2026-10-15 10:30', open: 1300, high: 1310, low: 1295, close: 1305,
+    volume: 1000, amount: null, macd_plus_dif: null, macd_plus_dea: null,
+    macd_plus_hist: null, rsi_plus: null, ...over,
+  })
+  /** 构造 intraday 聚合响应。 */
+  const resp = (bars: IntradayPlusBar[], symbol = '600519.SH') =>
+    ({ symbol, name: '贵州茅台', asset_type: 'stock', period: '60m', requested_days: 60, bars, source: 'local' }) as KlineIntradayResponse
+  /** 构造 klineDailyLatest 实时行响应。 */
+  const latest = (close: number, date = '2026-10-15', symbol = '600519.SH') =>
+    ({ symbol, row: { date, close } }) as unknown as KlineDailyLatestResponse
+
+  it('同日末根: close 覆盖, high/low 吸收极值 (live 高于 high)', () => {
+    const cur = resp([bar(), bar({ date: '2026-10-15 11:30' })])
+    const out = mergeLiveIntoIntraday(cur, latest(1315))
+    expect(out).not.toBe(cur)
+    const last = out!.bars.at(-1)!
+    expect(last.close).toBe(1315)
+    expect(last.high).toBe(1315)
+    expect(last.low).toBe(1295)
+    // 前一根不动
+    expect(out!.bars[0].close).toBe(1305)
+  })
+
+  it('live 低于 low: low 吸收下极值', () => {
+    const cur = resp([bar()])
+    const out = mergeLiveIntoIntraday(cur, latest(1290))
+    const last = out!.bars.at(-1)!
+    expect(last.close).toBe(1290)
+    expect(last.low).toBe(1290)
+    expect(last.high).toBe(1310)
+  })
+
+  it('live 在 high/low 区间内: high/low 不变', () => {
+    const cur = resp([bar()])
+    const out = mergeLiveIntoIntraday(cur, latest(1301))
+    const last = out!.bars.at(-1)!
+    expect(last.close).toBe(1301)
+    expect(last.high).toBe(1310)
+    expect(last.low).toBe(1295)
+  })
+
+  it('末根日期 ≠ 实时行日期 (盘前/隔夜分钟数据未到今日) → 原样返回', () => {
+    const cur = resp([bar({ date: '2026-10-14 14:00', close: 1286 })])
+    expect(mergeLiveIntoIntraday(cur, latest(1300))).toBe(cur)
+  })
+
+  it('latest.row 缺失 / symbol 不匹配 / 无 bars / 无效 close → 原样返回', () => {
+    const cur = resp([bar()])
+    const empty = resp([])
+    expect(mergeLiveIntoIntraday(cur, { symbol: '600519.SH', row: null } as unknown as KlineDailyLatestResponse)).toBe(cur)
+    expect(mergeLiveIntoIntraday(cur, latest(1300, '2026-10-15', '000001.SZ'))).toBe(cur)
+    expect(mergeLiveIntoIntraday(empty, latest(1300))).toBe(empty)
+    expect(mergeLiveIntoIntraday(undefined, latest(1300))).toBeUndefined()
+    expect(mergeLiveIntoIntraday(cur, latest(Number.NaN))).toBe(cur)
+  })
+
+  it('不可变: 合并不修改输入响应', () => {
+    const cur = resp([bar()])
+    mergeLiveIntoIntraday(cur, latest(1315))
+    expect(cur.bars.at(-1)!.close).toBe(1305)
+    expect(cur.bars.at(-1)!.high).toBe(1310)
+  })
+
+  it('volume/私有指标字段不被实时行覆盖 (由 15s 轮询权威回填)', () => {
+    const cur = resp([bar({ volume: 4321, rsi_plus: 55.7 })])
+    const out = mergeLiveIntoIntraday(cur, latest(1301))
+    const last = out!.bars.at(-1)!
+    expect(last.volume).toBe(4321)
+    expect(last.rsi_plus).toBe(55.7)
   })
 })

@@ -133,15 +133,17 @@ export function Chart() {
     for (const id of targets) updatePane(id, { range: null })
   }, [workspace.sync.reset, workspace.panes, updatePane])
 
-  // P3 实时K线: 把日级窗格的 symbol 注册进全局 SSE 增量表
-  // (quotes_updated 推送时, useQuoteStream 拉当日单行合并进日K缓存尾部)。
-  // 两套口径: 4h 窗格 → 160 档 plus 增量 (kline-daily-4h 缓存);
-  // 其余日级窗格 → 默认 50 档 (kline-daily 缓存)。分钟窗格 (15m/60m) 走
-  // intraday 轮询不注册。setChartLiveSymbols 内部按 Set 去重无副作用。
+  // P3 实时K线: 把窗格 symbol 注册进全局 SSE 增量表
+  // (quotes_updated 推送时, useQuoteStream 拉当日单行合并进对应缓存)。
+  // 三套口径: 4h 窗格 → 160 档 plus 增量 (kline-daily-4h 缓存);
+  // 其余日级窗格 → 默认 50 档 (kline-daily 缓存); 分钟窗格 (15m/60m) →
+  // 实时价叠加 intraday 聚合缓存末根 (与日K窗格同节奏跳动, 15s 轮询仍
+  // 保留作权威 OHLCV/指标回填)。setChartLiveSymbols 内部按 Set 去重无副作用。
   useEffect(() => {
     const dailyPanes = workspace.panes.filter(p => !isMinutePeriod(p.period) && p.period !== '4h')
     const panes4h = workspace.panes.filter(p => p.period === '4h')
-    setChartLiveSymbols(dailyPanes.map(p => p.symbol), panes4h.map(p => p.symbol))
+    const panesMinute = workspace.panes.filter(p => p.period === '15m' || p.period === '60m')
+    setChartLiveSymbols(dailyPanes.map(p => p.symbol), panes4h.map(p => p.symbol), panesMinute.map(p => p.symbol))
     return () => clearChartLiveSymbols()
   }, [workspace.panes])
 
