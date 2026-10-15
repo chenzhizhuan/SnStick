@@ -298,6 +298,16 @@ async def _application_lifespan(app: FastAPI):
 
     _screener_svc = ScreenerService(repo)
     _etf_screener_svc = ScreenerService(repo, asset_type="etf")
+    # 去内置化补全(仅升级用户): 原内置策略按 ID 补回 custom (一次性,
+    # 已自行迁移的不覆盖; 新装无旧版使用痕迹, 跳过保持策略库为空)。
+    # 必须在 StrategyEngine 创建前完成, 否则首载拿不到刚补回的文件。
+    _seeded_strategies = 0
+    try:
+        from app.strategy.strategy_seeds import seed_missing_builtins
+
+        _seeded_strategies = seed_missing_builtins(store.data_dir)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("strategy seeding failed (ignored): %s", e)
     # v2.3 数据命名空间 (M3-3c): 注入生产 data_dir/默认用户根 (领域模块兼容层
     # user_subdir/user_strategies_dir 依赖此注入区分生产目录 vs 测试隔离目录)。
     from app.identity.user_context import set_production_roots, user_root, user_strategies_dir
@@ -324,6 +334,9 @@ async def _application_lifespan(app: FastAPI):
         if _seeded_signals:
             legacy_migration["seeded_signals"] = _seeded_signals
             logger.info("legacy migrate: seeded %d default signals", _seeded_signals)
+        if _seeded_strategies:
+            legacy_migration["seeded_strategies"] = _seeded_strategies
+            logger.info("legacy migrate: seeded %d builtin strategies", _seeded_strategies)
         archived = archive_unloadable_strategies(strategy_engine.load_errors())
         if archived:
             strategy_engine.reload()
