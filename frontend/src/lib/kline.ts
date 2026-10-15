@@ -182,3 +182,44 @@ export function chartMinuteRangeRefetchInterval(ms: number) {
     return ms
   }
 }
+
+/** 图表工作台 intraday 聚合周期 (15m/60m) 的收盘根判定阈值 — bar 时间标签 ≥ '14:00'
+ *  即为收盘小时根 (60m 最后根 14:00, 15m 最后根 14:45, 午休后 13:00 根不满足)。 */
+const INTRADAY_CLOSE_BAR = '14:00'
+
+/**
+ * 图表工作台 intraday 聚合响应 (api.klineIntraday: {bars, source}) 的轮询停表 —
+ * 与 chartMinuteRangeRefetchInterval 同口径, 适配 bars 结构 (date 'YYYY-MM-DD HH:mm')。
+ *
+ * 背景 (2026-10-15 线上定位): useChartPaneData 曾错配 minute-range 停表函数 —
+ * intraday 响应没有 sessions 字段 → sessions=[] → lastSession=null → return
+ * false, 首次拉数后即永久停表: 15m/60m 窗格盘中现价线/末根K停在页面加载时刻,
+ * 与 SSE 实时增量的 4h/日级窗格分屏并置时现价线分叉 (用户报「限价不一样」)。
+ *
+ * - 数据未加载 → 正常间隔
+ * - source=none → 停
+ * - 最后 bar 日期 < 北京今天: 周六/周日 → 停; 周中 → 5 分钟心跳 (盘前等开盘)
+ * - 最后 bar 日期 = 今天: 收盘根 (≥14:00) 已现且已过 15:30 → 停 (当日定版)
+ * - 其余 (盘中/午休/收盘前) → 按传入间隔正常轮询
+ */
+export function chartIntradayRefetchInterval(ms: number) {
+  return (query: any): number | false => {
+    const d = query.state.data
+    if (!d) return ms
+    if (d.source === 'none') return false
+    const bars = (d.bars ?? []) as { date?: string }[]
+    const lastBar = bars[bars.length - 1]
+    if (!lastBar) return false
+    const barDate = String(lastBar.date ?? '').slice(0, 10)
+    const barMinute = String(lastBar.date ?? '').slice(11, 16)
+    const today = cnToday()
+    const now = cnNowHHMM()
+    if (barDate < today) {
+      if ([0, 6].includes(cnDayOfWeek())) return false
+      return IDLE_POLL_MS
+    }
+    const closeBarArrived = barMinute >= INTRADAY_CLOSE_BAR
+    if (closeBarArrived && now >= MARKET_ALL_OVER) return false
+    return ms
+  }
+}

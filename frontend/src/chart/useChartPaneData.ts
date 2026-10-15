@@ -9,7 +9,9 @@
  *           与日K行 OHLCV 等价; 独立缓存与 1d 的 50 档互不污染)
  *
  * 实时性:
- * - 15m/60m: 盘中 15s 轮询 intraday 接口 (本地分钟K按 ≥60s 轮次落盘);
+ * - 15m/60m: 盘中 15s 轮询 intraday 接口 (本地分钟K按 ≥60s 轮次落盘;
+ *           停表用 chartIntradayRefetchInterval — 适配 bars 结构, 修复旧版
+ *           错配 minute-range 停表函数导致首次拉数后永久停表的 bug);
  * - 日K/4h: 不进轮询 (staleTime Infinity), 由全局 SSE quotes_updated 推送 +
  *          klineDailyLatest 单行增量合并 (见 useQuoteStream 的 chart 窗格注册表),
  *          末根实时价自动覆盖 (4h 用 160 档 latest, 合并进 4h 专用缓存)。
@@ -18,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type KlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { chartMinuteRangeRefetchInterval } from '@/lib/kline'
+import { chartIntradayRefetchInterval } from '@/lib/kline'
 import type { OHLC } from '@/components/EChartsCandlestick'
 import { DEFAULT_PERIOD, periodDef, type Period } from './periods'
 import type { ResampledBar } from './minuteResample'
@@ -195,8 +197,10 @@ export function useChartPaneData(symbol: string, period: Period) {
     staleTime: 60_000,
     gcTime: 10 * 60_000,
     // 盘中 15s 重拉 (服务端读本地分钟K, 末根随落库轮次更新);
-    // 盘后/周末/节假日由停表函数自动停或降为 5 分钟心跳, 开盘后自动恢复实时
-    refetchInterval: chartMinuteRangeRefetchInterval(MINUTE_REFRESH_MS),
+    // 停表用 intraday 专用版 (bars 结构) — 旧版错配 minute-range 停表函数
+    // (读 sessions 字段, intraday 响应恒无) → 首次拉数后永久停表, 分屏分钟
+    // 窗格现价线与 SSE 实时窗格分叉; 盘后/周末/节假日自动停或降 5 分钟心跳。
+    refetchInterval: chartIntradayRefetchInterval(MINUTE_REFRESH_MS),
   })
 
   const data = useMemo<OHLC[] | undefined>(() => {
