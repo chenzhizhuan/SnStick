@@ -281,7 +281,11 @@ roles:
   common:
     perms:
       - "stick:analysis:read"
+      # 连板梯队页功能链配对 (menu:limit-ladder 已授予): 主查询挂 screener 路由
+      # 需 screener:read, 页内「配置」ext 列弹窗需 ext:read — 只读, 不含 run/write
+      - "stick:ext:read"
       - "stick:kline:read"
+      - "stick:screener:read"
       - "stick:signals:read"
       - "stick:watchlist:read"
       - "stick:watchlist:write"
