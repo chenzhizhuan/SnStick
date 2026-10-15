@@ -7,7 +7,7 @@
  * placeholderData 内置"仅同 symbol 占位"守卫: 改日期范围/扩展字段时旧数据可暂显(不闪),
  * 切股时不透传上一只股票的数据(不误显示)。
  */
-import { api, type KlineDailyLatestResponse, type KlineDailyResponse } from '@/lib/api'
+import { api, type IntradayPlusBar, type KlineDailyLatestResponse, type KlineDailyResponse, type KlineIntradayResponse } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
 /** 分时 tab 多日分时默认周期 (StockPanel 预取与弹窗存储回退共用, 避免魔数两处漂移) */
@@ -55,6 +55,34 @@ export function mergeLatestKlineRow(
     }
   }
   return { ...current, rows: [...current.rows, { ...latest.row, date: latestDate }] }
+}
+
+/** 分钟窗格 (15m/60m) SSE 实时增量 — klineDailyLatest 实时行叠加到 intraday 聚合缓存
+ *  末根 (在走的那根 15m/60m K): close 直接覆盖 (现价线/末根实时跳动),
+ *  high/low 吸收极值; 日期不同 (盘前/隔夜, 分钟数据未到今日) 不动。
+ *  volume/私有指标字段不覆盖 — 由 15s 轮询的权威数据回填 (SSE 只补现价)。
+ *  与 mergeLatestKlineRow (日K行合并) 同族, 供 useQuoteStream 的 SSE 推送合并。 */
+export function mergeLiveIntoIntraday(
+  current: KlineIntradayResponse | undefined,
+  latest: KlineDailyLatestResponse,
+): KlineIntradayResponse | undefined {
+  if (!current || !latest.row || current.symbol !== latest.symbol) return current
+  const bars = current.bars ?? []
+  const last = bars.at(-1)
+  if (!last) return current
+  const liveDate = String(latest.row.date).slice(0, 10)
+  if (liveDate !== String(last.date).slice(0, 10)) return current
+  const close = Number(latest.row.close)
+  if (!Number.isFinite(close) || close <= 0) return current
+  const hi = Number.isFinite(last.high) ? last.high : close
+  const lo = Number.isFinite(last.low) ? last.low : close
+  const patched: IntradayPlusBar = {
+    ...last,
+    close,
+    high: Math.max(hi, close),
+    low: Math.min(lo, close),
+  }
+  return { ...current, bars: [...bars.slice(0, -1), patched] }
 }
 
 /**
