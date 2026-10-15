@@ -927,17 +927,18 @@ export function Layout() {
         const merged = [...ordered]
         for (const item of allNav) {
           if (seen.has(item.to)) continue
-          // 未保存过排序的新条目: 内置页插回默认位置(排在已保存的默认前驱之后),
-          // 分析/扩展菜单仍追加到末尾
-          const defaultIndex = filteredNav.findIndex(n => n.to === item.to)
+          // 未保存过排序的新条目: 默认基准内的路径插回默认位置(排在已出现的
+          // 最近默认前驱之后), 分析菜单/未知扩展追加到末尾。基准含迁移到
+          // custom/ 的扩展域页面, 保证老用户升级无感 (lib/navOrder)。
+          const di = defaultNavIndex(item.to)
           let anchor = -1
-          if (defaultIndex > 0) {
-            for (let i = defaultIndex - 1; i >= 0 && anchor < 0; i -= 1) {
-              anchor = merged.findIndex(n => n.to === filteredNav[i].to)
+          if (Number.isFinite(di) && di > 0) {
+            for (let i = di - 1; i >= 0 && anchor < 0; i -= 1) {
+              anchor = merged.findIndex(n => defaultNavIndex(n.to) === i)
             }
           }
           if (anchor >= 0) merged.splice(anchor + 1, 0, item)
-          else if (defaultIndex === 0) merged.unshift(item)
+          else if (di === 0) merged.unshift(item)
           else merged.push(item)
         }
         return merged
@@ -948,6 +949,28 @@ export function Layout() {
 
   const hiddenIds = new Set(prefs?.nav_hidden ?? [])
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
+
+  // 新装用户一次性种子: 扩展域页面默认隐藏, 菜单设置里可逐个开启。
+  // 老用户 (升级前已完成 onboarding) 只写标记不动偏好, 升级前后侧栏一致。
+  // 种子标记存 localStorage (每设备一次, 保存成功后才写); 隐藏偏好本体持久化在后端 nav_hidden。
+  const extSeedRef = useRef(false)
+  useEffect(() => {
+    if (!prefs || !settingsState || extSeedRef.current) return
+    let seeded = false
+    try { seeded = localStorage.getItem('tf-ext-pages-seed') === '1' } catch { return }
+    if (seeded) { extSeedRef.current = true; return }
+    const next = seedHiddenForNewUser(settingsState.onboarding_completed, prefs.nav_hidden)
+    if (!next) {
+      extSeedRef.current = true
+      try { localStorage.setItem('tf-ext-pages-seed', '1') } catch {}
+      return
+    }
+    extSeedRef.current = true
+    api.saveNavHidden(next)
+      .then(() => { try { localStorage.setItem('tf-ext-pages-seed', '1') } catch {} })
+      .then(() => qc.invalidateQueries({ queryKey: QK.preferences }))
+      .catch(() => { /* 保存失败不写标记, 下次启动重试; 结果集幂等, 重复触发无害 */ })
+  }, [prefs, settingsState, qc])
 
   // v3.2: 按业务域分组渲染; 无 group 的项(异常情况)兑底到「数据与复盘」组尾
   const navItemsByGroup = useMemo(() => {
@@ -1111,6 +1134,18 @@ export function Layout() {
             >
               <X className="h-4 w-4 shrink-0" />
             </button>
+          </div>
+        )}
+
+        {/* 状态卡 — 收起时隐藏 (main 侧 v0.3.7 新增: 数据源健康/AI 配置两徽标) */}
+        {!railMode && (
+          <div className="mt-2.5 shrink-0 border-t border-border/60 pt-1">
+            <DataSourceHealthBadge matrix={matrix} />
+            <div className="mx-2 border-t border-border/60" aria-hidden="true" />
+            <AIConfigBadge
+              configured={settingsState?.ai_configured ?? settingsState?.has_ai_key}
+              model={settingsState?.ai_model}
+            />
           </div>
         )}
 
