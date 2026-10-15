@@ -37,6 +37,25 @@ class TestLoadRoleMap:
         assert "stick:kline:read" in perms
         assert "stick:backtest:run" not in perms
 
+    def test_common_limit_ladder_perm_chain(self):
+        """连板梯队页功能链配对 (2026-10-15 事故: menu:limit-ladder 已授
+        但主查询 /api/screener/limit-ladder 需 screener:read → 体验版
+        403, 页面报「行情接口暂时不可用」误导性文案)。
+
+        授予范围刻意只读: screener:read (主查询) + ext:read (页内配置弹
+        窗 schema 列表); run/write 仍不授予 (体验版不可跑策略/管理数据源)。
+        """
+        perms = perm.load_role_map()["common"]
+        # 主链路: 菜单可见 → API 可读
+        assert "stick:menu:limit-ladder" in perms
+        assert "stick:screener:read" in perms
+        assert "stick:ext:read" in perms
+        # 只读边界: 不给运行/写入
+        assert "stick:screener:run" not in perms
+        assert "stick:ext:write" not in perms
+        assert not perm.has_perm(("common",), "stick:screener:run")
+        assert perm.has_perm(("common",), perm.P_SCREENER_READ)
+
     def test_missing_file_raises(self):
         with patch.object(perm, "_role_map_path", return_value=__import__("pathlib").Path("nope.yaml")):
             perm.load_role_map.cache_clear()
@@ -82,6 +101,9 @@ class TestHasPerm:
         assert perm.has_perm(("common",), "stick:watchlist:read")
         assert not perm.has_perm(("common",), "stick:backtest:run")
         assert not perm.has_perm(("common",), "stick:screener:run")
+        # 连板梯队页只读链路 (menu 已授 → API 读权限配对齐全)
+        assert perm.has_perm(("common",), "stick:screener:read")
+        assert perm.has_perm(("common",), "stick:ext:read")
 
     def test_union_multiple_roles(self):
         # standard + premium → 并集 = 有 backtest
