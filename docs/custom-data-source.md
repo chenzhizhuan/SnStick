@@ -419,3 +419,5 @@ datasets:
 ```
 
 把这段 YAML 保存为 `data/data_sources/my_source.yaml`,然后在设置页重新加载即可。
+
+> AI生成
