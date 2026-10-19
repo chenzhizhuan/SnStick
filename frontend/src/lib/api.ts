@@ -792,6 +792,15 @@ export interface AuctionBenchmarkPayload {
 }
 
 // ===== Strategy Engine =====
+/** 参数级联显隐条件 (UI 元数据, 后端原样透传)。三种形态可递归组合:
+ *  { param, in } — values[param] ∈ in;  { all: [...] } — 全部成立;  { any: [...] } — 任一成立 */
+export interface ParamVisibleIf {
+  param?: string
+  in?: (string | number | boolean)[]
+  all?: ParamVisibleIf[]
+  any?: ParamVisibleIf[]
+}
+
 export interface StrategyParamDef {
   id: string
   label: string
@@ -801,6 +810,12 @@ export interface StrategyParamDef {
   max?: number
   step?: number
   options?: string[]
+  /** UI 元数据: 分组节标题 (相同组名的相邻参数归并) */
+  group?: string
+  /** UI 元数据: 级联显隐 — 条件成立时显示 (见 ParamVisibleIf) */
+  visible_if?: ParamVisibleIf
+  /** UI 元数据: select 各选项被选中时批量应用的参数值 (如标的池预设 → 开关+默认值) */
+  option_applies?: Record<string, Record<string, string | number | boolean>>
 }
 
 export interface CompositeChildInfo {
@@ -2267,6 +2282,42 @@ export interface RuntimePagePack {
   error: string
 }
 
+// ===== 升级保护 (二次开发) =====
+/** 报告文件分类: restorable=新版没动可恢复 / conflict=双方都改需手工合并 /
+ *  match=内容已一致 / added_lost=用户新建文件新版没有 */
+export type UpgradeGuardCategory = 'restorable' | 'conflict' | 'match' | 'added_lost'
+
+export interface UpgradeGuardReportFile {
+  relpath: string
+  category: UpgradeGuardCategory
+  current_exists: boolean
+}
+
+export interface UpgradeGuardReport {
+  id: string
+  from_version: string
+  to_version: string
+  created_at: string
+  counts: Record<UpgradeGuardCategory, number>
+  files: UpgradeGuardReportFile[]
+  dir: string
+}
+
+export interface UpgradeGuardStatus {
+  enabled: boolean
+  reason?: string
+  scanning?: boolean
+  program_root?: string
+  manifest_version?: string | null
+  current_version?: string
+  last_scan?: string
+  modified?: string[]
+  added?: string[]
+  backup_dir?: string
+  reports_dir?: string
+  pending_report?: UpgradeGuardReport | null
+}
+
 // ===== API surface =====
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
@@ -2324,6 +2375,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(ai),
     }),
+
+  upgradeGuardStatus: () => request<UpgradeGuardStatus>('/api/upgrade-guard/status'),
+  upgradeGuardScan: () => request<UpgradeGuardStatus>('/api/upgrade-guard/scan', { method: 'POST' }),
+  upgradeGuardRestore: (reportId: string, relpath: string) =>
+    request<{ ok: boolean; restored: string }>('/api/upgrade-guard/restore', {
+      method: 'POST',
+      body: JSON.stringify({ report_id: reportId, relpath }),
+    }),
+  upgradeGuardDismiss: () => request<{ ok: boolean }>('/api/upgrade-guard/dismiss-report', { method: 'POST' }),
 
   /** 赞助商(RunningHub)模型列表(后端代理, 规避其网关按 Origin 过滤) */
   sponsorModels: () =>
@@ -3469,12 +3529,21 @@ export const api = {
     ),
 
   extDataSchemaAll: () =>
-    request<{ items: { id: string; label: string; mode: string; columns: { name: string; type: string; label: string }[] }[] }>('/api/ext-data/schema-all'),
+    request<{ items: { id: string; label: string; mode: string; time_field?: string | null; columns: { name: string; type: string; label: string }[] }[] }>('/api/ext-data/schema-all'),
+
+  /** 日内多盘序列 (列表迷你图列): 每标的一天的 [HH:MM:SS, value] 点列 */
+  extDataSeries: (configId: string, field: string, date?: string | null, symbols?: string[]) =>
+    request<{ config_id: string; field: string; date: string | null; items: Record<string, [string, number][]> }>(
+      `/api/ext-data/${configId}/series?field=${encodeURIComponent(field)}`
+        + (date ? `&date=${date}` : '')
+        + (symbols?.length ? `&symbols=${encodeURIComponent(symbols.join(','))}` : ''),
+    ),
 
   extDataPullConfig: (id: string, body: {
     url: string; method?: string; headers?: Record<string, string>; body?: string;
     response_path?: string; field_map?: Record<string, string>;
     schedule_minutes?: number; enabled?: boolean;
+    schedule_time?: string | null;
     time_window_start?: string | null; time_window_end?: string | null;
     date_param?: string | null;
     time_field?: string | null;
@@ -4329,6 +4398,8 @@ export interface PullConfig {
   field_map?: Record<string, string>
   schedule_minutes: number
   enabled: boolean
+  /** 每日固定拉取时刻 "HH:MM" (北京时间): 配置后忽略间隔, 每天该时刻拉一次; null=间隔制 */
+  schedule_time?: string | null
   last_run?: string | null
   last_status?: string | null
   last_message?: string | null
