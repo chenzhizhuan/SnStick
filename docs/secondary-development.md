@@ -417,3 +417,5 @@ python3 scripts/upgrade_check.py <目标Tag或分支>
 5. 需要升级直接修改源码的分支时，使用 `scripts/upgrade_check.py` 预检，再执行真实合并和回归。
 
 这种顺序遵循 KISS 和 YAGNI：先解决已经存在的升级冲突，不提前建设完整插件平台，也不阻止开发者在必要时直接修改源码。
+
+> AI生成
