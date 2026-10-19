@@ -13,6 +13,7 @@ import polars as pl
 from fastapi import APIRouter, Depends, Query, Request
 
 from app.identity.permissions import P_SETTINGS_WRITE, require_perm
+from app.market_time import cn_today
 from app.services import regime_builder
 
 router = APIRouter(prefix="/api/regime", tags=["regime"])
@@ -150,7 +151,7 @@ def regime_recompute(request: Request, _: None = Depends(require_perm(P_SETTINGS
     """
     repo = request.app.state.repo
     data_dir = _data_dir(request)
-    end = end or date.today()
+    end = end or cn_today()
     if start is None:
         # 全量: 从 enriched 最早日强制重算到今天
         earliest = regime_builder.earliest_enriched_date(repo)
@@ -306,7 +307,7 @@ def mainline_recompute(request: Request, _: None = Depends(require_perm(P_SETTIN
     rows = 0
     for kind in ("concept", "industry"):
         computed = market_mainline.compute_mainline_range(
-            repo, data_dir, earliest, date.today(), kind=kind
+            repo, data_dir, earliest, cn_today(), kind=kind
         )
         if not computed.is_empty():
             market_mainline.upsert_mainline_history(data_dir, computed)
