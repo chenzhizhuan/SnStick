@@ -360,11 +360,12 @@ def update_custom_factor(factor_id: str, req: CustomFactorUpdateRequest, request
 
 def _find_references(data_dir, factor_id: str) -> list[str]:
     """扫描策略与复合因子定义中的引用 (删除前 fail-closed 检查)。"""
-    from app.identity.user_context import user_strategies_dir
+    from app.identity.user_context import engine_strategies_dir
 
     references: list[str] = []
-    # v2.3 数据命名空间 (M3-3c): 桌面版 = data_dir/strategies/ 原位置
-    strategies_dir = user_strategies_dir(data_dir)
+    # 策略实体全局共享: 扫描引擎装载根 (桌面版 = data_dir/strategies/ 原位置,
+    # 互通形态 = users/local/strategies/), 与策略池/保存写入同一位置。
+    strategies_dir = engine_strategies_dir(data_dir)
     if strategies_dir.is_dir():
         for file in strategies_dir.glob("*.json"):
             try:

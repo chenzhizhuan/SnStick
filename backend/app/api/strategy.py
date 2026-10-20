@@ -26,7 +26,7 @@ from app.identity.permissions import (
 )
 
 from app.backtest.minute_trigger import MINUTE_EXIT_TRIGGER_SIGNALS
-from app.identity.user_context import user_strategies_dir
+from app.identity.user_context import engine_strategies_dir, user_strategies_dir
 from app.services.ndjson_heartbeat import with_heartbeat
 from app.strategy import config as strategy_config
 from app.strategy.ai_generator import AIStrategyGenerator, find_meta_assignment
@@ -801,11 +801,10 @@ def _validate_strategy_id(strategy_id: str) -> str:
 
 
 def _target_dir(data_dir: Path, source: str) -> Path:
-    if source not in {"ai", "custom", "composite"}:
-        raise ValueError("target_source 必须是 ai、custom 或 composite")
-    # v2.3 数据命名空间 (M3-3c): 桌面版保持 data_dir/strategies/<source>;
-    # 互通形态切用户根 (与 main.py 启动装载/worker _strategy_dirs 同构)
-    return user_strategies_dir(data_dir) / source
+    # 策略实体全局共享: 写入与引擎装载 (main.py 启动 / worker) 同一位置。
+    # 互通形态固定 users/local/strategies (不随登录用户切换), 避免旧实现在
+    # 请求上下文下切到 users/<uid>/ 导致 "保存后策略池不可见、回测找不到" 的读写错位。
+    return engine_strategies_dir(data_dir) / source
 
 
 def _prepare_strategy_code(req: StrategyCodeValidateRequest | StrategyCodeSaveRequest) -> dict:
@@ -1374,7 +1373,7 @@ def delete_strategy(
         raise HTTPException(status_code=400, detail="策略源文件路径无效, 无法删除")
 
     try:
-        allowed_dir = (user_strategies_dir(data_dir) / s.source).resolve()
+        allowed_dir = (engine_strategies_dir(data_dir) / s.source).resolve()
         resolved_path = path.resolve()
     except (OSError, RuntimeError) as e:
         raise HTTPException(status_code=409, detail=f"无法访问策略文件: {e}") from e
