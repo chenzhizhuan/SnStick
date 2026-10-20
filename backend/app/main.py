@@ -318,10 +318,12 @@ async def _application_lifespan(app: FastAPI):
         logger.warning("strategy seeding failed (ignored): %s", e)
     # v2.3 数据命名空间 (M3-3c): 注入生产 data_dir/默认用户根 (领域模块兼容层
     # user_subdir/user_strategies_dir 依赖此注入区分生产目录 vs 测试隔离目录)。
-    from app.identity.user_context import set_production_roots, user_root, user_strategies_dir
+    from app.identity.user_context import engine_strategies_dir, set_production_roots, user_root
 
     set_production_roots(store.data_dir, user_root())
-    _strategies_root = user_strategies_dir(store.data_dir)
+    # 策略实体全局共享: 引擎装载固定策略实体根 (桌面 = data_dir/strategies/,
+    # 互通 = users/local/strategies/), 与保存/删除/回测 worker 同一位置。
+    _strategies_root = engine_strategies_dir(store.data_dir)
     strategy_dirs = [
         Path(__file__).resolve().parent / "strategy" / "research",
         _strategies_root / "custom",

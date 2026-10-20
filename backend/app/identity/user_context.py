@@ -324,3 +324,42 @@ def user_strategies_dir(data_dir: Path) -> Path:
         return Path(data_dir) / "strategies"
     # 互通形态: 策略随用户根隔离
     return user_root() / "strategies"
+
+
+def engine_strategies_dir(data_dir: Path) -> Path:
+    """策略实体目录 (策略池全局共享语义)。
+
+    策略实体 (strategies/{custom,ai,composite} 的 .py) 是全局共享的:
+    策略池列表、监控引擎、回测 worker 均从同一位置装载 (main.py 启动装载,
+    启动期无请求上下文 → local 降级根)。互通形态下该位置**固定**为
+    users/local/strategies/, 不随登录用户切换 — 否则产生读写错位:
+    "页面保存策略写入 users/<uid>/, 策略池/回测读 users/local/", 表现为
+    保存的策略在策略模块不可见、回测 worker 找不到策略。
+
+    规则 (与 main.py 启动装载逐分支一致):
+      1. 测试隔离目录 (data_dir != 生产): data_dir/strategies/ 原样。
+      2. 桌面版 (identity 未启用): data_dir/strategies/ (零改动铁律)。
+      3. 互通形态: data/users/local/strategies/ (固定, 与请求上下文无关)。
+
+    供「策略实体读写」调用点使用: api/strategy._target_dir (保存/发布)、
+    策略删除校验、backtest/worker._strategy_dirs、因子引用扫描、
+    挖掘候选发布、策略种子补全。真正的用户维度工件 (非策略实体) 仍走
+    user_strategies_dir。
+    """
+    from app.config import settings
+
+    try:
+        arg = Path(data_dir).resolve()
+    except OSError:
+        return Path(data_dir) / "strategies"
+    prod = _production_data_dir
+    if prod is None:
+        prod = settings.data_dir.resolve()
+    if arg != prod:
+        # 测试隔离目录 → 历史行为
+        return Path(data_dir) / "strategies"
+    if not identity_enabled():
+        # 桌面版: strategies/ 历史就在 data_dir 根下, 保持不动 (零改动铁律)
+        return Path(data_dir) / "strategies"
+    # 互通形态: 策略实体全局共享, 固定 local 降级根 (与引擎启动装载一致)
+    return Path(data_dir) / "users" / LOCAL_USER_DIR / "strategies"

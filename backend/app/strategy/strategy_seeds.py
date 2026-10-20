@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from app.identity.user_context import engine_strategies_dir
+
 logger = logging.getLogger(__name__)
 
 SEEDS_DIR = Path(__file__).resolve().parent / "seeds"
@@ -21,12 +23,13 @@ def _has_upgrade_traces(data_dir: Path) -> bool:
     """数据目录是否有旧版本的使用痕迹 (新装首次启动为 False)。
 
     三个信号任一命中即视为升级用户:
-    - strategies/{custom,ai,composite} 下已有任何策略文件 (用户自己的)
+    - 策略实体目录 ({custom,ai,composite}) 下已有任何策略文件 (用户自己的)
     - kline_daily 已有 parquet (拉过日K; 内置策略跑起来必须有数据)
     - watchlist.parquet 存在 (加过自选)
     """
+    strategies_root = engine_strategies_dir(data_dir)
     for sub in ("custom", "ai", "composite"):
-        if any((data_dir / "strategies" / sub).glob("*.py")):
+        if any((strategies_root / sub).glob("*.py")):
             return True
     if any((data_dir / "kline_daily").rglob("*.parquet")):
         return True
@@ -44,7 +47,10 @@ def seed_missing_builtins(data_dir: Path) -> int:
     - 写入前逐一过 _validate_safety (种子随包分发, 纵深防御),
       校验失败跳过该文件不阻断启动。
     """
-    custom_dir = data_dir / "strategies" / "custom"
+    # 策略实体全局共享: 种子写入引擎装载根 (与策略池/保存写入同一位置)。
+    # 旧实现写死 data_dir/strategies/custom, 互通形态下引擎读
+    # users/local/strategies/ 导致种子永远不被加载。
+    custom_dir = engine_strategies_dir(data_dir) / "custom"
     custom_dir.mkdir(parents=True, exist_ok=True)
     marker = custom_dir / ".seeded_v1"
     if marker.exists():

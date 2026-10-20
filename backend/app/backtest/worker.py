@@ -83,13 +83,14 @@ def _rss_bytes() -> int:
 
 
 def _strategy_dirs(data_dir: Path) -> list[Path]:
-    # v2.3 数据命名空间 (M3-3c): 桌面版保持 data_dir/strategies/ (零改动铁律);
-    # 互通形态切用户根 —— 子进程 task dict 里的 data_dir 是行情根, 由父进程
-    # make_worker_task 序列化时已按当前用户解析 (见 make_worker_task)。
-    from app.identity.user_context import user_strategies_dir
+    # 策略实体全局共享: 与 main.py 启动装载 / 策略池同一位置。
+    # 桌面版保持 data_dir/strategies/ (零改动铁律); 互通形态固定
+    # users/local/strategies/ —— 不随登录用户切换, 否则回测 worker 会
+    # 到 users/<uid>/strategies/ 找不到策略池里的策略。
+    from app.identity.user_context import engine_strategies_dir
 
     app_dir = Path(__file__).resolve().parents[1]
-    strategies_dir = user_strategies_dir(data_dir)
+    strategies_dir = engine_strategies_dir(data_dir)
     return [
         app_dir / "strategy" / "research",
         strategies_dir / "custom",
