@@ -1491,6 +1491,14 @@ function buildOption(
         })
       }
     })
+
+    // markPoint 回填: mainMarkExtras 在主 K 线系列创建时求值, 常规图表无 markers
+    // → markPointData 当时为空, markPoint 固化为 undefined, 其后 ry 段 push 的
+    // 菱形/背离方块全部丢失 (数据有信号但图上不可见)。此处统一补挂;
+    // data 传数组引用, 若后续段再 push 也继续生效。
+    if (markPointData.length > 0 && series[0] != null && series[0].markPoint == null) {
+      series[0].markPoint = { data: markPointData, animation: false }
+    }
   }
 
   // ===== 子图区域 =====

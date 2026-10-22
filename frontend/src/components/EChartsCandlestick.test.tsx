@@ -196,3 +196,25 @@ it('「往左加载更多」前插后视野右移, 保持用户看到的日期�
   expect(xDispatch[0].start).toBeCloseTo(90.9, 1)
   expect(xDispatch[0].end).toBe(100)
 })
+
+it('无 markers 时 ry 菱形/背离方块 markPoint 仍回填到主 K 线系列', async () => {
+  // 回归: mainMarkExtras 在主 K 线创建时求值, 无 markers → markPoint 固化为 undefined,
+  // 其后 ry 叠加段 push 的菱形/背离方块丢失 → 需在 ry 段后回填
+  const data: OHLC[] = rows(20).map((r, i) => ({
+    ...r,
+    ry_mid: 10,           // hasRyMain 门槛: 任一行有 ry_mid/k_up 才启用 ry 叠加
+    ...(i === 5 ? { ry_top_signal: true, ry_top_price: 11 } : {}),
+    ...(i === 8 ? { ry_btm_signal: true, ry_btm_price: 9 } : {}),
+    ...(i === 12 ? { div_top_count: 2 } : {}),
+    ...(i === 15 ? { div_btm_count: 3 } : {}),
+  }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600519.SH" height={500} visibleBars="all" activeIndicators={['ry', 'macd_plus', 'rsi_plus']} />,
+  ))
+  const mp = lastMarkPoint()
+  expect(mp).toContain('ryT')
+  expect(mp).toContain('ryB')
+  expect(mp).toContain('dvT')
+  expect(mp).toContain('dvB')
+  expect(mp).toContain('diamond')
+})
