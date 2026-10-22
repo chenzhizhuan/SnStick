@@ -1229,24 +1229,27 @@ function buildOption(
   grids.push({ left, right, top: topPad, height: candleAvail })
   // ===== X 轴 TV 式刻度 (2026-10-22 对齐 TradingView 底轴) =====
   // TV 规则: 月内刻度 = 日数字 (无前导零), 跨月首根 = "M月", 跨年首根 = "YYYY";
-  // 月份/年份节点优先占位 (贪心), 普通点按 stride 稀疏 — stride 由 dataZoom
-  // 窗口实时更新 (xLabelMetrics, 见组件 dataZoom 监听), 目标像素间隔 ~72px。
-  const xLabelOf: string[] = []
+  // 边界点恒显示, 普通点按 stride 锚定数据索引 (index 固定 → 平移时刻度跟着 bar 走)。
+  // SSR 实测 (repro_xaxis_interval.mjs): axisLabel.interval 的 index = 绝对数据索引
+  // (仅对窗口内 bar 顺序调用, dataZoom 后重新调用); axisLabel.formatter 的 index =
+  // 相对窗口索引 (不可用于定位数据!) → formatter 必须用第一参数 (date 原文) 查 Map。
+  const xLabelOf = new Map<string, string>()
   const xBoundary = new Set<number>()
   {
     let prevDay = ''
     dates.forEach((d, i) => {
-      const day = String(d).slice(0, 10)
+      const s = String(d)
+      const day = s.slice(0, 10)
       if (!prevDay) {
-        xLabelOf.push(String(parseInt(day.slice(8, 10), 10)))
+        xLabelOf.set(s, String(parseInt(day.slice(8, 10), 10)))
       } else if (day.slice(0, 4) !== prevDay.slice(0, 4)) {
-        xLabelOf.push(day.slice(0, 4))
+        xLabelOf.set(s, day.slice(0, 4))
         xBoundary.add(i)
       } else if (day.slice(0, 7) !== prevDay.slice(0, 7)) {
-        xLabelOf.push(`${parseInt(day.slice(5, 7), 10)}月`)
+        xLabelOf.set(s, `${parseInt(day.slice(5, 7), 10)}月`)
         xBoundary.add(i)
       } else {
-        xLabelOf.push(String(parseInt(day.slice(8, 10), 10)))
+        xLabelOf.set(s, String(parseInt(day.slice(8, 10), 10)))
       }
       prevDay = day
     })
@@ -1256,10 +1259,7 @@ function buildOption(
     axisLine: { lineStyle: { color: CT().border } },
     axisLabel: {
       color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
-      formatter: (_v: string, index: number) => xLabelOf[index] ?? String(_v),
-      // 无状态 interval (有状态贪心在 ECharts 的回调顺序下不可靠 — 实测跨月标签
-      // 会缺失): 边界点恒显示; 普通点按 stride 锚定数据索引 (index 固定 → 平移时
-      // 刻度跟着 bar 走, TV 同款); 紧邻边界点的普通点让位 (避免 "11月"+"3" 挤连)。
+      formatter: (v: string) => xLabelOf.get(String(v)) ?? String(v),
       interval: (index: number) => {
         if (xBoundary.has(index)) return true
         const m = xLabelMetrics.current
