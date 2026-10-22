@@ -22,7 +22,7 @@ import { useChartPaneData } from './useChartPaneData'
 import { rangeBars, zoomForBars } from './ranges'
 import { useChartSync } from './ChartSyncContext'
 import { DEFAULT_DRAW_STYLE, loadDrawings, paneDrawingsStorageKey, saveDrawings, type DrawPoint, type DrawTool, type DrawingObject } from './drawings'
-import type { PaneConfig } from './useChartLayout'
+import type { AdjustMode, PaneConfig } from './useChartLayout'
 
 interface Props {
   pane: PaneConfig
@@ -30,6 +30,8 @@ interface Props {
   drawTool: DrawTool
   /** 绘图图形库共享开关 (开 = per-symbol 共享库 + 跨窗同步; 关 = 本窗独立库) */
   syncDrawings: boolean
+  /** 复权方式 (qfq 前复权 / raw 不复权) — workspace 级显示口径, 注入数据流 */
+  adjust: AdjustMode
   onChange: (patch: Partial<PaneConfig>) => void
   /** 键盘快捷键作用窗: 多窗时仅激活窗响应 ←→↑↓ 平移缩放 (点击窗格激活) */
   isActive?: boolean
@@ -63,8 +65,8 @@ function nextDrawId(): string {
   return `d${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = false, onActivate, onDrawTool, resetSignal, onResetRequest }: Props) {
-  const { data, isLoading, error, loadMore, canLoadMore, isLoadingMore } = useChartPaneData(pane.symbol, pane.period)
+export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isActive = false, onActivate, onDrawTool, resetSignal, onResetRequest }: Props) {
+  const { data, isLoading, error, loadMore, canLoadMore, isLoadingMore } = useChartPaneData(pane.symbol, pane.period, adjust)
   const syncApi = useChartSync()
 
   // ── 图表实例与数据快照 (联动/绘图的命令式层都走 ref, 不触发 re-render) ──

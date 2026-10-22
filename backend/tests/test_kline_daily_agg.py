@@ -139,10 +139,11 @@ def test_resample_unknown_agg_passthrough():
 def _capture_attach(monkeypatch) -> dict:
     captured: dict = {}
 
-    def _fake_attach(repo, asset_type, symbol, rows, lookback=50, ry_bar_minutes=None, agg=None):
+    def _fake_attach(repo, asset_type, symbol, rows, lookback=50, ry_bar_minutes=None, agg=None, raw_mode=False):
         captured["lookback"] = lookback
         captured["ry_bar_minutes"] = ry_bar_minutes
         captured["agg"] = agg
+        captured["raw_mode"] = raw_mode
         return rows
 
     monkeypatch.setattr(kline_api, "_attach_plus_with_warmup", _fake_attach)

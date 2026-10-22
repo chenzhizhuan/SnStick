@@ -419,6 +419,9 @@ def get_daily(
     agg: Optional[str] = Query(
         None, description="聚合周期: 2d|4d|1w|1M — 在聚合 K 上重算私有指标 (Pine 周期语义; warmup 同口径聚合)",
     ),
+    adjust: Optional[str] = Query(
+        None, description="复权方式: qfq(前复权,默认) | raw(不复权, TV 对拍口径; 指标在 raw 序列上重算)",
+    ),
 ):
     """读取本地 enriched 表中某只股票的日 K。
 
@@ -426,6 +429,8 @@ def get_daily(
     - Free 用户: 若 enriched 表里没有该股票, 实时拉取 + 本地算 enriched 返回
     - ext_columns: 可选，动态 LEFT JOIN 扩展数据表，结果平铺到 stock_info.ext 下
       (key 为 "{config_id}__{field_name}")，供日K信息条等场景展示自定义字段
+    - adjust=raw: 不复权显示模式 — OHLC 换算回原始价, 私有指标在 raw 序列上
+      重算 (warmup 同口径), 对齐用户 TV 布局的显示口径 (2026-10-23 对拍实证)
     """
     import polars as pl
 
@@ -435,6 +440,13 @@ def get_daily(
         agg = None
     if agg is not None and agg not in _AGG_LOOKBACK:
         raise HTTPException(status_code=400, detail="agg 仅支持 2d | 4d | 1w | 1M")
+    if adjust is not None and not isinstance(adjust, str):
+        adjust = None
+    if adjust is None:
+        adjust = "qfq"
+    if adjust not in _ADJUST_MODES:
+        raise HTTPException(status_code=400, detail="adjust 仅支持 qfq | raw")
+    raw_mode = adjust == "raw"
     # agg 模式下 lookback 未传时按 Pine 量级标尺预设档推导 (1w=10, 1M=3, 其余=50)
     if agg is not None and plus_lookback is None:
         plus_lookback = _AGG_LOOKBACK[agg]
@@ -485,6 +497,8 @@ def get_daily(
             logger.debug("单股除权因子拉取失败 %s: %s", symbol, e)
         enriched = compute_enriched(raw, factors=factors)
         rows = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end)).to_dicts()
+        if raw_mode:
+            rows = _to_raw_ohlcv(rows)
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
         # agg 模式: 聚合在 _attach_plus_with_warmup 内部完成 (全历史拼接聚合
@@ -492,7 +506,7 @@ def get_daily(
         rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                         lookback=_resolve_plus_lookback(plus_lookback),
                                         ry_bar_minutes=None if agg else ry_bar_minutes,
-                                        agg=agg)
+                                        agg=agg, raw_mode=raw_mode)
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
         return _gzip_payload(
             request,
@@ -501,6 +515,8 @@ def get_daily(
         )
 
     rows = df.to_dicts()
+    if raw_mode:
+        rows = _to_raw_ohlcv(rows)
 
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
@@ -509,7 +525,7 @@ def get_daily(
     rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                     lookback=_resolve_plus_lookback(plus_lookback),
                                     ry_bar_minutes=None if agg else ry_bar_minutes,
-                                    agg=agg)
+                                    agg=agg, raw_mode=raw_mode)
 
     resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
     return _gzip_payload(
@@ -602,15 +618,59 @@ def _resample_daily_rows(rows: list[dict], agg: str) -> list[dict]:
 # agg 周期 → Pine 量级标尺预设档 (附图 f_getPresetLookback: <1周=50, <1月=10, ≥1月=3)
 _AGG_LOOKBACK = {"1w": 10, "1M": 3, "2d": 50, "4d": 50}
 
+# 复权方式合法值: qfq=前复权 (默认) / raw=不复权 (TV 对拍口径)
+_ADJUST_MODES = ("qfq", "raw")
+
+
+def _to_raw_ohlcv(rows: list[dict]) -> list[dict]:
+    """前复权行 → 不复权 (raw) 行 (原地改写)。
+
+    enriched 存储: open/high/low/close 为前复权, raw_close/raw_high/raw_low
+    为原始价 (无 raw_open 列)。换算:
+    - close ← raw_close; high/low ← raw_high/raw_low (列存在则直取, 精度更高);
+    - open ← open × (raw_close/close) (行级复权比例反推);
+    - 无 raw_close 或 close 无效 → 该行保持原值 (当日实时行 ratio=1, 前复权=raw)。
+    指标附着发生在换算后的 raw 序列上 (EMA110/ATR50/SuperTrend 全部 raw 口径,
+    对齐 TV request.security/主图取数)。volume/amount 不复权原样。
+    """
+    for r in rows:
+        rc = r.get("raw_close")
+        c = r.get("close")
+        if rc is None or c is None or c == 0:
+            continue
+        for key, raw_key in (("close", "raw_close"), ("high", "raw_high"), ("low", "raw_low")):
+            rv = r.get(raw_key)
+            if rv is not None:
+                r[key] = rv
+        ratio = rc / c
+        o = r.get("open")
+        if o is not None:
+            r["open"] = o * ratio
+    return rows
+
 # agg 周期 → 当前图表周期总分钟数 (rymain K2/K3 TV 高周期换算输入:
 # K2=周期×4 → "1W"/"2W"/"4W"; K3=周期×8 → "2W"/"1M"/"2M")
 _AGG_TF_MINUTES = {"2d": 2880, "4d": 5760, "1w": 10080, "1M": 43200}
+
+
+def _read_daily_warmup(repo, asset_type: str, symbol: str, start: date, end: date,
+                       columns: list[str], raw_mode: bool):
+    """读 warmup 历史; raw 模式追加 raw 列, 标的表缺 raw 列 (指数/ETF 无复权概念)
+    或读失败时逐级降级回 qfq 口径 (warmup 不因 raw 模式丢失)。"""
+    extra = ["raw_close", "raw_high", "raw_low"] if raw_mode else []
+    if extra:
+        try:
+            return repo.get_daily_asset(asset_type, symbol, start, end, columns=columns + extra).sort("date")
+        except Exception:  # noqa: BLE001 — 缺 raw 列的表退回 qfq warmup
+            logger.debug("warmup raw 列读取失败, 退回 qfq: %s", symbol, exc_info=True)
+    return repo.get_daily_asset(asset_type, symbol, start, end, columns=columns).sort("date")
 
 
 def _attach_plus_with_warmup(
     repo, asset_type: str, symbol: str, rows: list[dict], lookback: int = _T_LOOKBACK_DAILY,
     ry_bar_minutes: Optional[int] = None,
     agg: Optional[str] = None,
+    raw_mode: bool = False,
 ) -> list[dict]:
     """MACD+/RSI+ + 融易主图 附着 (带窗口前历史 warmup)。
 
@@ -623,6 +683,8 @@ def _attach_plus_with_warmup(
     agg: 聚合周期 (2d/4d/1w/1M) — rows 为窗口内原始日K行 (端点层不预
     聚合), 走 _attach_plus_with_agg_history 全历史拼接聚合后递推
     (Pine 语义: 指标画在聚合 K 上, 对齐 TV 全历史递推口径)。
+    raw_mode: 不复权模式 — rows 已由端点层换算为 raw OHLC, warmup 历史
+    同口径换算 (raw_close/high/low 列), 保证递推序列口径一致。
     """
     if not rows:
         return rows
@@ -632,7 +694,7 @@ def _attach_plus_with_warmup(
     if agg:
         return _attach_plus_with_agg_history(
             repo, asset_type, symbol, rows, lookback=lookback,
-            ry_bar_minutes=ry_bar_minutes, agg=agg,
+            ry_bar_minutes=ry_bar_minutes, agg=agg, raw_mode=raw_mode,
         )
     # 日K (非 agg 非 4h): K2/K3 走 TV 高周期换算 (K2="4D" 连续 4 交易日桶 /
     # K3="1W" 自然周 — Pine request.security 语义); 4h/分钟周期传 ry_bar_minutes
@@ -644,23 +706,32 @@ def _attach_plus_with_warmup(
     try:
         first = rows[0].get("date")
         first_d = first if isinstance(first, date) else date.fromisoformat(str(first)[:10])
-        hist = repo.get_daily_asset(
-            asset_type, symbol,
+        hist = _read_daily_warmup(
+            repo, asset_type, symbol,
             first_d - timedelta(days=_PLUS_WARMUP_DAYS), first_d - timedelta(days=1),
-            columns=["date", "close"],
-        ).sort("date")
-        warmup = [float(c) if c is not None else None for c in hist["close"].to_list()]
+            ["date", "close"], raw_mode,
+        )
+        hist_dicts = hist.to_dicts()
+        if raw_mode:
+            # raw 口径 warmup: close ← raw_close (缺列/None 保持原值)
+            for r in hist_dicts:
+                rc = r.get("raw_close")
+                if rc is not None:
+                    r["close"] = rc
+        warmup = [float(r["close"]) if r.get("close") is not None else None for r in hist_dicts]
     except Exception:  # noqa: BLE001 — 预热读失败退化为窗口内递推
         logger.debug("plus warmup 读取失败 %s", symbol, exc_info=True)
     try:
         first = rows[0].get("date")
         first_d = first if isinstance(first, date) else date.fromisoformat(str(first)[:10])
-        hist2 = repo.get_daily_asset(
-            asset_type, symbol,
+        hist2 = _read_daily_warmup(
+            repo, asset_type, symbol,
             first_d - timedelta(days=_RY_WARMUP_DAYS), first_d - timedelta(days=1),
-            columns=["date", "open", "high", "low", "close", "volume"],
-        ).sort("date")
+            ["date", "open", "high", "low", "close", "volume"], raw_mode,
+        )
         warmup_rows = hist2.to_dicts()
+        if raw_mode:
+            _to_raw_ohlcv(warmup_rows)
     except Exception:  # noqa: BLE001
         logger.debug("ry warmup 读取失败 %s", symbol, exc_info=True)
     attach_plus_indicators(rows, warmup_closes=warmup, lookback=lookback)
@@ -671,6 +742,7 @@ def _attach_plus_with_warmup(
 def _attach_plus_with_agg_history(
     repo, asset_type: str, symbol: str, rows: list[dict],
     lookback: int, ry_bar_minutes: Optional[int], agg: str,
+    raw_mode: bool = False,
 ) -> list[dict]:
     """    agg 模式附着: 指标画在聚合 K 上 (Pine 周期语义), 对齐 TV 全历史递推。
 
@@ -686,17 +758,21 @@ def _attach_plus_with_agg_history(
     (窗口首日所在桶可能含窗口前数据 — 跨界桶, 与 TV 全历史分桶一致)。
     K2/K3 桶语义: _AGG_TF_MINUTES[agg] → rymain TV 高周期换算 (Pine
     request.security + f_resolveDynamicTimeframe: 周线 K2="4W" K3="2M" 等)。
+    raw_mode: 不复权模式 — warmup 全历史同口径换算 (窗口行已在端点层
+    换算), 聚合与递推全部在 raw 序列上进行。
     全历史读取失败时退化为窗口内聚合递推 (数值可用, 前期偏差)。
     """
     first = rows[0].get("date")
     first_d = first if isinstance(first, date) else date.fromisoformat(str(first)[:10])
     hist_rows: list[dict] = []
     try:
-        hist = repo.get_daily_asset(
-            asset_type, symbol, date(1990, 1, 1), first_d - timedelta(days=1),
-            columns=["date", "open", "high", "low", "close", "volume"],
-        ).sort("date")
+        hist = _read_daily_warmup(
+            repo, asset_type, symbol, date(1990, 1, 1), first_d - timedelta(days=1),
+            ["date", "open", "high", "low", "close", "volume"], raw_mode,
+        )
         hist_rows = hist.to_dicts()
+        if raw_mode:
+            _to_raw_ohlcv(hist_rows)
     except Exception:  # noqa: BLE001 — 全历史读失败退化为窗口内聚合
         logger.debug("agg warmup 全历史读取失败 %s", symbol, exc_info=True)
     # 拼接后一次性聚合 (窗口行可能带 is_live/指标列, 聚合函数只认 OHLCV/date)
@@ -1278,18 +1354,31 @@ def get_intraday(
     symbol: str = Query(..., description="标的代码"),
     period: str = Query(..., description="聚合周期: 15m | 60m"),
     days: int = Query(60, ge=1, le=60, description="最近交易日数量 (与 minute-range 同上限)"),
+    adjust: Optional[str] = Query(
+        None, description="复权方式: qfq(前复权,默认) | raw(不复权 — 跳过分钟读取时复权投影, 原始价)",
+    ),
 ):
     """图表工作台分钟聚合周期K (15m/60m) + 私有指标 (MACD+/RSI+) 服务端附着。
 
     私有化收口 (2026-10-14): MACD+/RSI+ 算法全部在服务端计算, 聚合口径与
     迁移前前端实现逐字段一致 (见 indicators/intraday.py 模块注释)。
     bars 的 date 标签 = "YYYY-MM-DD HH:mm" (桶内首根时间, 开始时刻语义)。
+    adjust=raw: 分钟存储为原始基准 + 读取时复权投影; raw 模式跳过投影
+    返回原始价, 指标在 raw 序列上重算 (与 /daily raw 模式同口径)。
     """
     import polars as pl
 
     minutes = {"15m": 15, "60m": 60}.get(period)
     if minutes is None or minutes not in INTRADAY_PERIODS:
         raise HTTPException(status_code=400, detail="period 仅支持 15m | 60m")
+    # 直调端点 (测试/内部调用) 时 FastAPI Query 默认对象会漏进来 — 同 get_daily 净化
+    if adjust is not None and not isinstance(adjust, str):
+        adjust = None
+    if adjust is None:
+        adjust = "qfq"
+    if adjust not in _ADJUST_MODES:
+        raise HTTPException(status_code=400, detail="adjust 仅支持 qfq | raw")
+    raw_mode = adjust == "raw"
 
     repo = request.app.state.repo
     asset_type = repo.resolve_asset_type(symbol)
@@ -1319,7 +1408,8 @@ def get_intraday(
     # 指标需全历史口径对齐 TV (2026-10-22 600519 分钟K已扩至 2025-08 起;
     # 窗口内有什么用什么, 其他标的自动退化为存量深度)
     start = end - timedelta(days=days * 7 + 30)
-    minute = repo.get_minute_range([symbol], start, end, asset_type=asset_type)
+    minute = repo.get_minute_range([symbol], start, end, asset_type=asset_type,
+                                   apply_adjust=not raw_mode)
     if minute.is_empty() or "datetime" not in minute.columns:
         return _gzip_payload(
             request,

@@ -17,6 +17,9 @@
  * - 日K/4h: 不进轮询 (staleTime Infinity), 由全局 SSE quotes_updated 推送 +
  *          klineDailyLatest 单行增量合并 (见 useQuoteStream 的 chart 窗格注册表),
  *          末根实时价自动覆盖 (4h 用 160 档 latest, 合并进 4h 专用缓存)。
+ * - raw 模式 (不复权): SSE 合并不注册 — daily/latest 单行是 qfq 口径
+ *          (今日 OHLC 两口径同价, 但附着的指标字段是 qfq 序列算的), 合进 raw
+ *          缓存会污染指标; 与 agg 周期同方案 (静止到下次重拉, 见 Chart.tsx)。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -25,6 +28,7 @@ import { QK } from '@/lib/queryKeys'
 import { chartIntradayRefetchInterval } from '@/lib/kline'
 import type { OHLC, RyFvgBox } from '@/components/EChartsCandlestick'
 import { DEFAULT_PERIOD, periodDef, type Period } from './periods'
+import type { AdjustMode } from './useChartLayout'
 import type { ResampledBar } from './minuteResample'
 import { enrichChartIndicators } from './indicators'
 
@@ -140,20 +144,22 @@ export interface ChartPaneData {
 }
 
 /** 日K源窗格的共享装配: 基础 + 额外历史合并 → 去重升序。
- *  基础 daily 查询与 extra 区间查询按 plusLookback/agg 区分 (1d=默认/4h=160/agg 周期后端按 Pine 档推导);
+ *  基础 daily 查询与 extra 区间查询按 plusLookback/agg/adjust 区分 (1d=默认/4h=160/agg 周期后端按 Pine 档推导;
+ *  qfq/raw 两口径数据语义不同, 缓存键必须隔离);
  *  ryBarMinutes: 融易 K2/K3 桶语义 (4h 面板传 240 → K2/K3=1天桶=当前级)。
  *  agg (2d/4d/1w/1M): 后端在聚合 K 上重算私有指标 (Pine 周期语义, warmup 同口径聚合)。
+ *  adjust: qfq=前复权(默认) / raw=不复权 — 后端 OHLC 换原始价 + 指标 raw 序列重算。
  *  已知限制: 2d/4d 的计数分组与窗口起点相关, 「往左加载更多」跨页时桶边界可能漂移;
  *  1w/1M 为自然周/月分组, 与窗口无关, 无此问题。 */
-function useDailySourced(symbol: string, enabled: boolean, plusLookback: number | undefined, ryBarMinutes?: number, agg?: string) {
+function useDailySourced(symbol: string, enabled: boolean, plusLookback: number | undefined, ryBarMinutes?: number, agg?: string, adjust: AdjustMode = 'qfq') {
   const daily = useQuery({
     enabled: enabled && !!symbol,
     queryKey: agg
-      ? ['chart', 'kline-daily-agg', symbol, agg]
+      ? ['chart', 'kline-daily-agg', symbol, agg, adjust]
       : plusLookback
-        ? QK.chartKlineDaily4h(symbol)
-        : QK.chartKlineDaily(symbol, DAILY_FETCH_DAYS),
-    queryFn: () => api.klineDaily(symbol, DAILY_FETCH_DAYS, undefined, undefined, plusLookback, ryBarMinutes, agg),
+        ? QK.chartKlineDaily4h(symbol, adjust)
+        : QK.chartKlineDaily(symbol, DAILY_FETCH_DAYS, adjust),
+    queryFn: () => api.klineDaily(symbol, DAILY_FETCH_DAYS, undefined, undefined, plusLookback, ryBarMinutes, agg, adjust),
     staleTime: Infinity,
     gcTime: 10 * 60_000,
   })
@@ -166,11 +172,11 @@ function useDailySourced(symbol: string, enabled: boolean, plusLookback: number 
   const extra = useQuery({
     enabled: enabled && !!symbol && !!lastRange,
     queryKey: plusLookback
-      ? QK.chartKlineDaily4hExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? '')
+      ? QK.chartKlineDaily4hExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? '', adjust)
       : agg
-        ? (['chart', 'kline-daily-extra-agg', symbol, agg, lastRange?.start ?? '', lastRange?.end ?? ''] as const)
-        : QK.chartKlineDailyExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? ''),
-    queryFn: () => api.klineDaily(symbol, 0, { start: lastRange!.start, end: lastRange!.end }, undefined, plusLookback, ryBarMinutes, agg),
+        ? (['chart', 'kline-daily-extra-agg', symbol, agg, adjust, lastRange?.start ?? '', lastRange?.end ?? ''] as const)
+        : QK.chartKlineDailyExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? '', adjust),
+    queryFn: () => api.klineDaily(symbol, 0, { start: lastRange!.start, end: lastRange!.end }, undefined, plusLookback, ryBarMinutes, agg, adjust),
     staleTime: Infinity,
     gcTime: 10 * 60_000,
   })
@@ -187,11 +193,11 @@ function useDailySourced(symbol: string, enabled: boolean, plusLookback: number 
   }, [extra.data, lastRange])
 
   // 数据源标识变化时清空「往左加载更多」累积 (渲染期重置 state, React 官方模式):
-  // 不同周期/标的的 extra 行不可跨源复用 (agg 周期 extra 行是后端聚合 K, 粒度与
-  // 1d 原始日K行不同; 换标的后残留行是另一只票的数据), 跨源残留会混进合并序列
-  // (mergeDailyRows 按日期去重, 粒度/标的不同的日期互异 → 全保留)。
+  // 不同周期/复权/标的的 extra 行不可跨源复用 (agg 周期 extra 行是后端聚合 K, 粒度与
+  // 1d 原始日K行不同; qfq/raw 两口径价格基准不同; 换标的后残留行是另一只票的数据),
+  // 跨源残留会混进合并序列 (mergeDailyRows 按日期去重, 粒度/标的不同的日期互异 → 全保留)。
   // prevExtraKeyRef 同步重置: 清空后再点加载更多即使算出相同区间也要重新累积。
-  const sourceKey = `${plusLookback ? '4h' : (agg ?? '1d')}|${symbol}`
+  const sourceKey = `${plusLookback ? '4h' : (agg ?? '1d')}|${adjust}|${symbol}`
   const prevSourceRef = useRef(sourceKey)
   if (prevSourceRef.current !== sourceKey) {
     prevSourceRef.current = sourceKey
@@ -233,7 +239,7 @@ function useDailySourced(symbol: string, enabled: boolean, plusLookback: number 
   }
 }
 
-export function useChartPaneData(symbol: string, period: Period) {
+export function useChartPaneData(symbol: string, period: Period, adjust: AdjustMode = 'qfq') {
   const def = periodDef(period)
   // 分钟级 (15m/60m) 走服务端聚合接口; 日级以上走日K; 4h (minutes=240) 走日K 160 档
   const isMinute = def.minutes === 15 || def.minutes === 60
@@ -250,13 +256,14 @@ export function useChartPaneData(symbol: string, period: Period) {
     is4h ? PLUS_LOOKBACK_4H : undefined,
     is4h ? 240 : undefined,
     !isMinute && !is4h ? dailyAggKey : undefined,
+    adjust,
   )
 
-  // 分钟聚合周期 (15m/60m): 服务端聚合 + 私有指标附着
+  // 分钟聚合周期 (15m/60m): 服务端聚合 + 私有指标附着 (adjust 隔离缓存键)
   const intraday = useQuery({
     enabled: isMinute && !!symbol,
-    queryKey: QK.chartIntraday(symbol, intradayPeriod ?? ''),
-    queryFn: () => api.klineIntraday(symbol, intradayPeriod as '15m' | '60m'),
+    queryKey: QK.chartIntraday(symbol, intradayPeriod ?? '', adjust),
+    queryFn: () => api.klineIntraday(symbol, intradayPeriod as '15m' | '60m', 60, adjust),
     staleTime: 60_000,
     gcTime: 10 * 60_000,
     // 盘中 15s 重拉 (服务端读本地分钟K, 末根随落库轮次更新);

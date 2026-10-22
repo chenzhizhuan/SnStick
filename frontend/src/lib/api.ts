@@ -2954,7 +2954,9 @@ export const api = {
   redetectCapabilities: () =>
     request<CapabilitiesResponse>('/api/capabilities/redetect', { method: 'POST' }),
 
-  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string, plusLookback?: number, ryBarMinutes?: number, agg?: string) =>
+  /** adjust: 复权方式 — 'raw' 不复权 (OHLC 换回原始价, 指标 raw 序列重算);
+   *  'qfq'/undefined 走服务端默认 (前复权), URL 不变保证其他页面缓存共享 */
+  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string, plusLookback?: number, ryBarMinutes?: number, agg?: string, adjust?: string) =>
     request<KlineDailyResponse>(
       (dateRange
         ? `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
@@ -2962,7 +2964,8 @@ export const api = {
       + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : '')
       + (plusLookback ? `&plus_lookback=${plusLookback}` : '')
       + (ryBarMinutes ? `&ry_bar_minutes=${ryBarMinutes}` : '')
-      + (agg ? `&agg=${agg}` : ''),
+      + (agg ? `&agg=${agg}` : '')
+      + (adjust && adjust !== 'qfq' ? `&adjust=${adjust}` : ''),
     ),
   klineDailyLatest: (symbol: string, plusLookback?: number, ryBarMinutes?: number) =>
     request<KlineDailyLatestResponse>(
@@ -2970,10 +2973,12 @@ export const api = {
       + (plusLookback ? `&plus_lookback=${plusLookback}` : '')
       + (ryBarMinutes ? `&ry_bar_minutes=${ryBarMinutes}` : ''),
     ),
-  /** 图表工作台分钟聚合周期K (15m/60m): 服务端聚合 + MACD+/RSI+ 附着 (私有化收口) */
-  klineIntraday: (symbol: string, period: '15m' | '60m', days = 60) =>
+  /** 图表工作台分钟聚合周期K (15m/60m): 服务端聚合 + MACD+/RSI+ 附着 (私有化收口);
+   *  adjust='raw' 跳过分钟读取时复权投影 (原始价) */
+  klineIntraday: (symbol: string, period: '15m' | '60m', days = 60, adjust?: string) =>
     request<KlineIntradayResponse>(
-      `/api/kline/intraday?symbol=${encodeURIComponent(symbol)}&period=${period}&days=${days}`,
+      `/api/kline/intraday?symbol=${encodeURIComponent(symbol)}&period=${period}&days=${days}`
+      + (adjust && adjust !== 'qfq' ? `&adjust=${adjust}` : ''),
     ),
   klineDailyBatch: (symbols: string[], days = 12) =>
     request<{ data: Record<string, KlineRow[]> }>('/api/kline/daily-batch', {

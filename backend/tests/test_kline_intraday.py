@@ -232,7 +232,7 @@ class _FakeRepo:
     def resolve_asset_type(self, symbol: str) -> str:
         return self.asset_type
 
-    def get_minute_range(self, symbols, start, end, asset_type: str = "stock"):
+    def get_minute_range(self, symbols, start, end, asset_type: str = "stock", apply_adjust: bool = True):
         return self._minute_frame
 
 

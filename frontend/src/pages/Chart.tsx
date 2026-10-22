@@ -56,7 +56,7 @@ function WPill({ active, label, title, onClick }: {
 }
 
 export function Chart() {
-  const { workspace, updatePane, setTemplate, setSync, setDrawTool, setSplitRatio } = useChartWorkspace()
+  const { workspace, updatePane, setTemplate, setSync, setDrawTool, setSplitRatio, setAdjust } = useChartWorkspace()
 
   // ── 激活窗格 (键盘快捷键作用窗): 点击任意窗激活; 首窗默认激活 ──
   const [activePaneId, setActivePaneId] = useState<string | null>(null)
@@ -141,13 +141,20 @@ export function Chart() {
   // agg 周期 (2d/4d/1w/1M) 暂不注册: kline-daily-agg 缓存的实时合并需要
   // 聚合语义 (当周/当月桶吸收日线实时行), 未实现前注册只会空拉 (合并目标
   // 键匹配不到); agg 末根已由后端聚合含实时数据, 静止到下次重拉不影响正确性。
+  // raw 模式 (不复权) 同样不注册: daily/latest 单行是 qfq 口径指标,
+  // 合进 raw 缓存会污染末根指标; 分钟窗格保留 15s 轮询 (轮询带 adjust=raw)。
   useEffect(() => {
+    const raw = workspace.adjust === 'raw'
     const dailyPanes = workspace.panes.filter(p => p.period === '1d')
     const panes4h = workspace.panes.filter(p => p.period === '4h')
     const panesMinute = workspace.panes.filter(p => p.period === '15m' || p.period === '60m')
-    setChartLiveSymbols(dailyPanes.map(p => p.symbol), panes4h.map(p => p.symbol), panesMinute.map(p => p.symbol))
+    setChartLiveSymbols(
+      raw ? [] : dailyPanes.map(p => p.symbol),
+      raw ? [] : panes4h.map(p => p.symbol),
+      raw ? [] : panesMinute.map(p => p.symbol),
+    )
     return () => clearChartLiveSymbols()
-  }, [workspace.panes])
+  }, [workspace.panes, workspace.adjust])
 
   return (
     <div className="flex h-full min-h-0 gap-2 p-2">
@@ -206,6 +213,24 @@ export function Chart() {
             />
           </div>
 
+          <span className="h-4 w-px bg-border" aria-hidden="true" />
+
+          <span className="text-xs text-muted">复权</span>
+          <div className="flex items-center gap-1">
+            <WPill
+              active={workspace.adjust === 'qfq'}
+              label="前复权"
+              title="前复权 (默认): 除权除息后价格向前折算, 指标在复权序列上计算"
+              onClick={() => setAdjust('qfq')}
+            />
+            <WPill
+              active={workspace.adjust === 'raw'}
+              label="不复权"
+              title="不复权 (TV 对拍口径): 显示交易所原始价, 私有指标在原始价序列上重算 — 与 TradingView 实盘布局一致"
+              onClick={() => setAdjust('raw')}
+            />
+          </div>
+
           <span className="ml-auto hidden truncate text-[10px] text-muted xl:inline">
             {workspace.drawTool !== 'cursor'
               ? `绘制模式: ${workspace.drawTool} — 在图上拖拽落定, Esc 回光标`
@@ -241,6 +266,7 @@ export function Chart() {
                   pane={pane}
                   drawTool={workspace.drawTool}
                   syncDrawings={workspace.sync.drawings}
+                  adjust={workspace.adjust}
                   onChange={patch => handlePaneChange(pane.id, patch)}
                   isActive={pane.id === activeId}
                   onActivate={() => setActivePaneId(pane.id)}

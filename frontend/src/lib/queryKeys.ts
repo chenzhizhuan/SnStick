@@ -148,15 +148,17 @@ export const QK = {
   // ===== 图表工作台 (/chart) =====
   // 日K不复用个股分析页 kline key: 该页 key 绑定 dateRange, 工作台按天数取更长历史;
   // 且不进 SSE_INVALIDATE_PREFIXES (P0 静态看图, 实时接入是 P3)。
-  chartKlineDaily:       (symbol: string, days: number) => ['chart', 'kline-daily', symbol, days] as const,
+  // adjust 段位: qfq(默认, 缺省值写进 key) | raw 不复权 — 两口径数据语义不同
+  // (OHLC 基准 + 指标重算), 缓存必须隔离, 缺省显式写 'qfq' 保持 key 可读。
+  chartKlineDaily:       (symbol: string, days: number, adjust?: string) => ['chart', 'kline-daily', symbol, days, adjust ?? 'qfq'] as const,
   // 「往左加载更多」额外历史日K: 按日期区间拉更早数据, 与 chartKlineDaily 合并去重
-  chartKlineDailyExtra:  (symbol: string, start: string, end: string) => ['chart', 'kline-daily-extra', symbol, start, end] as const,
+  chartKlineDailyExtra:  (symbol: string, start: string, end: string, adjust?: string) => ['chart', 'kline-daily-extra', symbol, start, end, adjust ?? 'qfq'] as const,
   // 4h 周期独立日K缓存: plus_lookback=160 档 (Pine 4h 预设), 与 1d 窗格的 50 档
   // 缓存分开 — 同 symbol 两口径并存时互不污染; 实时增量走 160 档 latest 合并。
-  chartKlineDaily4h:     (symbol: string) => ['chart', 'kline-daily-4h', symbol] as const,
-  chartKlineDaily4hExtra: (symbol: string, start: string, end: string) => ['chart', 'kline-daily-4h-extra', symbol, start, end] as const,
+  chartKlineDaily4h:     (symbol: string, adjust?: string) => ['chart', 'kline-daily-4h', symbol, adjust ?? 'qfq'] as const,
+  chartKlineDaily4hExtra: (symbol: string, start: string, end: string, adjust?: string) => ['chart', 'kline-daily-4h-extra', symbol, start, end, adjust ?? 'qfq'] as const,
   // 分钟聚合周期K (15m/60m): 服务端聚合 + 私有指标附着 (迁移自前端现场计算)
-  chartIntraday:         (symbol: string, period: string) => ['chart', 'intraday', symbol, period] as const,
+  chartIntraday:         (symbol: string, period: string, adjust?: string) => ['chart', 'intraday', symbol, period, adjust ?? 'qfq'] as const,
 } as const
 
 // ===== SSE 应该 invalidate 的 key 前缀列表 =====

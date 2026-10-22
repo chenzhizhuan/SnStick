@@ -1772,11 +1772,13 @@ class KlineRepository:
         start: date,
         end: date,
         asset_type: str = "stock",
+        apply_adjust: bool = True,
     ) -> pl.DataFrame:
         """多 symbol × 日期范围的分钟K查询 (分钟K精确回测用)。
 
         一次 scan_parquet + predicate pushdown 读多只股票在 [start, end] 内的所有分钟K。
         返回列: symbol, datetime, open, high, low, close, volume, amount。
+        apply_adjust=False 跳过读取时复权投影 (原始价直出, /intraday raw 模式用)。
         """
         if not symbols:
             return pl.DataFrame()
@@ -1794,6 +1796,8 @@ class KlineRepository:
                 .sort(["symbol", "datetime"]),
                 streaming=True,
             )
+            if not apply_adjust:
+                return df
             return self._maybe_adjust_minute(df, asset_type)
         except Exception as e:  # noqa: BLE001
             logger.warning("分钟K范围查询失败: %s", e)
