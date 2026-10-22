@@ -467,8 +467,12 @@ function buildRyFvgSeries(data: OHLC[], dateIndexMap: Map<string, number>): Reco
   }
   return {
     name: 'FVG', type: 'custom', coordinateSystem: 'cartesian2d',
+    // x 占位必须用末根索引: ECharts 按 dataZoom 窗口剔除窗口外的数据项 (renderItem
+    // 不触发) — 盒子索引 0/1/2 会被默认右侧窗口整批剔除 → 灰盒不渲染 (echarts 5.6
+    // SSR 实测 0 次回调)。末根在默认视图/范围档/右缘缩放下都在窗口内; 深度左移浏览
+    // 历史时 FVG 隐藏 (区间语义为延伸到末根的活跃区, 可接受)。
     // y 维 '-' 空值不参与轴 extent (占位 0 会拉爆 Y 轴 — 同 ry fill 教训)
-    data: boxes.map((_: RyFvgBox, i: number) => [i, '-']),
+    data: boxes.map(() => [lastIdx, '-']),
     renderItem, clip: true, silent: true, animation: false, z: 1,
   }
 }

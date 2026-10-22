@@ -298,6 +298,10 @@ it('FVG 活跃区间渲染 (末行 fvg_list → FVG custom series)', async () =>
   const fvg = (option?.series ?? []).find((s: any) => s.name === 'FVG')
   expect(fvg).toBeTruthy()
   expect(fvg.data).toHaveLength(2)
+  // x 占位 = 末根索引 (19), 不是盒子索引 0 — ECharts 按 dataZoom 窗口剔除窗口外
+  // 数据项 (renderItem 不触发), 盒子索引会被默认右侧窗口整批剔除 → 灰盒不渲染
+  expect(fvg.data[0][0]).toBe(19)
+  expect(fvg.data[1][0]).toBe(19)
   // y 维占位 '-' (不参与 Y 轴 extent — 防 0 拉爆)
   expect(fvg.data[0][1]).toBe('-')
 })
