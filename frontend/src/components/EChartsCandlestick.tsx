@@ -1100,7 +1100,8 @@ function buildOption(
   externalDrawings: DrawingObject[] | undefined,
   showRyDiamond: boolean,
   showRyDivergence: boolean,
-  xLabelMetrics: { current: { axisWidth: number; visibleCount: number } },
+  xLabelMetrics: { current: { axisWidth: number; visibleCount: number; containerWidth: number } },
+  symbol: string | undefined,
 ): EChartsOption {
   // 融易主图五层独立开关 (对齐 Pine OPEN_*): 任一层开 = 指标加载 (K 线着色/
   // 菱形/背离跟随, Pine 无独立开关); 主图 fund 背景不叠加 (Pine 主图 GLOBAL_SHOW_*=false)
@@ -1300,7 +1301,11 @@ function buildOption(
     splitArea: { show: false },
     axisLine: { show: false }, axisTick: { show: false },
     splitLine: { lineStyle: { color: CT().grid } },
-    axisLabel: { color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+    // TV 格式: 千分位 + 2 位小数 ("1,325.00") — 像素级校对 (2026-10-22)
+    axisLabel: {
+      color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
+      formatter: (v: number) => Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    },
   })
   xAxisIndices.push(0)
 
@@ -1382,7 +1387,8 @@ function buildOption(
   }
 
   // TV 同款现价标签: 末根收盘价贴在价格轴 (position 'end' = 横线右端 = 右侧轴区),
-  // 涨跌色背景白字, 实时行 (is_live) 前缀 ● 徽记 — 盯盘第一视觉锚点。
+  // 双段式 (左深色代码段 + 右浅色价格段, 涨青/跌红两套, 像素级校对 2026-10-22),
+  // 实时行 (is_live) 前缀 ● 徽记 — 盯盘第一视觉锚点。
   const lastBar = data[data.length - 1]
   if (lastBar != null && Number.isFinite(lastBar.close)) {
     const prevBar = data[data.length - 2]
@@ -1390,20 +1396,31 @@ function buildOption(
       ? lastBar.close >= prevBar.close
       : true
     const liveBadge = lastBar.is_live === true ? '●' : ''
+    const codeText = `${liveBadge}${(symbol ?? '').split('.')[0]}`
+    const deepBg = lastUp ? '#06735F' : '#A62B2B'   // 代码段 (TV 深青/深红)
+    const liteBg = lastUp ? '#26A69A' : '#E05C5C'   // 价格段 (TV 浅青/浅红)
     markLineData.push({
       yAxis: lastBar.close,
       symbol: 'none',
       lineStyle: { color: lastUp ? THEME.bull : THEME.bear, type: 'dashed', width: 1, opacity: 0.5 },
       label: {
         show: true,
-        formatter: `${liveBadge}${lastBar.close.toFixed(2)}`,
+        formatter: `{c|${codeText}}{p|${lastBar.close.toFixed(2)}}`,
         position: 'end',
-        color: '#FFFFFF',
-        backgroundColor: lastUp ? THEME.bull : THEME.bear,
-        borderRadius: 2,
-        padding: [2, 5],
-        fontSize: 10,
-        fontFamily: 'JetBrains Mono, monospace',
+        rich: {
+          c: {
+            color: '#FFFFFF', backgroundColor: deepBg,
+            padding: [3, 2, 3, 5], fontSize: 9,
+            fontFamily: 'JetBrains Mono, monospace',
+            borderRadius: [2, 0, 0, 2],
+          },
+          p: {
+            color: '#FFFFFF', backgroundColor: liteBg,
+            padding: [2, 5, 2, 2], fontSize: 10, fontWeight: 'bold',
+            fontFamily: 'JetBrains Mono, monospace',
+            borderRadius: [0, 2, 2, 0],
+          },
+        },
       },
     })
   }
@@ -1642,14 +1659,14 @@ function buildOption(
       if (showRyDiamond && d.ry_top_signal === true && d.ry_top_price != null) {
         markPointData.push({
           name: `ryT${d.date}`, coord: [d.date, d.ry_top_price],
-          symbol: 'diamond', symbolSize: compact ? 6 : 9, symbolOffset: [0, '-70%'],
+          symbol: 'diamond', symbolSize: compact ? 5 : 7, symbolOffset: [0, '-70%'],
           itemStyle: { color: RY_MID_BEAR }, label: { show: false }, z: 100, zlevel: 10,
         })
       }
       if (showRyDiamond && d.ry_btm_signal === true && d.ry_btm_price != null) {
         markPointData.push({
           name: `ryB${d.date}`, coord: [d.date, d.ry_btm_price],
-          symbol: 'diamond', symbolSize: compact ? 6 : 9, symbolOffset: [0, '70%'],
+          symbol: 'diamond', symbolSize: compact ? 5 : 7, symbolOffset: [0, '70%'],
           itemStyle: { color: RY_MID_BULL }, label: { show: false }, z: 100, zlevel: 10,
         })
       }
@@ -1797,7 +1814,20 @@ function buildOption(
         fontSize: 10,
       },
     },
-    graphic: infoGraphics.length > 0 ? infoGraphics : undefined,
+    graphic: (() => {
+      // X 轴背景带 (TV 底轴色带, 像素级校对 2026-10-22): 主图 grid 下方的标签隔离带
+      const g: any[] = []
+      const cw = xLabelMetrics.current.containerWidth
+      if (cw > 0) {
+        g.push({
+          type: 'rect', silent: true, z: 0,
+          left, top: topPad + candleAvail,
+          shape: { width: Math.max(cw - left - right, 50), height: candleBottomPad },
+          style: { fill: 'rgba(255,255,255,0.03)' },
+        })
+      }
+      return g.length > 0 || infoGraphics.length > 0 ? [...g, ...infoGraphics] : undefined
+    })(),
     visualMap: visualMaps.length > 0 ? visualMaps : undefined,
     grid: grids,
     xAxis: xAxes,
@@ -1880,8 +1910,8 @@ export function EChartsCandlestick({
   // --- 全部用 ref，避免高频交互触发 React 重渲染 ---
   const infoIdxRef = useRef<number>(data.length - 1)
   const compactRef = useRef(false)
-  // X 轴 TV 式刻度密度: dataZoom 监听实时更新 (目标 ~72px 间隔, 见 buildOption xLabelMetrics)
-  const xLabelMetricsRef = useRef({ axisWidth: 824, visibleCount: 60 })
+  // X 轴 TV 式刻度密度 + 轴带宽度: dataZoom/resize 监听实时更新 (见 buildOption xLabelMetrics)
+  const xLabelMetricsRef = useRef({ axisWidth: 824, visibleCount: 60, containerWidth: 930 })
   const userZoomRef = useRef<{ start: number; end: number } | null>(null)
   // 「往左加载更多」前插检测: 记录上次 setOption 时的数据, 判断新数据是否在头部前插了更早历史
   const prevDataRef = useRef<OHLC[]>([])
@@ -2414,7 +2444,7 @@ export function EChartsCandlestick({
       const total = d.length
       const visibleCount = Math.max(1, Math.round(total * (zoom.end - zoom.start) / 100))
       // X 轴刻度密度实时更新 (interval 闭包在每次轴渲染时重新调用, 无需 setOption)
-      xLabelMetricsRef.current = { axisWidth: Math.max(el.clientWidth - 46 - 60, 200), visibleCount }
+      xLabelMetricsRef.current = { axisWidth: Math.max(el.clientWidth - 46 - 60, 200), visibleCount, containerWidth: el.clientWidth }
       const newCompact = visibleCount > COMPACT_THRESHOLD
       if (newCompact !== compactRef.current) {
         compactRef.current = newCompact
@@ -2422,7 +2452,17 @@ export function EChartsCandlestick({
       }
     })
 
-    const ro = new ResizeObserver(() => { chart.resize() })
+    const ro = new ResizeObserver(() => {
+      const el2 = containerRef.current
+      if (el2) {
+        xLabelMetricsRef.current = {
+          ...xLabelMetricsRef.current,
+          containerWidth: el2.clientWidth,
+          axisWidth: Math.max(el2.clientWidth - 46 - 60, 200),
+        }
+      }
+      chart.resize()
+    })
     ro.observe(el)
 
     return () => {
@@ -2518,6 +2558,9 @@ export function EChartsCandlestick({
   useEffect(() => {
     const chart = chartRef.current
     if (!chart) return
+    // 轴带/刻度密度用实时宽度 (chart.getWidth() 含左右边距修正前真实画布宽; 测试 mock 无此 API)
+    const w = typeof chart.getWidth === 'function' ? chart.getWidth() : 0
+    if (w > 0) xLabelMetricsRef.current = { ...xLabelMetricsRef.current, containerWidth: w }
 
     const option = buildOption(
       data, dates, dateIndexMap,
@@ -2536,6 +2579,7 @@ export function EChartsCandlestick({
       showRyDiamond,
       showRyDivergence,
       xLabelMetricsRef,
+      _symbol,
     )
 
     chart.setOption(option, true)
