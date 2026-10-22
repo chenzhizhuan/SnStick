@@ -438,7 +438,8 @@ function buildRyMidTickSeries(data: OHLC[]): Record<string, any> {
     name: '中轨刻度',
     type: 'custom',
     coordinateSystem: 'cartesian2d',
-    data: data.map((d, i) => [i, d.ry_ema_mid ?? 0]),
+    // null 值不参与 Y 轴范围 (?? 0 会把轴拉到 0)
+    data: data.map((d, i) => [i, d.ry_ema_mid ?? null]),
     renderItem,
     clip: true, silent: true, animation: false, z: 1,
   }
@@ -1392,10 +1393,13 @@ function buildOption(
     series.push(ryChannelLine('ry_lower', '熊线', 1))
 
     // 2. 中轨 EMA24 (分段色: MACD 快线正负 → 二维 [值, trend] + visualMap) + 每根刻度竖线
+    // encode.y=0: Y 轴取第 0 维 (价格); 第 1 维 trend 只供 visualMap 分段色 —
+    // 二维 data 默认 y 取末维 (±1) 会把 Y 轴拉爆到 0~价格上限
     series.push({
       name: '中轨', type: 'line', z: 2, silent: true, animation: false,
       data: data.map(d => (d.ry_ema_mid != null
         ? [Number(d.ry_ema_mid), (d.ry_mid_trend ?? 0) >= 0 ? 1 : -1] : '-')),
+      encode: { y: 0 },
       smooth: false, symbol: 'none',
       lineStyle: { width: 2 },
     })
@@ -1408,7 +1412,7 @@ function buildOption(
     })
     series.push(buildRyMidTickSeries(data))
 
-    // 3. K/K2/K3 通道线 (trend=1 画 up 多头线 / -1 画 dn 空头线, 分段色)
+    // 3. K/K2/K3 通道线 (trend=1 画 up 多头线 / -1 画 dn 空头线, 分段色; encode.y=0 同中轨)
     const kChannelLine = (trendKey: keyof OHLC, upKey: keyof OHLC, dnKey: keyof OHLC, name: string) => ({
       name, type: 'line', z: 2, silent: true, animation: false,
       data: data.map(d => {
@@ -1416,6 +1420,7 @@ function buildOption(
         const v = t === 1 ? d[upKey] : t === -1 ? d[dnKey] : null
         return v == null ? '-' : [Number(v), t === 1 ? 1 : -1]
       }),
+      encode: { y: 0 },
       smooth: false, symbol: 'none',
       lineStyle: { width: 2 },
     })
