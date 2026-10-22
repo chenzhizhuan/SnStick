@@ -143,11 +143,28 @@ function computeRSI(closes: number[], n: number): (number | null)[] {
 
 // ── 入口 ────────────────────────────────────────────────
 
+/** enrich 输入 bar 公共必需字段 (分钟聚合 bars 与日K行映射的交集;
+ *  volume/amount 宽松可选 — 日K行 volume 可空、无 amount 字段)。 */
+type EnrichInputBase = {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume?: number
+  amount?: number | null
+}
+
 /** 对聚合周期 bars 现场计算公开指标 (MA/MACD/RSI), 私有指标字段 (macd_plus_*/
-/** rsi_plus) 从输入 bar 透传 — 服务端 /api/kline/intraday 附着。 */
-export function enrichChartIndicators(bars: IntradayInputBar[]): EnrichedBar[] {
+/** rsi_plus) 从输入 bar 透传 — 服务端 /api/kline/intraday 或 /daily?agg= 附着。
+ *  泛型保留输入 bar 的全部字段 (含日K is_live / fvg_list 等下游仍消费的字段):
+ *  分钟路径 T=IntradayInputBar, 日级 agg 路径 T=OHLC。 */
+export function enrichChartIndicators<T extends EnrichInputBase & Partial<ChartIndicatorFields>>(
+  bars: T[],
+): (T & ChartIndicatorFields)[] {
   const closes = bars.map(b => b.close)
-  const out: EnrichedBar[] = bars.map(b => ({ ...b }))
+  // spread 先保留输入全字段; 循环立即补齐 ChartIndicatorFields 全部键, 断言安全
+  const out = bars.map(b => ({ ...b })) as (T & ChartIndicatorFields)[]
 
   const ma5 = rollingMA(closes, 5)
   const ma10 = rollingMA(closes, 10)

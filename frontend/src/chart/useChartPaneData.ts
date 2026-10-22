@@ -2,7 +2,9 @@
  * 图表工作台 pane 数据 hook — 周期路由 + 指标装配。
  *
  * 私有化收口 (2026-10-14): MACD+/RSI+ 全部由服务端计算 —
- * - 1d/2d/4d/1w/1M: api.klineDaily (后端 plus.py 附着 50 档, 指标字段透传)
+ * - 1d:      api.klineDaily (后端 plus.py 附着 50 档, 指标字段透传)
+ * - 2d/4d/1w/1M: api.klineDaily?agg= (后端聚合 K + 私有指标在聚合 K 上重算,
+ *           Pine 周期语义; 公开指标前端 enrichChartIndicators 现场重算)
  * - 15m/60m: api.klineIntraday (后端 intraday.py 聚合 + 附着, bars 含 plus 字段),
  *           前端现场只算公开指标 (MA/MACD/RSI 原版)
  * - 4h:      api.klineDaily?plus_lookback=160 (A股全天 240 分钟 = 每天 1 根 4h 桶,
@@ -24,7 +26,6 @@ import { chartIntradayRefetchInterval } from '@/lib/kline'
 import type { OHLC, RyFvgBox } from '@/components/EChartsCandlestick'
 import { DEFAULT_PERIOD, periodDef, type Period } from './periods'
 import type { ResampledBar } from './minuteResample'
-import { resampleDaily } from './dailyResample'
 import { enrichChartIndicators } from './indicators'
 
 /** 分钟K轮询间隔 (盘中 15s; 盘后服务端返回不变数据, 成本低可接受, 后续可加停表)。 */
@@ -139,29 +140,37 @@ export interface ChartPaneData {
 }
 
 /** 日K源窗格的共享装配: 基础 + 额外历史合并 → 去重升序。
- *  基础 daily 查询与 extra 区间查询按 plusLookback 区分 (1d=默认/4h=160);
- *  ryBarMinutes: 融易 K2/K3 桶语义 (4h 面板传 240 → K2/K3=1天桶=当前级)。 */
-function useDailySourced(symbol: string, enabled: boolean, plusLookback: number | undefined, ryBarMinutes?: number) {
+ *  基础 daily 查询与 extra 区间查询按 plusLookback/agg 区分 (1d=默认/4h=160/agg 周期后端按 Pine 档推导);
+ *  ryBarMinutes: 融易 K2/K3 桶语义 (4h 面板传 240 → K2/K3=1天桶=当前级)。
+ *  agg (2d/4d/1w/1M): 后端在聚合 K 上重算私有指标 (Pine 周期语义, warmup 同口径聚合)。
+ *  已知限制: 2d/4d 的计数分组与窗口起点相关, 「往左加载更多」跨页时桶边界可能漂移;
+ *  1w/1M 为自然周/月分组, 与窗口无关, 无此问题。 */
+function useDailySourced(symbol: string, enabled: boolean, plusLookback: number | undefined, ryBarMinutes?: number, agg?: string) {
   const daily = useQuery({
     enabled: enabled && !!symbol,
-    queryKey: plusLookback
-      ? QK.chartKlineDaily4h(symbol)
-      : QK.chartKlineDaily(symbol, DAILY_FETCH_DAYS),
-    queryFn: () => api.klineDaily(symbol, DAILY_FETCH_DAYS, undefined, undefined, plusLookback, ryBarMinutes),
+    queryKey: agg
+      ? ['chart', 'kline-daily-agg', symbol, agg]
+      : plusLookback
+        ? QK.chartKlineDaily4h(symbol)
+        : QK.chartKlineDaily(symbol, DAILY_FETCH_DAYS),
+    queryFn: () => api.klineDaily(symbol, DAILY_FETCH_DAYS, undefined, undefined, plusLookback, ryBarMinutes, agg),
     staleTime: Infinity,
     gcTime: 10 * 60_000,
   })
 
   // ── 「往左加载更多」: 日K路径额外历史区间 (更早数据, 每次向前翻 EXTRA_HISTORY_DAYS) ──
   // extraRanges 累积已请求区间 (query key 只对应最新区间, 历史区间数据靠累积 state 保留)
+  // agg 周期的 extra 行是后端聚合 K, 与 1d 原始日K行粒度不同 → 缓存键必须隔离
   const [extraRanges, setExtraRanges] = useState<{ start: string; end: string }[]>([])
   const lastRange = extraRanges.length > 0 ? extraRanges[extraRanges.length - 1] : null
   const extra = useQuery({
     enabled: enabled && !!symbol && !!lastRange,
     queryKey: plusLookback
       ? QK.chartKlineDaily4hExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? '')
-      : QK.chartKlineDailyExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? ''),
-    queryFn: () => api.klineDaily(symbol, 0, { start: lastRange!.start, end: lastRange!.end }, undefined, plusLookback, ryBarMinutes),
+      : agg
+        ? (['chart', 'kline-daily-extra-agg', symbol, agg, lastRange?.start ?? '', lastRange?.end ?? ''] as const)
+        : QK.chartKlineDailyExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? ''),
+    queryFn: () => api.klineDaily(symbol, 0, { start: lastRange!.start, end: lastRange!.end }, undefined, plusLookback, ryBarMinutes, agg),
     staleTime: Infinity,
     gcTime: 10 * 60_000,
   })
@@ -176,6 +185,20 @@ function useDailySourced(symbol: string, enabled: boolean, plusLookback: number 
     prevExtraKeyRef.current = key
     setExtraRowsState(prev => mergeDailyRows(prev, rows))
   }, [extra.data, lastRange])
+
+  // 数据源标识变化时清空「往左加载更多」累积 (渲染期重置 state, React 官方模式):
+  // 不同周期/标的的 extra 行不可跨源复用 (agg 周期 extra 行是后端聚合 K, 粒度与
+  // 1d 原始日K行不同; 换标的后残留行是另一只票的数据), 跨源残留会混进合并序列
+  // (mergeDailyRows 按日期去重, 粒度/标的不同的日期互异 → 全保留)。
+  // prevExtraKeyRef 同步重置: 清空后再点加载更多即使算出相同区间也要重新累积。
+  const sourceKey = `${plusLookback ? '4h' : (agg ?? '1d')}|${symbol}`
+  const prevSourceRef = useRef(sourceKey)
+  if (prevSourceRef.current !== sourceKey) {
+    prevSourceRef.current = sourceKey
+    setExtraRanges([])
+    setExtraRowsState([])
+    prevExtraKeyRef.current = ''
+  }
 
   // 合并后的日K行 (基础 + 额外累积, 按日期升序去重); ref 供 loadMore 计算下一次区间
   const mergedRows = useMemo(
@@ -216,10 +239,18 @@ export function useChartPaneData(symbol: string, period: Period) {
   const isMinute = def.minutes === 15 || def.minutes === 60
   const is4h = def.minutes === 240
   const dailyAgg = def.dailyAgg
+  // agg 周期键 (2d/4d/1w/1M) — 传给后端 /daily?agg= 的聚合周期标识
+  const dailyAggKey = dailyAgg ? def.key : undefined
   const intradayPeriod = def.minutes === 15 ? '15m' : def.minutes === 60 ? '60m' : null
 
-  // 日K源 (1d/2d/4d/1w/1M + 4h): 4h 用独立缓存 + 160 档私有指标
-  const dailySourced = useDailySourced(symbol, !isMinute || is4h, is4h ? PLUS_LOOKBACK_4H : undefined, is4h ? 240 : undefined)
+  // 日K源 (1d/2d/4d/1w/1M + 4h): 4h 用独立缓存 + 160 档私有指标;
+  // agg 周期 (2d/4d/1w/1M) 后端聚合 + 私有指标在聚合 K 上重算 (lookback 按 Pine 档推导)
+  const dailySourced = useDailySourced(
+    symbol, !isMinute || is4h,
+    is4h ? PLUS_LOOKBACK_4H : undefined,
+    is4h ? 240 : undefined,
+    !isMinute && !is4h ? dailyAggKey : undefined,
+  )
 
   // 分钟聚合周期 (15m/60m): 服务端聚合 + 私有指标附着
   const intraday = useQuery({
@@ -253,11 +284,12 @@ export function useChartPaneData(symbol: string, period: Period) {
       const mapped = rows.map(mapDailyRow)
       return mapped.map((d, i) => ({ ...d, date: bars4h[i].date, volume: bars4h[i].volume }))
     }
-    // 1d 原生透传; 2d/4d/1w/1M 按交易日聚合后, 指标取桶内末值透传
+    // 1d 原生透传; 2d/4d/1w/1M 后端已聚合并在聚合 K 上重算私有指标 (Pine 周期语义),
+    // 公开指标 (MA/BOLL/原版 MACD/RSI) 前端现场重算
     const mapped = rows.map(mapDailyRow)
-    const agged = dailyAgg ? resampleDaily(mapped, dailyAgg) : mapped
-    return agged
-  }, [isMinute, is4h, dailySourced.isLoading, dailySourced.mergedRows, dailyAgg, intraday.data])
+    if (!dailyAgg) return mapped
+    return enrichChartIndicators(mapped)
+  }, [isMinute, is4h, dailySourced.isLoading, dailySourced.mergedRows, dailyAgg, dailyAggKey, intraday.data])
 
   return {
     data,

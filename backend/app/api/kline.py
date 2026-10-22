@@ -416,6 +416,9 @@ def get_daily(
         None, ge=1, le=1440,
         description="融易 K2/K3 桶语义输入周期分钟数 (4h 面板传 240 → K2/K3=1天桶=当前级; 默认 None=日K档 4/8 根)",
     ),
+    agg: Optional[str] = Query(
+        None, description="聚合周期: 2d|4d|1w|1M — 在聚合 K 上重算私有指标 (Pine 周期语义; warmup 同口径聚合)",
+    ),
 ):
     """读取本地 enriched 表中某只股票的日 K。
 
@@ -425,6 +428,16 @@ def get_daily(
       (key 为 "{config_id}__{field_name}")，供日K信息条等场景展示自定义字段
     """
     import polars as pl
+
+    # 直调端点 (测试/内部调用) 时 FastAPI Query 默认对象会漏进来 —
+    # 与 _resolve_plus_lookback 同款净化: 只认真实字符串, 其余 (Query 对象) 视为未传
+    if agg is not None and not isinstance(agg, str):
+        agg = None
+    if agg is not None and agg not in _AGG_LOOKBACK:
+        raise HTTPException(status_code=400, detail="agg 仅支持 2d | 4d | 1w | 1M")
+    # agg 模式下 lookback 未传时按 Pine 量级标尺预设档推导 (1w=10, 1M=3, 其余=50)
+    if agg is not None and plus_lookback is None:
+        plus_lookback = _AGG_LOOKBACK[agg]
 
     repo = request.app.state.repo
     # 未传 end_date 时用北京今天: 实时注入只在内存缓存命中时补当日 K,
@@ -474,10 +487,14 @@ def get_daily(
         rows = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end)).to_dicts()
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
+        # agg 模式: 先聚合成高粒度 K (指标在聚合 K 上重算, Pine 周期语义)
+        if agg:
+            rows = _resample_daily_rows(rows, agg)
         # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
         rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                         lookback=_resolve_plus_lookback(plus_lookback),
-                                        ry_bar_minutes=ry_bar_minutes)
+                                        ry_bar_minutes=None if agg else ry_bar_minutes,
+                                        agg=agg)
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
         return _gzip_payload(
             request,
@@ -489,10 +506,14 @@ def get_daily(
 
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
+    # agg 模式: 先聚合成高粒度 K (指标在聚合 K 上重算, Pine 周期语义)
+    if agg:
+        rows = _resample_daily_rows(rows, agg)
     # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
     rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                     lookback=_resolve_plus_lookback(plus_lookback),
-                                    ry_bar_minutes=ry_bar_minutes)
+                                    ry_bar_minutes=None if agg else ry_bar_minutes,
+                                    agg=agg)
 
     resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
     return _gzip_payload(
@@ -523,9 +544,73 @@ def _resolve_plus_lookback(plus_lookback) -> int:
     return _T_LOOKBACK_DAILY
 
 
+def _resample_daily_rows(rows: list[dict], agg: str) -> list[dict]:
+    """聚合日级行为更高粒度 K (2d/4d=每 N 交易日, 1w=自然周 ISO, 1M=自然月)。
+
+    Pine 周期语义: 指标永远画在当前周期 K 上 — 聚合后只留 OHLCV/date/amount,
+    公开指标由前端 enrichChartIndicators 现场重算, 私有指标 (plus/ry) 由
+    _attach_plus_with_warmup(agg=...) 在聚合序列上重算 (warmup 日线同口径聚合)。
+    date 取桶首根日期 (与前端 resampleDaily 口径一致, 字典序可比较)。
+    is_live: 桶内任一行带实时标记 (当日实时蜡烛只出现在末行) → 桶继承,
+    末根活动桶保留前端现价标签的实时徽记语义。
+    """
+    n = 0
+    if agg.endswith("d") and agg[:-1].isdigit():
+        n = int(agg[:-1])
+    if n == 0 and agg not in ("1w", "1M"):
+        return rows
+    out: list[dict] = []
+    cur: dict | None = None
+    cur_key: tuple | None = None
+    count = 0
+    for r in rows:
+        d = str(r.get("date"))[:10]
+        key: tuple | None = None
+        if agg in ("1w", "1M"):
+            dd = date.fromisoformat(d)
+            key = (dd.isocalendar()[0], dd.isocalendar()[1]) if agg == "1w" else (dd.year, dd.month)
+            new_bucket = cur is None or key != cur_key
+        else:
+            new_bucket = cur is None or count >= n
+        if new_bucket:
+            if cur is not None:
+                out.append(cur)
+            cur = {
+                "date": d,
+                "open": r.get("open"), "high": r.get("high"),
+                "low": r.get("low"), "close": r.get("close"),
+                "volume": r.get("volume") or 0,
+                "amount": r.get("amount"),
+                "is_live": r.get("is_live") is True,
+            }
+            cur_key = key
+            count = 1
+        elif cur is not None:
+            h, l = r.get("high"), r.get("low")
+            if h is not None and (cur.get("high") is None or h > cur["high"]):
+                cur["high"] = h
+            if l is not None and (cur.get("low") is None or l < cur["low"]):
+                cur["low"] = l
+            cur["close"] = r.get("close")
+            cur["volume"] = (cur.get("volume") or 0) + (r.get("volume") or 0)
+            ca, ra = cur.get("amount"), r.get("amount")
+            cur["amount"] = (ca + ra) if (ca is not None and ra is not None) else (ca if ca is not None else ra)
+            if r.get("is_live") is True:
+                cur["is_live"] = True
+            count += 1
+    if cur is not None:
+        out.append(cur)
+    return out
+
+
+# agg 周期 → Pine 量级标尺预设档 (附图 f_getPresetLookback: <1周=50, <1月=10, ≥1月=3)
+_AGG_LOOKBACK = {"1w": 10, "1M": 3, "2d": 50, "4d": 50}
+
+
 def _attach_plus_with_warmup(
     repo, asset_type: str, symbol: str, rows: list[dict], lookback: int = _T_LOOKBACK_DAILY,
     ry_bar_minutes: Optional[int] = None,
+    agg: Optional[str] = None,
 ) -> list[dict]:
     """MACD+/RSI+ + 融易主图 附着 (带窗口前历史 warmup)。
 
@@ -535,6 +620,8 @@ def _attach_plus_with_warmup(
     历史读失败时退化为窗口内递推 (数值仍可用, 仅前期偏差)。
     lookback: 量级缩放窗口 (日K默认 50; 4h 周期前端传 160 — Pine 周期预设档)。
     ry_bar_minutes: 融易 K2/K3 桶语义输入周期 (4h 面板传 240; None=日K档)。
+    agg: 聚合周期 (2d/4d/1w/1M) — rows 已是聚合 K; warmup 日线拉出后先
+    同口径聚合再拼接递推 (Pine 语义: 指标画在聚合 K 上, warmup 同周期)。
     """
     if not rows:
         return rows
@@ -551,7 +638,11 @@ def _attach_plus_with_warmup(
             first_d - timedelta(days=_PLUS_WARMUP_DAYS), first_d - timedelta(days=1),
             columns=["date", "close"],
         ).sort("date")
-        warmup = [float(c) if c is not None else None for c in hist["close"].to_list()]
+        if agg:
+            agg_rows = _resample_daily_rows(hist.to_dicts(), agg)
+            warmup = [float(r["close"]) if r.get("close") is not None else None for r in agg_rows]
+        else:
+            warmup = [float(c) if c is not None else None for c in hist["close"].to_list()]
     except Exception:  # noqa: BLE001 — 预热读失败退化为窗口内递推
         logger.debug("plus warmup 读取失败 %s", symbol, exc_info=True)
     try:
@@ -563,6 +654,8 @@ def _attach_plus_with_warmup(
             columns=["date", "open", "high", "low", "close", "volume"],
         ).sort("date")
         warmup_rows = hist2.to_dicts()
+        if agg:
+            warmup_rows = _resample_daily_rows(warmup_rows, agg)
     except Exception:  # noqa: BLE001
         logger.debug("ry warmup 读取失败 %s", symbol, exc_info=True)
     attach_plus_indicators(rows, warmup_closes=warmup, lookback=lookback)

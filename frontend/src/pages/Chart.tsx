@@ -13,7 +13,6 @@ import { ChartPane } from '@/chart/ChartPane'
 import { ChartSyncProvider } from '@/chart/ChartSyncContext'
 import { DrawingToolbar } from '@/chart/DrawingToolbar'
 import { clearChartLiveSymbols, setChartLiveSymbols } from '@/chart/liveSymbols'
-import { isMinutePeriod } from '@/chart/periods'
 import { useChartWorkspace, type PaneConfig, type SplitTemplate } from '@/chart/useChartLayout'
 import { cn } from '@/lib/cn'
 
@@ -136,11 +135,14 @@ export function Chart() {
   // P3 实时K线: 把窗格 symbol 注册进全局 SSE 增量表
   // (quotes_updated 推送时, useQuoteStream 拉当日单行合并进对应缓存)。
   // 三套口径: 4h 窗格 → 160 档 plus 增量 (kline-daily-4h 缓存);
-  // 其余日级窗格 → 默认 50 档 (kline-daily 缓存); 分钟窗格 (15m/60m) →
+  // 1d 窗格 → 默认 50 档 (kline-daily 缓存); 分钟窗格 (15m/60m) →
   // 实时价叠加 intraday 聚合缓存末根 (与日K窗格同节奏跳动, 15s 轮询仍
   // 保留作权威 OHLCV/指标回填)。setChartLiveSymbols 内部按 Set 去重无副作用。
+  // agg 周期 (2d/4d/1w/1M) 暂不注册: kline-daily-agg 缓存的实时合并需要
+  // 聚合语义 (当周/当月桶吸收日线实时行), 未实现前注册只会空拉 (合并目标
+  // 键匹配不到); agg 末根已由后端聚合含实时数据, 静止到下次重拉不影响正确性。
   useEffect(() => {
-    const dailyPanes = workspace.panes.filter(p => !isMinutePeriod(p.period) && p.period !== '4h')
+    const dailyPanes = workspace.panes.filter(p => p.period === '1d')
     const panes4h = workspace.panes.filter(p => p.period === '4h')
     const panesMinute = workspace.panes.filter(p => p.period === '15m' || p.period === '60m')
     setChartLiveSymbols(dailyPanes.map(p => p.symbol), panes4h.map(p => p.symbol), panesMinute.map(p => p.symbol))

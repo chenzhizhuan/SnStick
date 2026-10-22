@@ -3,6 +3,7 @@ import { dailyRowsTo4hBars, mergeDailyRows, shiftDate } from './useChartPaneData
 import { flattenSessions, resampleMinutes } from './minuteResample'
 import { enrichChartIndicators } from './indicators'
 import type { KlineRow, MinuteKlineSession } from '@/lib/api'
+import type { OHLC } from '@/components/EChartsCandlestick'
 
 const row = (date: string, close = 10): KlineRow => ({
   date, open: 10, high: 10, low: 10, close, volume: 100,
@@ -115,5 +116,30 @@ describe('dailyRowsTo4hBars (4h 周期日K数据源)', () => {
     // 公开指标照常计算
     expect(enriched[0].macd_dif).toBe(0) // 首行 EMA 同起步
     expect(enriched[1].macd_dif).not.toBeNull()
+  })
+})
+
+describe('enrichChartIndicators (日级 agg 路径: OHLC 输入)', () => {
+  it('公开指标在聚合 K 上现场重算, 私有字段透传, is_live 保留', () => {
+    // 模拟 mapDailyRow 产出的聚合 K 行 (后端 /daily?agg= 已在聚合 K 上重算私有指标)
+    const mk = (date: string, close: number, extra: Record<string, unknown> = {}): OHLC =>
+      ({ date, open: close - 0.1, high: close + 0.2, low: close - 0.3, close, ...extra } as OHLC)
+    const rows = [
+      mk('2026-09-21', 10, { ry_upper: 11.5, ry_mid: 10.5, k2_up: 12, is_live: false }),
+      mk('2026-09-28', 10.5, { ry_upper: 11.6, ry_mid: 10.6 }),
+      mk('2026-10-05', 11, { ry_upper: 11.7, ry_mid: 10.7, is_live: true }),
+    ]
+    const out = enrichChartIndicators(rows)
+    // 公开指标重算: MA5 窗口不足 → null (后端聚合行不携带 MA, 前端现场算)
+    expect(out.map(o => o.ma5)).toEqual([null, null, null])
+    // MACD 首行 adjust=False 同起步
+    expect(out[0].macd_dif).toBe(0)
+    // 私有字段透传 (后端在聚合 K 上重算的值不被前端覆盖)
+    expect(out[0].ry_upper).toBe(11.5)
+    expect(out[2].ry_upper).toBe(11.7)
+    expect(out[1].k2_up).toBeNull() // 未携带字段 → null (窗口前缀无值语义)
+    // is_live 保留 (末根活动桶实时徽记; 泛型签名修复的关键验证点)
+    expect(out[2].is_live).toBe(true)
+    expect(out[0].is_live).toBe(false)
   })
 })
