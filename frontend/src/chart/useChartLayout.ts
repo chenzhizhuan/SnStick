@@ -36,12 +36,12 @@ export const PANE_INDICATORS: readonly string[] = [
 /** 融易主图五层 key (旧统一 key 'ry' 迁移目标)。 */
 export const RY_MAIN_KEYS: readonly string[] = ['ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3']
 
-/** 信号开关 (默认全关, TV 同款按需开启) */
+/** 信号开关 (R5 梯形/背离显隐, 默认全开 — Pine 无独立开关, 工作台 UI 层控制) */
 export interface PaneSignals {
-  /** MA5×MA10 金叉/死叉标记 */
-  maCross?: boolean
-  /** RSI(14) 顶背离徽章 */
-  rsiDivergence?: boolean
+  /** R5 梯形菱形信号 (ry_top_signal/ry_btm_signal, 顶部红/底部青) */
+  ryDiamond?: boolean
+  /** R5 多指标背离计数方块 (div_top_count/div_btm_count, 顶部深蓝/底部黄) */
+  ryDivergence?: boolean
 }
 
 export interface PaneConfig {
@@ -105,7 +105,7 @@ export function defaultPane(id: string, opts: { symbol?: string; name?: string; 
     // 图表模块特例: 默认激活融易主图五层 (同 Pine 默认全开) + MACD+/RSI+ (R5 口径)
     activeIndicators: ['ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3', 'macd_plus', 'rsi_plus'],
     range: null,
-    signals: {},
+    signals: { ryDiamond: true, ryDivergence: true },
     sync: 'follow',
   }
 }
@@ -156,7 +156,17 @@ function normalizePane(raw: unknown, id: string): PaneConfig {
         )).slice(0, 12)
       : base.activeIndicators,
     range: typeof r.range === 'string' ? r.range : null,
-    signals: typeof r.signals === 'object' && r.signals !== null ? (r.signals as PaneSignals) : {},
+    signals: (() => {
+      // 旧键 (maCross/rsiDivergence 信号徽章) 已废弃; 新键缺省 = 开 (旧 localStorage
+      // 布局升级后菱形/背离保持可见, 与 R5 默认渲染一致)
+      const s = typeof r.signals === 'object' && r.signals !== null
+        ? (r.signals as Record<string, unknown>)
+        : {}
+      return {
+        ryDiamond: s.ryDiamond === undefined ? true : !!s.ryDiamond,
+        ryDivergence: s.ryDivergence === undefined ? true : !!s.ryDivergence,
+      }
+    })(),
     sync: r.sync === 'independent' ? 'independent' : 'follow',
   }
 }

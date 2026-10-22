@@ -3,7 +3,6 @@
  *
  * 职责边界:
  * - ChartTopbar 的语义化 patch (toggleIndicator/toggleSignal 等) 在这里转译为 PaneConfig 更新;
- * - 信号检测 (detectSignals) 只在有开关且数据就绪时执行, 产出 markers 直接喂给图表;
  * - 可见范围快捷栏: range key → 该周期目标根数 → dataZoom dispatch;
  * - 图间联动 (P1): chartReady 拿实例后注册 ChartSync 总线 — updateAxisPointer/dataZoom
  *   事件广播 (isApplying 防回环, 缩放 rAF 节流), 收端由总线 dispatch;
@@ -20,7 +19,6 @@ import { AlertCircle, Eraser, Link2, Loader2, Search, Unlink } from 'lucide-reac
 import { EChartsCandlestick } from '@/components/EChartsCandlestick'
 import { ChartTopbar, type ChartTopbarPatch } from './ChartTopbar'
 import { useChartPaneData } from './useChartPaneData'
-import { detectSignals } from './signals'
 import { rangeBars, zoomForBars } from './ranges'
 import { useChartSync } from './ChartSyncContext'
 import { DEFAULT_DRAW_STYLE, loadDrawings, paneDrawingsStorageKey, saveDrawings, type DrawPoint, type DrawTool, type DrawingObject } from './drawings'
@@ -102,15 +100,9 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
   const onDrawToolRef = useRef(onDrawTool)
   onDrawToolRef.current = onDrawTool
 
-  // ── 信号标记: 开关全关或数据未就绪时不产出 ──
-  const anySignal = !!(pane.signals.maCross || pane.signals.rsiDivergence)
-  const markers = useMemo(() => {
-    if (!anySignal || !data || data.length === 0) return undefined
-    return detectSignals(data, {
-      maCross: pane.signals.maCross,
-      rsiDivergence: pane.signals.rsiDivergence,
-    })
-  }, [anySignal, data, pane.signals.maCross, pane.signals.rsiDivergence])
+  // ── 信号标记: 旧 detectSignals (MA 金叉/RSI 顶背离徽章) 已下线 —
+  //  2026-10-22 顶栏开关更换为 R5 梯形菱形/背离方块显隐 (EChartsCandlestick
+  //  showRyDiamond/showRyDivergence, 直接过滤 markPoint, 无需前端再检测)
 
   // ── 可见范围快捷栏: range key → 目标根数 → dataZoom ──
   useEffect(() => {
@@ -542,11 +534,13 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
         ) : (
           <EChartsCandlestick
             data={data}
-            markers={markers}
             height={chartBoxH}
             // 1:1 对齐 TV 融易主图布局: Pine showmas=false (MA plot 注释掉) —
             // 工作台主图不叠加 MA5/10/20/60 四均线 (其他页面默认 true 不受影响)
             showMA={false}
+            // R5 梯形菱形/背离方块显隐 (顶栏开关, 默认开 — Pine 无独立开关)
+            showRyDiamond={pane.signals.ryDiamond !== false}
+            showRyDivergence={pane.signals.ryDivergence !== false}
             chartStyle={pane.chartStyle}
             // RSI 副图固定零轴震荡形态 (RSI-50, ±50) — 工作台既定形态, 无开关
             rsiZeroAxis

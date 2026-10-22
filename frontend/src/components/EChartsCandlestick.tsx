@@ -937,6 +937,10 @@ interface Props {
   chartReady?: (chart: ECharts | null) => void
   /** K 线样式: candle 蜡烛(默认) / hollow 空心 / line 收盘折线 / area 收盘面积 */
   chartStyle?: 'candle' | 'hollow' | 'line' | 'area'
+  /** R5 梯形菱形信号 (ry_top_signal/ry_btm_signal) 显隐, 默认开 (Pine 无独立开关, 工作台 UI 层控制) */
+  showRyDiamond?: boolean
+  /** R5 多指标背离方块 (div_top_count/div_btm_count) 显隐, 默认开 */
+  showRyDivergence?: boolean
   /** RSI 副图零轴震荡形态 (RSI-50, 显示范围 ±50); 默认 0-100 */
   rsiZeroAxis?: boolean
   /** 外部绘图层 (图表工作台): 趋势线/水平线/斐波/矩形, 数据坐标锚定自动重定位 */
@@ -1094,6 +1098,9 @@ function buildOption(
   chartStyle: 'candle' | 'hollow' | 'line' | 'area' | undefined,
   rsiZeroAxis: boolean,
   externalDrawings: DrawingObject[] | undefined,
+  showRyDiamond: boolean,
+  showRyDivergence: boolean,
+  xLabelMetrics: { current: { axisWidth: number; visibleCount: number } },
 ): EChartsOption {
   // 融易主图五层独立开关 (对齐 Pine OPEN_*): 任一层开 = 指标加载 (K 线着色/
   // 菱形/背离跟随, Pine 无独立开关); 主图 fund 背景不叠加 (Pine 主图 GLOBAL_SHOW_*=false)
@@ -1219,15 +1226,66 @@ function buildOption(
 
   // ===== grid 0: K线主图 =====
   grids.push({ left, right, top: topPad, height: candleAvail })
+  // ===== X 轴 TV 式刻度 (2026-10-22 对齐 TradingView 底轴) =====
+  // TV 规则: 月内刻度 = 日数字 (无前导零), 跨月首根 = "M月", 跨年首根 = "YYYY";
+  // 月份/年份节点优先占位 (贪心), 普通点按 stride 稀疏 — stride 由 dataZoom
+  // 窗口实时更新 (xLabelMetrics, 见组件 dataZoom 监听), 目标像素间隔 ~72px。
+  const xLabelOf: string[] = []
+  const xBoundary = new Set<number>()
+  {
+    let prevDay = ''
+    dates.forEach((d, i) => {
+      const day = String(d).slice(0, 10)
+      if (!prevDay) {
+        xLabelOf.push(String(parseInt(day.slice(8, 10), 10)))
+      } else if (day.slice(0, 4) !== prevDay.slice(0, 4)) {
+        xLabelOf.push(day.slice(0, 4))
+        xBoundary.add(i)
+      } else if (day.slice(0, 7) !== prevDay.slice(0, 7)) {
+        xLabelOf.push(`${parseInt(day.slice(5, 7), 10)}月`)
+        xBoundary.add(i)
+      } else {
+        xLabelOf.push(String(parseInt(day.slice(8, 10), 10)))
+      }
+      prevDay = day
+    })
+  }
   xAxes.push({
     type: 'category', data: dates, boundaryGap: true,
     axisLine: { lineStyle: { color: CT().border } },
-    // 平台原生全量长标签 (YYYY-MM-DD HH:mm) — 2026-10-22 依用户要求从
-    // "MM-DD\nHH:mm" 两行短格式复原; hideOverlap 保留 (964be0b5: 分钟周期
-    // 标签远宽于 bar 间距, 去掉会互相叠印出 "-89-22" 式伪影)
     axisLabel: {
       color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
-      hideOverlap: true,
+      formatter: (_v: string, index: number) => xLabelOf[index] ?? String(_v),
+      interval: (() => {
+        let lastShown = -1
+        let prevIdx = -1
+        return (index: number) => {
+          if (index <= prevIdx) lastShown = -1 // 新一轮轴渲染从左到右 → 重置贪心状态
+          prevIdx = index
+          const m = xLabelMetrics.current
+          const barW = m.axisWidth / Math.max(m.visibleCount, 1)
+          const stride = Math.max(2, Math.round(72 / Math.max(barW, 1)))
+          const minGap = xBoundary.has(index) ? 1 : stride
+          if (index - lastShown >= minGap) {
+            lastShown = index
+            return true
+          }
+          return false
+        }
+      })(),
+    },
+    // 十字悬浮标签: TV 格式 "周五 2026-10-09 09:30" (星期 + 全量日期时间)
+    axisPointer: {
+      label: {
+        formatter: (p: { value: unknown }) => {
+          const s = String(p.value)
+          const day = s.slice(0, 10)
+          const wd = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][
+            new Date(`${day}T00:00:00+08:00`).getDay()
+          ]
+          return `${wd} ${s}`
+        },
+      },
     },
     axisTick: { show: false },
     splitLine: { show: false },
@@ -1578,22 +1636,24 @@ function buildOption(
     }
 
     // 5. 梯形菱形信号 + 多指标背离计数标签 (markPoint)
+    //    工作台 UI 开关 (showRyDiamond/showRyDivergence) 控制显隐;
+    //    Pine 无独立开关 (恒渲染), 开关属工作台 UI 层 (默认开)。
     data.forEach(d => {
-      if (d.ry_top_signal === true && d.ry_top_price != null) {
+      if (showRyDiamond && d.ry_top_signal === true && d.ry_top_price != null) {
         markPointData.push({
           name: `ryT${d.date}`, coord: [d.date, d.ry_top_price],
           symbol: 'diamond', symbolSize: compact ? 6 : 9, symbolOffset: [0, '-70%'],
           itemStyle: { color: RY_MID_BEAR }, label: { show: false }, z: 100, zlevel: 10,
         })
       }
-      if (d.ry_btm_signal === true && d.ry_btm_price != null) {
+      if (showRyDiamond && d.ry_btm_signal === true && d.ry_btm_price != null) {
         markPointData.push({
           name: `ryB${d.date}`, coord: [d.date, d.ry_btm_price],
           symbol: 'diamond', symbolSize: compact ? 6 : 9, symbolOffset: [0, '70%'],
           itemStyle: { color: RY_MID_BULL }, label: { show: false }, z: 100, zlevel: 10,
         })
       }
-      if (d.div_top_count != null && d.div_top_count > 0) {
+      if (showRyDivergence && d.div_top_count != null && d.div_top_count > 0) {
         markPointData.push({
           name: `dvT${d.date}`, coord: [d.date, d.high],
           symbol: 'rect', symbolSize: [15, 12], symbolOffset: [0, '-130%'],
@@ -1604,7 +1664,7 @@ function buildOption(
           },
         })
       }
-      if (d.div_btm_count != null && d.div_btm_count > 0) {
+      if (showRyDivergence && d.div_btm_count != null && d.div_btm_count > 0) {
         markPointData.push({
           name: `dvB${d.date}`, coord: [d.date, d.low],
           symbol: 'rect', symbolSize: [15, 12], symbolOffset: [0, '130%'],
@@ -1790,6 +1850,8 @@ export function EChartsCandlestick({
   chartStyle,
   rsiZeroAxis,
   externalDrawings,
+  showRyDiamond = true,
+  showRyDivergence = true,
   panEnabled = true,
   resetSignal,
   onResetZoom,
@@ -1818,6 +1880,8 @@ export function EChartsCandlestick({
   // --- 全部用 ref，避免高频交互触发 React 重渲染 ---
   const infoIdxRef = useRef<number>(data.length - 1)
   const compactRef = useRef(false)
+  // X 轴 TV 式刻度密度: dataZoom 监听实时更新 (目标 ~72px 间隔, 见 buildOption xLabelMetrics)
+  const xLabelMetricsRef = useRef({ axisWidth: 824, visibleCount: 60 })
   const userZoomRef = useRef<{ start: number; end: number } | null>(null)
   // 「往左加载更多」前插检测: 记录上次 setOption 时的数据, 判断新数据是否在头部前插了更早历史
   const prevDataRef = useRef<OHLC[]>([])
@@ -2348,7 +2412,9 @@ export function EChartsCandlestick({
 
       const d = dataRef.current
       const total = d.length
-      const visibleCount = Math.round(total * (zoom.end - zoom.start) / 100)
+      const visibleCount = Math.max(1, Math.round(total * (zoom.end - zoom.start) / 100))
+      // X 轴刻度密度实时更新 (interval 闭包在每次轴渲染时重新调用, 无需 setOption)
+      xLabelMetricsRef.current = { axisWidth: Math.max(el.clientWidth - 46 - 60, 200), visibleCount }
       const newCompact = visibleCount > COMPACT_THRESHOLD
       if (newCompact !== compactRef.current) {
         compactRef.current = newCompact
@@ -2467,6 +2533,9 @@ export function EChartsCandlestick({
       chartStyle,
       !!rsiZeroAxis,
       externalDrawings,
+      showRyDiamond,
+      showRyDivergence,
+      xLabelMetricsRef,
     )
 
     chart.setOption(option, true)
@@ -2519,7 +2588,7 @@ export function EChartsCandlestick({
     if (infoEl) {
       infoEl.innerHTML = getInfoBarHTMLRef.current()
     }
-  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, addedDate, chartStyle, rsiZeroAxis, externalDrawings, chartHeight, dates, dateIndexMap, initialZoom, theme])
+  }, [data, markers, ranges, priceLines, linkedPrice, showMA, showMarkersProp, activeIndicators, volumeCompare, addedDate, chartStyle, rsiZeroAxis, externalDrawings, showRyDiamond, showRyDivergence, chartHeight, dates, dateIndexMap, initialZoom, theme])
 
   // 渲染信息栏容器 (内容由 JS 直接写入)
   const initialHTML = useMemo(() => {

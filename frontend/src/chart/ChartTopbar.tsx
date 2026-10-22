@@ -34,7 +34,7 @@ export interface ChartTopbarPatch {
   chartStyle?: ChartStyle
   range?: string | null
   toggleIndicator?: string
-  toggleSignal?: 'maCross' | 'rsiDivergence'
+  toggleSignal?: 'ryDiamond' | 'ryDivergence'
 }
 
 const STYLE_LABELS: { key: ChartStyle; label: string; title: string }[] = [
@@ -299,8 +299,8 @@ export function ChartTopbar({ symbol, name, period, chartStyle, activeIndicators
   activeIndicators: string[]
   /** 当前选中的可见范围 key (用户手动缩放后由 pane 置空 → 高亮自动清除) */
   range?: string | null
-  /** 信号开关 (默认全关) */
-  signals?: { maCross?: boolean; rsiDivergence?: boolean }
+  /** 信号开关 (R5 梯形/背离显隐, 默认全开) */
+  signals?: { ryDiamond?: boolean; ryDivergence?: boolean }
   onChange: (patch: ChartTopbarPatch) => void
 }) {
   // 分屏兼容: 页面级断点 (md/lg) 在窗格变窄时失效, 按工具条自身宽度自适应 —
@@ -403,22 +403,22 @@ export function ChartTopbar({ symbol, name, period, chartStyle, activeIndicators
 
         <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
 
-        {/* 信号开关 (金叉/死叉 + 顶背离; 默认关)。
+        {/* 信号开关 (R5 梯形菱形 + 背离方块; 默认全开, Pine 无独立开关 — 工作台 UI 层控制)。
          *  RSI 零轴震荡形态为固定形态 (无开关), 由 ChartPane 固定传 rsiZeroAxis=true */}
         <div className="flex shrink-0 items-center gap-1">
           <Pill
-            active={!!signals?.maCross}
-            label="金叉"
-            title="MA5×MA10 金叉/死叉标记"
+            active={signals?.ryDiamond !== false}
+            label="梯形"
+            title="R5 梯形菱形信号 (顶部红/底部青)"
             activeClass="bg-amber-400/15 text-amber-400"
-            onClick={() => onChange({ toggleSignal: 'maCross' })}
+            onClick={() => onChange({ toggleSignal: 'ryDiamond' })}
           />
           <Pill
-            active={!!signals?.rsiDivergence}
+            active={signals?.ryDivergence !== false}
             label="背离"
-            title="RSI(14) 顶背离标记"
+            title="R5 多指标背离计数方块 (顶部深蓝/底部黄)"
             activeClass="bg-violet-400/15 text-violet-400"
-            onClick={() => onChange({ toggleSignal: 'rsiDivergence' })}
+            onClick={() => onChange({ toggleSignal: 'ryDivergence' })}
           />
         </div>
       </div>
