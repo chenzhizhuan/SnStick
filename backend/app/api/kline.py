@@ -1169,7 +1169,10 @@ def get_intraday(
         )
 
     end = cn_today()
-    start = end - timedelta(days=days * 3 + 20)
+    # 取数窗口 ×7+30 日历日 (~300 交易日): SuperTrend 棘轮/EMA110 等长记忆递推
+    # 指标需全历史口径对齐 TV (2026-10-22 600519 分钟K已扩至 2025-08 起;
+    # 窗口内有什么用什么, 其他标的自动退化为存量深度)
+    start = end - timedelta(days=days * 7 + 30)
     minute = repo.get_minute_range([symbol], start, end, asset_type=asset_type)
     if minute.is_empty() or "datetime" not in minute.columns:
         return _gzip_payload(
