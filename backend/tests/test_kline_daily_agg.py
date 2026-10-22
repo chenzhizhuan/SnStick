@@ -27,7 +27,8 @@ def _rows_frame(dates, opens, highs, lows, closes, volumes, amounts=None, is_liv
         data["amount"] = list(amounts)
     if is_lives is not None:
         data["is_live"] = list(is_lives)
-    return pl.DataFrame(data)
+    # date 列用真实 Date 类型 (repo 存储同款; get_daily_asset 窗口过滤需要可比较)
+    return pl.DataFrame(data).with_columns(pl.col("date").str.to_date())
 
 
 class _Repo:
@@ -44,7 +45,11 @@ class _Repo:
         })
 
     def get_daily_asset(self, asset_type, symbol, start, end, columns=None):
-        return self._frame
+        # 真实 repo 同款: 按 [start, end] 窗口过滤 (warmup 全历史查询依赖此语义)
+        df = self._frame.filter((pl.col("date") >= start) & (pl.col("date") <= end))
+        if columns:
+            df = df.select(columns)
+        return df.sort("date")
 
 
 def _request(frame):
@@ -173,15 +178,19 @@ def test_daily_agg_explicit_lookback_wins(monkeypatch):
 
 def test_daily_agg_rows_are_aggregated(monkeypatch):
     """agg 模式返回行已是聚合 K (私有指标附着在聚合 K 上, 而非日K值透传)。"""
-    monkeypatch.setattr(kline_api, "_attach_plus_with_warmup", lambda repo, a, s, rows, **kw: rows)
     d = ["2026-09-14", "2026-09-15", "2026-09-16"]
     frame = _rows_frame(d, [1, 2, 3], [2, 3, 4], [0.5, 1.5, 2.5], [1.5, 2.5, 3.5], [100, 200, 300])
     resp = kline_api.get_daily(
         _request(frame), symbol="600000.SH", days=120, start_date=None, end_date=None,
         ext_columns=None, plus_lookback=None, ry_bar_minutes=None, agg="2d",
     )
-    dates = [r["date"] for r in resp["rows"]]
+    dates = [str(r["date"]) for r in resp["rows"]]
     assert dates == ["2026-09-14", "2026-09-16"]
+    first = resp["rows"][0]
+    assert first["open"] == 1 and first["close"] == 2.5
+    assert first["high"] == 3 and first["volume"] == 300
+    # 私有指标已在聚合 K 上附着 (字段存在; 2 根序列上数值本身不作为对数基准)
+    assert "macd_plus_hist" in first and "ry_upper" in first and "k2_up" in first
 
 
 def test_daily_agg_rejects_unknown():
@@ -197,8 +206,8 @@ def test_daily_agg_rejects_unknown():
 
 def test_daily_no_agg_direct_call_does_not_explode(monkeypatch):
     """直调端点 (测试/内部调用) 时 FastAPI Query 默认对象会漏进 agg 形参 —
-    净化后必须视为未传, 不得误判为非法 agg 抛 400 (回归锁: 修复前
-    test_get_daily_default_end_is_beijing_today 因 Query(None) is not None 而炸)。"""
+    净化后必须视为未传, 不得误判为非法 agg 拆 400 (回归锁: 修复前
+    test_get_daily_default_end_is_beijing_today 因 Query(None) is not None 而拆)。"""
     captured = _capture_attach(monkeypatch)
     frame = _rows_frame(["2026-09-14"], [1], [2], [0.5], [1.5], [100])
     # 不传 plus_lookback / ry_bar_minutes / agg → 直调时均为 Query 默认对象
@@ -208,3 +217,36 @@ def test_daily_no_agg_direct_call_does_not_explode(monkeypatch):
     )
     assert captured["lookback"] == 50  # 未显式传 → 默认日K档
     assert captured["agg"] is None
+
+
+def test_daily_agg_full_history_bucket_alignment(monkeypatch):
+    """2d 桶边界从全历史起点连续计数 (修复窗口起点计数导致的跨页漂移):
+    全历史 = 09-07~09-11 (5 交易日), 窗口 = 09-14~09-16 (3 交易日);
+    从 09-07 起每 2 交易日一桶 → [07,08][09,10][11,14][15,16];
+    窗口首日 09-14 所在桶 (跨界桶, 含窗口前 09-11) 起切出返回,
+    指标在完整聚合序列上递推 — 主请求与「往左加载更多」桶边界一致。"""
+    hist = _rows_frame(
+        ["2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11"],
+        [1, 2, 3, 4, 5], [2, 3, 4, 5, 6], [0.5, 1.5, 2.5, 3.5, 4.5],
+        [1.5, 2.5, 3.5, 4.5, 5.5], [100] * 5,
+    )
+    window = _rows_frame(
+        ["2026-09-14", "2026-09-15", "2026-09-16"],
+        [6, 7, 8], [7, 8, 9], [5.5, 6.5, 7.5], [6.5, 7.5, 8.5], [100] * 3,
+    )
+    repo = _Repo(pl.concat([hist, window]))
+    resp = kline_api.get_daily(
+        SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+            repo=repo, quote_service=None, capabilities=None,
+        ))), symbol="600000.SH", days=120, start_date="2026-09-14", end_date="2026-09-16",
+        ext_columns=None, plus_lookback=None, ry_bar_minutes=None, agg="2d",
+    )
+    rows = resp["rows"]
+    # 窗口首日所在桶 = 跨界桶 (桶首 09-11 < 窗口首日 09-14)
+    assert [str(r["date"]) for r in rows] == ["2026-09-11", "2026-09-15"]
+    # 跨界桶 OHLCV: open=09-11 的 open, close=09-14 的 close, volume=两日之和
+    assert rows[0]["open"] == 5 and rows[0]["close"] == 6.5 and rows[0]["volume"] == 200
+    # 第二桶 = 09-15/16
+    assert rows[1]["open"] == 7 and rows[1]["close"] == 8.5 and rows[1]["volume"] == 200
+    # 私有指标在完整聚合序列 (4 桶) 上递推后切窗口 — 字段齐全
+    assert "ry_upper" in rows[0] and "macd_plus_hist" in rows[0]

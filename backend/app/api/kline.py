@@ -487,10 +487,8 @@ def get_daily(
         rows = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end)).to_dicts()
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
-        # agg 模式: 先聚合成高粒度 K (指标在聚合 K 上重算, Pine 周期语义)
-        if agg:
-            rows = _resample_daily_rows(rows, agg)
-        # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
+        # agg 模式: 聚合在 _attach_plus_with_warmup 内部完成 (全历史拼接聚合
+        # 后在聚合 K 上重算私有指标, Pine 周期语义 + 桶边界全历史对齐)
         rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                         lookback=_resolve_plus_lookback(plus_lookback),
                                         ry_bar_minutes=None if agg else ry_bar_minutes,
@@ -506,10 +504,8 @@ def get_daily(
 
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
-    # agg 模式: 先聚合成高粒度 K (指标在聚合 K 上重算, Pine 周期语义)
-    if agg:
-        rows = _resample_daily_rows(rows, agg)
-    # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
+    # agg 模式: 聚合在 _attach_plus_with_warmup 内部完成 (全历史拼接聚合后
+    # 在聚合 K 上重算私有指标, Pine 周期语义 + 桶边界全历史对齐)
     rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                     lookback=_resolve_plus_lookback(plus_lookback),
                                     ry_bar_minutes=None if agg else ry_bar_minutes,
@@ -620,14 +616,20 @@ def _attach_plus_with_warmup(
     历史读失败时退化为窗口内递推 (数值仍可用, 仅前期偏差)。
     lookback: 量级缩放窗口 (日K默认 50; 4h 周期前端传 160 — Pine 周期预设档)。
     ry_bar_minutes: 融易 K2/K3 桶语义输入周期 (4h 面板传 240; None=日K档)。
-    agg: 聚合周期 (2d/4d/1w/1M) — rows 已是聚合 K; warmup 日线拉出后先
-    同口径聚合再拼接递推 (Pine 语义: 指标画在聚合 K 上, warmup 同周期)。
+    agg: 聚合周期 (2d/4d/1w/1M) — rows 为窗口内原始日K行 (端点层不预
+    聚合), 走 _attach_plus_with_agg_history 全历史拼接聚合后递推
+    (Pine 语义: 指标画在聚合 K 上, 对齐 TV 全历史递推口径)。
     """
     if not rows:
         return rows
     # 直调端点 (测试) 时 FastAPI Query 默认对象会漏进来 — 与 _resolve_plus_lookback 同款净化
     if ry_bar_minutes is not None and not isinstance(ry_bar_minutes, int):
         ry_bar_minutes = None
+    if agg:
+        return _attach_plus_with_agg_history(
+            repo, asset_type, symbol, rows, lookback=lookback,
+            ry_bar_minutes=ry_bar_minutes, agg=agg,
+        )
     warmup: list[float | None] = []
     warmup_rows: list[dict] = []
     try:
@@ -638,11 +640,7 @@ def _attach_plus_with_warmup(
             first_d - timedelta(days=_PLUS_WARMUP_DAYS), first_d - timedelta(days=1),
             columns=["date", "close"],
         ).sort("date")
-        if agg:
-            agg_rows = _resample_daily_rows(hist.to_dicts(), agg)
-            warmup = [float(r["close"]) if r.get("close") is not None else None for r in agg_rows]
-        else:
-            warmup = [float(c) if c is not None else None for c in hist["close"].to_list()]
+        warmup = [float(c) if c is not None else None for c in hist["close"].to_list()]
     except Exception:  # noqa: BLE001 — 预热读失败退化为窗口内递推
         logger.debug("plus warmup 读取失败 %s", symbol, exc_info=True)
     try:
@@ -654,13 +652,56 @@ def _attach_plus_with_warmup(
             columns=["date", "open", "high", "low", "close", "volume"],
         ).sort("date")
         warmup_rows = hist2.to_dicts()
-        if agg:
-            warmup_rows = _resample_daily_rows(warmup_rows, agg)
     except Exception:  # noqa: BLE001
         logger.debug("ry warmup 读取失败 %s", symbol, exc_info=True)
     attach_plus_indicators(rows, warmup_closes=warmup, lookback=lookback)
     attach_ry_main(rows, warmup_rows=warmup_rows, bar_minutes=ry_bar_minutes)
     return rows
+
+
+def _attach_plus_with_agg_history(
+    repo, asset_type: str, symbol: str, rows: list[dict],
+    lookback: int, ry_bar_minutes: Optional[int], agg: str,
+) -> list[dict]:
+    """agg 模式附着: 指标画在聚合 K 上 (Pine 周期语义), 对齐 TV 全历史递推。
+
+    rows 为窗口内原始日K行 (端点层不预聚合)。warmup 拉全历史原始日K
+    (截止窗口首日前一日), 与窗口行拼接后一次性聚合:
+    - 递推深度对齐 TV 全历史口径 — EMA110 (融易牛熊) 周线需 ~110 根、
+      月线需上市以来全部月K; 按日历天数取 warmup 在聚合后根数不足
+      (550 天 → 周线仅 ~76 根/月线 ~18 根), 会产生数十元的系统性偏差
+      (实测周线牛线差 56 元 / 月线大量字段 null);
+    - 桶边界从全历史起点连续计数 — 2d/4d 的计数分组不再依赖窗口起点,
+      主请求与「往左加载更多」跨页桶边界稳定一致。
+    在完整聚合序列上附着指标后, 切出窗口首日所在桶起的聚合 K 返回
+    (窗口首日所在桶可能含窗口前数据 — 跨界桶, 与 TV 全历史分桶一致)。
+    全历史读取失败时退化为窗口内聚合递推 (数值可用, 前期偏差)。
+    """
+    first = rows[0].get("date")
+    first_d = first if isinstance(first, date) else date.fromisoformat(str(first)[:10])
+    hist_rows: list[dict] = []
+    try:
+        hist = repo.get_daily_asset(
+            asset_type, symbol, date(1990, 1, 1), first_d - timedelta(days=1),
+            columns=["date", "open", "high", "low", "close", "volume"],
+        ).sort("date")
+        hist_rows = hist.to_dicts()
+    except Exception:  # noqa: BLE001 — 全历史读失败退化为窗口内聚合
+        logger.debug("agg warmup 全历史读取失败 %s", symbol, exc_info=True)
+    # 拼接后一次性聚合 (窗口行可能带 is_live/指标列, 聚合函数只认 OHLCV/date)
+    agg_rows = _resample_daily_rows(hist_rows + list(rows), agg)
+    # 定位窗口首日所在桶 (桶按日期升序; 取桶首日 <= first_d 的最后一个桶)
+    win_idx = 0
+    for i, r in enumerate(agg_rows):
+        if str(r["date"])[:10] <= str(first_d)[:10]:
+            win_idx = i
+        else:
+            break
+    # 完整聚合序列上附着 (warmup 已并入序列, 前置递推传空);
+    # is_live 继承已由 _resample_daily_rows 处理 (末根活动桶保留实时标记)
+    attach_plus_indicators(agg_rows, warmup_closes=[], lookback=lookback)
+    attach_ry_main(agg_rows, warmup_rows=[], bar_minutes=ry_bar_minutes)
+    return agg_rows[win_idx:]
 
 
 def _attach_ext(resp: dict, repo, symbol: str, ext_columns: Optional[str]) -> dict:
