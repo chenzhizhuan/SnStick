@@ -293,11 +293,20 @@ export interface KlineRow {
   macd_dea?: number | null
   macd_hist?: number | null
   rsi_14?: number | null
-  /** 私有化指标线路 (泰坦 T5.0): 服务端 indicators/plus.py 现场附着, 不落盘 */
+  /** 私有化指标线路 (R5 经典版附图口径): 服务端 indicators/plus.py 现场附着, 不落盘 */
   macd_plus_dif?: number | null
   macd_plus_dea?: number | null
   macd_plus_hist?: number | null
+  /** 资金流 ±1 单值 */
   rsi_plus?: number | null
+  /** 动能双腿 (RSI28 EMA5/60) */
+  volume_rsi_fast?: number | null
+  volume_rsi_slow?: number | null
+  /** 资金流信号: 背景 0/1/2 / 追踪状态 0-4 / 交叉事件 (B/S) */
+  fund_bg_color?: number | null
+  fund_tracking_state?: number | null
+  fund_cross_up_lower?: boolean
+  fund_cross_down_upper?: boolean
   vol_ratio_5d?: number | null
   /** 后端 _maybe_inject_live_candle 注入的当日实时行标记 (收盘定版后消失) */
   is_live?: boolean
@@ -305,7 +314,7 @@ export interface KlineRow {
 }
 
 /** 图表工作台分钟聚合周期 bar (15m/60m): 服务端聚合 + 私有指标附着。
- *  MACD+/RSI+ 全部在服务端计算 (私有化收口), 前端不携带算法。 */
+ *  MACD+/RSI+ 与融易主图全部在服务端计算 (私有化收口), 前端不携带算法。 */
 export interface IntradayPlusBar {
   /** 桶内首根时间 "YYYY-MM-DD HH:mm" (开始时刻语义, 跨周期字典序对齐) */
   date: string
@@ -318,7 +327,37 @@ export interface IntradayPlusBar {
   macd_plus_dif: number | null
   macd_plus_dea: number | null
   macd_plus_hist: number | null
+  volume_rsi_fast: number | null
+  volume_rsi_slow: number | null
+  /** 资金流 ±1 单值 */
   rsi_plus: number | null
+  fund_bg_color: number | null
+  fund_tracking_state: number | null
+  fund_cross_up_lower: boolean
+  fund_cross_down_upper: boolean
+  /** 融易主图 (R5): 牛熊通道/中轨/K 通道/信号 (服务端 rymain.py 附着) */
+  ry_upper: number | null
+  ry_mid: number | null
+  ry_lower: number | null
+  ry_mid_trend: number | null
+  ry_mid_tick: number | null
+  ry_ema_mid: number | null
+  k_trend: number | null
+  k_up: number | null
+  k_dn: number | null
+  k2_trend: number | null
+  k2_up: number | null
+  k2_dn: number | null
+  k3_trend: number | null
+  k3_up: number | null
+  k3_dn: number | null
+  ry_bar_color: number | null
+  ry_top_signal: boolean
+  ry_top_price: number | null
+  ry_btm_signal: boolean
+  ry_btm_price: number | null
+  div_top_count: number | null
+  div_btm_count: number | null
 }
 
 export interface KlineIntradayResponse {

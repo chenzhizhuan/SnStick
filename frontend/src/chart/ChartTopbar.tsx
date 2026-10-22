@@ -361,9 +361,22 @@ export function ChartTopbar({ symbol, name, period, chartStyle, activeIndicators
 
         <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
 
-        {/* 指标开关 (副图; 图表模块特例: 仅私有化线路 MACD+/RSI+, 原版 MACD/RSI 已移除) */}
+        {/* 指标开关 (副图 + 主图叠加; 图表模块特例: 私有化线路 R5) */}
         <div className="flex shrink-0 items-center gap-1">
           {PANE_INDICATORS.map(key => {
+            if (key === 'ry') {
+              // 融易主图: 主图叠加指标 (不在 SUB_CHARTS 副图注册表, 特判渲染)
+              return (
+                <Pill
+                  key="ry"
+                  active={activeIndicators.includes('ry')}
+                  label="融易"
+                  title="融易主图叠加 (牛熊通道/中轨/K通道/信号)"
+                  activeClass="bg-amber-400/15 text-amber-400"
+                  onClick={() => onChange({ toggleIndicator: 'ry' })}
+                />
+              )
+            }
             const def = SUB_CHARTS.find(s => s.key === key)
             if (!def) return null
             return (

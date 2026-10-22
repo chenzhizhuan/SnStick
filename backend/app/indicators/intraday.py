@@ -1,7 +1,8 @@
 """分钟K聚合 + 私有指标附着 (图表工作台 15m/60m 周期的服务端线路)。
 
 2026-10-14 私有化收口: MACD+/RSI+ 算法从前端 (chart/indicators.ts 已删除)
-全部收归服务端 — 前端 bundle 不再携带任何泰坦算法特征。
+全部收归服务端 — 前端 bundle 不再携带任何私有算法特征。
+2026-10-22 口径校准: 算法替换为 R5 经典版附图口径 (见 plus.py 模块注释)。
 
 聚合口径与迁移前的前端实现 (minuteSemantics.ts + minuteResample.ts) 逐字段一致:
   1. 时间语义换算: 数据源"结束时刻"标签 → "开始时刻"
@@ -14,9 +15,9 @@
      (amount 缺失语义: 任一非空取非空, 全空为 None);
   4. date 标签 = 桶内首根时间 "YYYY-MM-DD HH:mm" (跨周期字典序对齐约定)。
 
-私有指标附着: lookback 周期预设 (Pine util_getPresetLookback 分钟档):
-  15m→200, 60m→160; 无 warmup — 与迁移前前端口径一致 (60 日聚合 bars 内
-  递推, EMA26/DEMA61 收敛深度 << 数据量)。算法本体见 plus.py。
+私有指标附着: lookback 周期预设 (R5 周期预设表分钟档):
+  15m→200, 60m→160; 无 warmup — 60 日聚合 bars 内递推,
+  EMA60+RSI28(RMA28) 收敛深度 << 数据量。算法本体见 plus.py。
 """
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from datetime import datetime
 from typing import Any
 
 from .plus import attach_plus_indicators
+from .rymain import attach_ry_main
 
 __all__ = [
     "INTRADAY_PERIODS",
@@ -32,7 +34,7 @@ __all__ = [
     "attach_intraday_plus",
 ]
 
-# 支持的聚合周期 (分钟) → 泰坦量级缩放 lookback (Pine 周期预设表分钟档)
+# 支持的聚合周期 (分钟) → 量级缩放 lookback (R5 周期预设表分钟档)
 INTRADAY_PERIODS: dict[int, int] = {15: 200, 60: 160}
 
 _SESSION_OPEN_MORNING = 570   # 09:30
@@ -147,9 +149,10 @@ def resample_minutes(rows: list[dict[str, Any]], period: int) -> list[dict[str, 
 
 
 def attach_intraday_plus(bars: list[dict[str, Any]], period: int) -> list[dict[str, Any]]:
-    """对聚合 bars 附着 MACD+/RSI+ (原地写回并返回)。period ∈ {15, 60}。"""
+    """对聚合 bars 附着 MACD+/RSI+ 与融易主图字段 (原地写回并返回)。period ∈ {15, 60}。"""
     lookback = INTRADAY_PERIODS.get(period)
     if lookback is None:
         raise ValueError(f"unsupported intraday period: {period}")
     attach_plus_indicators(bars, warmup_closes=None, lookback=lookback)
+    attach_ry_main(bars, warmup_rows=None)
     return bars
