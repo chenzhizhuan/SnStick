@@ -137,14 +137,15 @@ export interface ChartPaneData {
 }
 
 /** 日K源窗格的共享装配: 基础 + 额外历史合并 → 去重升序。
- *  基础 daily 查询与 extra 区间查询按 plusLookback 区分 (1d=默认/4h=160)。 */
-function useDailySourced(symbol: string, enabled: boolean, plusLookback: number | undefined) {
+ *  基础 daily 查询与 extra 区间查询按 plusLookback 区分 (1d=默认/4h=160);
+ *  ryBarMinutes: 融易 K2/K3 桶语义 (4h 面板传 240 → K2/K3=1天桶=当前级)。 */
+function useDailySourced(symbol: string, enabled: boolean, plusLookback: number | undefined, ryBarMinutes?: number) {
   const daily = useQuery({
     enabled: enabled && !!symbol,
     queryKey: plusLookback
       ? QK.chartKlineDaily4h(symbol)
       : QK.chartKlineDaily(symbol, DAILY_FETCH_DAYS),
-    queryFn: () => api.klineDaily(symbol, DAILY_FETCH_DAYS, undefined, undefined, plusLookback),
+    queryFn: () => api.klineDaily(symbol, DAILY_FETCH_DAYS, undefined, undefined, plusLookback, ryBarMinutes),
     staleTime: Infinity,
     gcTime: 10 * 60_000,
   })
@@ -158,7 +159,7 @@ function useDailySourced(symbol: string, enabled: boolean, plusLookback: number 
     queryKey: plusLookback
       ? QK.chartKlineDaily4hExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? '')
       : QK.chartKlineDailyExtra(symbol, lastRange?.start ?? '', lastRange?.end ?? ''),
-    queryFn: () => api.klineDaily(symbol, 0, { start: lastRange!.start, end: lastRange!.end }, undefined, plusLookback),
+    queryFn: () => api.klineDaily(symbol, 0, { start: lastRange!.start, end: lastRange!.end }, undefined, plusLookback, ryBarMinutes),
     staleTime: Infinity,
     gcTime: 10 * 60_000,
   })
@@ -216,7 +217,7 @@ export function useChartPaneData(symbol: string, period: Period) {
   const intradayPeriod = def.minutes === 15 ? '15m' : def.minutes === 60 ? '60m' : null
 
   // 日K源 (1d/2d/4d/1w/1M + 4h): 4h 用独立缓存 + 160 档私有指标
-  const dailySourced = useDailySourced(symbol, !isMinute || is4h, is4h ? PLUS_LOOKBACK_4H : undefined)
+  const dailySourced = useDailySourced(symbol, !isMinute || is4h, is4h ? PLUS_LOOKBACK_4H : undefined, is4h ? 240 : undefined)
 
   // 分钟聚合周期 (15m/60m): 服务端聚合 + 私有指标附着
   const intraday = useQuery({

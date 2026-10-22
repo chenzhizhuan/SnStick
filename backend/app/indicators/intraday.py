@@ -154,5 +154,6 @@ def attach_intraday_plus(bars: list[dict[str, Any]], period: int) -> list[dict[s
     if lookback is None:
         raise ValueError(f"unsupported intraday period: {period}")
     attach_plus_indicators(bars, warmup_closes=None, lookback=lookback)
-    attach_ry_main(bars, warmup_rows=None)
+    # K2/K3 桶按 TV 语义: 60m → 1 天桶 (按日分组), 15m → 1h/2h 桶
+    attach_ry_main(bars, warmup_rows=None, bar_minutes=period)
     return bars

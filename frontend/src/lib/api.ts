@@ -2954,13 +2954,14 @@ export const api = {
   redetectCapabilities: () =>
     request<CapabilitiesResponse>('/api/capabilities/redetect', { method: 'POST' }),
 
-  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string, plusLookback?: number) =>
+  klineDaily: (symbol: string, days = 120, dateRange?: { start: string; end: string }, extColumns?: string, plusLookback?: number, ryBarMinutes?: number) =>
     request<KlineDailyResponse>(
       (dateRange
         ? `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&start_date=${dateRange.start}&end_date=${dateRange.end}`
         : `/api/kline/daily?symbol=${encodeURIComponent(symbol)}&days=${days}`)
       + (extColumns ? `&ext_columns=${encodeURIComponent(extColumns)}` : '')
-      + (plusLookback ? `&plus_lookback=${plusLookback}` : ''),
+      + (plusLookback ? `&plus_lookback=${plusLookback}` : '')
+      + (ryBarMinutes ? `&ry_bar_minutes=${ryBarMinutes}` : ''),
     ),
   klineDailyLatest: (symbol: string, plusLookback?: number) =>
     request<KlineDailyLatestResponse>(

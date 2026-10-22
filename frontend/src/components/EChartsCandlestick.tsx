@@ -204,15 +204,35 @@ function fmtVolumeRatio(value: number | null, digits = 2): string {
 // 梯形; 无跨项全局假设 → 与 progressive 分块、dataZoom 窗口过滤天然兼容;
 // 穿零段插值交点, 红绿子段共享交点 (连续无断口); 线为直线段 (该密度下
 // 与 catmull-rom 视觉无差, TV LC 参考亦为直线段)。
-const RSI_PLUS_BULL = '#F04438'      // MACD+ 正能量柱红
-const RSI_PLUS_BEAR = '#12B76A'      // MACD+ 负能量柱绿
-const RSI_PLUS_BULL_FILL = 'rgba(240,68,56,0.45)'
-const RSI_PLUS_BULL_FILL_END = 'rgba(240,68,56,0)'
-const RSI_PLUS_BEAR_FILL = 'rgba(18,183,106,0.45)'
-const RSI_PLUS_BEAR_FILL_END = 'rgba(18,183,106,0)'
+// R5 附图能量柱五色 (Pine line 146 原色): 增长/回落 × 动能快线(RSI28 EMA5) <50/>=50
+const RY5_BAR_GREEN = '#75BD42'       // 正柱增长且 vf≥50 (能量确认)
+const RY5_BAR_LGREEN = '#C7E4B3'      // 正柱回落且 vf≥50
+const RY5_BAR_GRAY = '#AEAAAA'        // 正柱增长 vf<50 / 负柱下探 vf≥50 (反常区)
+const RY5_BAR_LGRAY = '#E7E6E6'       // 正柱回落 vf<50 / 负柱回升 vf≥50
+const RY5_BAR_LRED = '#F4B7BE'        // 负柱回升且 vf<50
+const RY5_BAR_RED = '#C71C31'         // 负柱下探且 vf<50 (能量确认)
+// R5 资金流曲线/填充 (Pine 附图 line 172-183 原色)
+const RY5_FUND_LINE_BULL = 'rgba(117,189,66,0.8)'   // state2 段 (绿 t20)
+const RY5_FUND_LINE_BEAR = 'rgba(199,28,49,0.8)'    // state0/1 段 (红 t20)
+const RY5_FUND_LINE_WARN = 'rgba(255,235,59,0.8)'   // state3/4 段 (黄 t20)
+const RY5_FUND_BULL = [117, 189, 66] as const
+const RY5_FUND_BEAR = [199, 28, 49] as const
 
-/** RSI+ 序列 → custom series (逐项绘制: 正负分色线段 + 零轴夹域渐变梯形) */
-function buildRsiPlusSeries(vals: (number | null)[]): Record<string, any> {
+/** RSI+ 序列 → custom series (逐项绘制: state 分色线段 + 零轴夹域能量梯形)
+ *  Pine 附图口径: 线色 fund_rsi_line_color (state3/4 黄 / state2 绿 / 其余红);
+ *  填充基色 fund_base_color (state2/3 绿 / 其余红), 透明度按 |fund_rsi×3| 强度
+ *  (f_energyGradientColor: transp = 99 − min(1,|v|)×99, 越强越不透明)。 */
+function buildRsiPlusSeries(data: OHLC[]): Record<string, any> {
+  const vals = data.map(d => d.rsi_plus != null ? Number(d.rsi_plus) : null)
+  const states = data.map(d => d.fund_tracking_state ?? 0)
+  const lineColorOf = (st: number) =>
+    st === 3 || st === 4 ? RY5_FUND_LINE_WARN
+      : st === 2 ? RY5_FUND_LINE_BULL : RY5_FUND_LINE_BEAR
+  const fillOf = (st: number, v: number) => {
+    const [r, g, b] = st === 2 || st === 3 ? RY5_FUND_BULL : RY5_FUND_BEAR
+    const a = Math.max(0, Math.min(1, Math.abs(v * 3)))
+    return `rgba(${r},${g},${b},${((99 - a * 99) / 100).toFixed(3)})`
+  }
   const renderItem = (params: any, api: any) => {
     // 逐项自绘: 每个数据项只画 (前项→本项) 的线段及其零轴夹域梯形。
     // 无跨项全局假设 → progressive 分块渲染下每块自洽, 不依赖轴在首块时
@@ -225,48 +245,38 @@ function buildRsiPlusSeries(vals: (number | null)[]): Record<string, any> {
     const curV = vals[di]
     if (prevV == null || curV == null) return
 
-    const cs = params.coordSys
     const [x1, y1] = api.coord([di - 1, prevV])
     const [x2, y2] = api.coord([di, curV])
     const zeroY = api.coord([0, 0])[1]
-    const topY = cs.y
-    const botY = cs.y + cs.height
 
-    // 穿零处直线插值交点 → 红绿子段共享交点 (连续无断口); 未穿零单段
-    let segs: { ax: number; ay: number; bx: number; by: number; above: boolean }[]
+    // 穿零处直线插值交点 → 子段共享交点 (连续无断口); 未穿零单段
+    const segs: { ax: number; ay: number; bx: number; by: number }[] = []
     if ((y1 <= zeroY) !== (y2 <= zeroY)) {
       const t = (y1 - zeroY) / (y1 - y2)
       const xc = x1 + (x2 - x1) * t
-      segs = [
-        { ax: x1, ay: y1, bx: xc, by: zeroY, above: y1 <= zeroY },
-        { ax: xc, ay: zeroY, bx: x2, by: y2, above: y2 <= zeroY },
-      ]
+      segs.push(
+        { ax: x1, ay: y1, bx: xc, by: zeroY },
+        { ax: xc, ay: zeroY, bx: x2, by: y2 },
+      )
     } else {
-      segs = [{ ax: x1, ay: y1, bx: x2, by: y2, above: y1 <= zeroY }]
+      segs.push({ ax: x1, ay: y1, bx: x2, by: y2 })
     }
 
+    const st = states[di] ?? 0
+    const fill = fillOf(st, curV)
     const children: any[] = []
     for (const s of segs) {
-      // 填充: (前点, 当前点, 当前点@零轴, 前点@零轴) 梯形 — 渐变用
-      // LinearGradient 实例 + globalCoord=true 绝对像素锚定 (grid 顶/底
-      // 浓 → 零轴透明), 与数据形状包围盒无关
-      const grad = s.above
-        ? new echarts.graphic.LinearGradient(0, topY, 0, zeroY, [
-            { offset: 0, color: RSI_PLUS_BULL_FILL },
-            { offset: 1, color: RSI_PLUS_BULL_FILL_END }], true)
-        : new echarts.graphic.LinearGradient(0, zeroY, 0, botY, [
-            { offset: 0, color: RSI_PLUS_BEAR_FILL_END },
-            { offset: 1, color: RSI_PLUS_BEAR_FILL }], true)
+      // 填充: (前点, 当前点, 当前点@零轴, 前点@零轴) 梯形 (零轴夹域)
       children.push({
         type: 'polygon',
         shape: { points: [[s.ax, s.ay], [s.bx, s.by], [s.bx, zeroY], [s.ax, zeroY]] },
-        style: { fill: grad }, silent: true, z: 1,
+        style: { fill }, silent: true, z: 1,
       })
-      // 线段: ≥0 红 / <0 绿 (与 MACD+ 能量柱同口径)
+      // 线段: 按 fund_tracking_state 逐段着色 (Pine fund_rsi_line_color)
       children.push({
         type: 'line',
         shape: { x1: s.ax, y1: s.ay, x2: s.bx, y2: s.by },
-        style: { stroke: s.above ? RSI_PLUS_BULL : RSI_PLUS_BEAR, lineWidth: 1 },
+        style: { stroke: lineColorOf(st), lineWidth: 2 },
         silent: true, z: 3,
       })
     }
@@ -290,16 +300,21 @@ function buildRsiPlusSeries(vals: (number | null)[]): Record<string, any> {
   }
 }
 
-// ── 资金流信号层 (R5): 背景色块 + S/B 信号字母 ──────────────────
-// 平台规范配色 (A 股语义: 红=多/买, 绿=空/卖):
-//   超卖低位(bg=1) 红背景 0.10 / 超买高位(bg=2) 绿背景 0.10;
-//   B 交叉(上穿下轨) 红深背景 0.22 + 红字 B / S 交叉(下穿上轨) 绿深背景 0.22 + 绿字 S。
-const FUND_BG_LOW = 'rgba(240,68,56,0.10)'      // 超卖低位 → 买入背景 (红)
-const FUND_BG_HIGH = 'rgba(18,183,106,0.10)'    // 超买高位 → 卖出背景 (绿)
-const FUND_CROSS_B = 'rgba(240,68,56,0.22)'     // B 事件单根深色条
-const FUND_CROSS_S = 'rgba(18,183,106,0.22)'    // S 事件单根深色条
-const FUND_LETTER_B = '#F04438'
-const FUND_LETTER_S = '#12B76A'
+// ── 资金流信号层 (R5) — Pine 附图 line 204-209 原色一比一: ──
+//   超卖低位(bg=1) 暗红 rgb(133,19,32) t80 / 超买高位(bg=2) 暗青 rgb(24,96,90) t80;
+//   B 交叉(上穿下轨) #26A69A t40 青绿背景 / S 交叉(下穿上轨) #FF5252 t40 红背景;
+//   B/S 字母白色 (plotchar color=white)。
+const FUND_BG_LOW = 'rgba(133,19,32,0.2)'
+const FUND_BG_HIGH = 'rgba(24,96,90,0.2)'
+const FUND_CROSS_B = 'rgba(38,166,154,0.4)'
+const FUND_CROSS_S = 'rgba(255,82,82,0.4)'
+const FUND_LETTER_B = '#FFFFFF'
+const FUND_LETTER_S = '#FFFFFF'
+// 主图 fund 背景 (Pine 主图 line 775-778 原色, 不透明): 状态段/交叉条
+const FUND_MAIN_BG_LOW = 'rgb(24,36,51)'
+const FUND_MAIN_BG_HIGH = 'rgb(51,23,28)'
+const FUND_MAIN_CROSS_B = 'rgba(135,45,70,0.5)'
+const FUND_MAIN_CROSS_S = 'rgba(48,90,149,0.5)'
 
 /** fund 行背景色 (交叉事件优先于状态背景)。 */
 function fundRowBg(d: OHLC): string | null {
@@ -371,13 +386,14 @@ function buildFundOverlaySeries(data: OHLC[]): Record<string, any> {
   }
 }
 
-/** 主图 fund 背景 markArea 区间 (连续同色段合并 + 交叉事件单根深色条)。 */
+/** 主图 fund 背景 markArea 区间 (连续同色段合并 + 交叉事件单根深色条)。
+ *  Pine 主图 line 775-778 原色: 状态段不透明深蓝/深红, 交叉条紫/蓝 t50。 */
 function buildFundBgMarkAreas(data: OHLC[]): any[] {
   const areas: any[] = []
   let segStart = -1
   let segVal = 0
   const pushSeg = (start: number, end: number, val: number) => {
-    const color = val === 1 ? FUND_BG_LOW : FUND_BG_HIGH
+    const color = val === 1 ? FUND_MAIN_BG_LOW : FUND_MAIN_BG_HIGH
     areas.push([
       { xAxis: data[start].date, itemStyle: { color } },
       { xAxis: data[end].date },
@@ -391,10 +407,11 @@ function buildFundBgMarkAreas(data: OHLC[]): any[] {
       segVal = v
     }
     if (i < data.length) {
-      const bg = fundRowBg(data[i])
+      const cross = data[i].fund_cross_up_lower === true ? FUND_MAIN_CROSS_B
+        : data[i].fund_cross_down_upper === true ? FUND_MAIN_CROSS_S : null
       // 交叉事件深色条覆盖在状态背景之上 (markArea 后画的在上层)
-      if (bg === FUND_CROSS_B || bg === FUND_CROSS_S) {
-        areas.push([{ xAxis: data[i].date, itemStyle: { color: bg } }, { xAxis: data[i].date }])
+      if (cross != null) {
+        areas.push([{ xAxis: data[i].date, itemStyle: { color: cross } }, { xAxis: data[i].date }])
       }
     }
   }
@@ -405,16 +422,58 @@ function buildFundBgMarkAreas(data: OHLC[]): any[] {
 const RY_CHANNEL = '#FACC15'                 // 牛熊通道三线 (黄)
 const RY_MID_BULL = '#26A69A'                // 中轨多头色 (绿)
 const RY_MID_BEAR = '#FF5252'                // 中轨空头色 (红)
-const RY_MID_FLAT = '#9CA3AF'                // 中轨零值色 (灰)
-const RY_K_BULL = 'rgba(117,189,66,0.9)'     // K 通道多头线 (青绿)
-const RY_K_BEAR = 'rgba(199,28,49,0.9)'      // K 通道空头线 (红)
-const RY_K_FILL_BULL = 'rgba(117,189,66,0.13)' // K 趋势背景 (多头绿)
-const RY_K_FILL_BEAR = 'rgba(199,28,49,0.13)'  // K 趋势背景 (空头红)
+const RY_MID_FLAT = 'rgba(156,163,175,0.5)'  // 中轨零值色 (灰 t50, Pine color.new(gray,50))
+const RY_K_BULL = 'rgba(117,189,66,0.25)'    // K 通道多头线 (Pine t75)
+const RY_K_BEAR = 'rgba(199,28,49,0.25)'     // K 通道空头线 (Pine t75)
+const RY_K_FILL_BULL = 'rgba(117,189,66,0.2)'  // K fill(ohlc4↔轨道) (Pine t80)
+const RY_K_FILL_BEAR = 'rgba(199,28,49,0.2)'
 const RY_BAR_BULL = '#75BD42'                // K 线着色多头 (通道上方)
 const RY_BAR_BEAR = '#C71C31'                // K 线着色空头 (通道下方)
 const RY_BAR_FLAT = '#AEAAAA'                // K 线着色通道内 (灰)
-const RY_DIV_TOP_BG = '#1E3A8A'              // 顶部背离标签底 (深蓝)
-const RY_DIV_BTM_BG = '#FACC15'              // 底部背离标签底 (黄)
+const RY_DIV_TOP_BG = '#000080'              // 顶部背离标签底 (Pine color.navy)
+const RY_DIV_BTM_BG = '#FFEB3B'              // 底部背离标签底 (Pine color.yellow)
+
+/** K/K2/K3 趋势填充 (Pine fill(ohlc4, 轨道)): 多头 ohlc4↔up / 空头 ohlc4↔dn 梯形,
+ *  趋势切换段不画 (linebr 语义)。同段趋势连续填充视觉连片。 */
+function buildRyTrendFillSeries(
+  data: OHLC[],
+  trendKey: 'k_trend' | 'k2_trend' | 'k3_trend',
+  upKey: 'k_up' | 'k2_up' | 'k3_up',
+  dnKey: 'k_dn' | 'k2_dn' | 'k3_dn',
+  bull: string, bear: string,
+): Record<string, any> {
+  const ohlc4 = (d: OHLC) => (d.open != null && d.high != null && d.low != null && d.close != null
+    ? (Number(d.open) + Number(d.high) + Number(d.low) + Number(d.close)) / 4 : null)
+  const renderItem = (params: any, api: any) => {
+    const di = params.dataIndex
+    if (di <= 0) return
+    const d = data[di]
+    const p = data[di - 1]
+    const tr = d[trendKey]
+    const ptr = p[trendKey]
+    if (tr == null || ptr == null || tr !== ptr) return
+    const track = tr === 1 ? upKey : dnKey
+    const a0 = p[track]
+    const a1 = d[track]
+    const m0 = ohlc4(p)
+    const m1 = ohlc4(d)
+    if (a0 == null || a1 == null || m0 == null || m1 == null) return
+    const [x1, y1a] = api.coord([di - 1, a0])
+    const [x2, y2a] = api.coord([di, a1])
+    const [, y1m] = api.coord([di - 1, m0])
+    const [, y2m] = api.coord([di, m1])
+    return {
+      type: 'polygon',
+      shape: { points: [[x1, y1m], [x2, y2m], [x2, y2a], [x1, y1a]] },
+      style: { fill: tr === 1 ? bull : bear }, silent: true, z: 1,
+    }
+  }
+  return {
+    name: `${trendKey}Fill`, type: 'custom', coordinateSystem: 'cartesian2d',
+    data: data.map((_, i) => [i, 0]), renderItem,
+    clip: true, silent: true, animation: false, z: 1,
+  }
+}
 
 /** 中轨刻度竖线 custom series (每根 ema±tick 短竖线, 分段色)。 */
 function buildRyMidTickSeries(data: OHLC[]): Record<string, any> {
@@ -422,8 +481,10 @@ function buildRyMidTickSeries(data: OHLC[]): Record<string, any> {
     const di = params.dataIndex
     const d = data[di]
     if (!d || d.ry_ema_mid == null || d.ry_mid_tick == null || d.ry_mid_tick <= 0) return
-    const color = d.ry_mid_trend != null && d.ry_mid_trend > 0 ? RY_MID_BULL
-      : d.ry_mid_trend != null && d.ry_mid_trend < 0 ? RY_MID_BEAR : RY_MID_FLAT
+    const color = d.macd_plus_dif != null && d.macd_plus_hist != null
+      ? (Number(d.macd_plus_dif) > 0 && Number(d.macd_plus_hist) > 0 ? RY_MID_BULL
+        : Number(d.macd_plus_dif) < 0 && Number(d.macd_plus_hist) < 0 ? RY_MID_BEAR : RY_MID_FLAT)
+      : RY_MID_FLAT
     const [x] = api.coord([di, d.ry_ema_mid])
     const [, yTop] = api.coord([di, d.ry_ema_mid + d.ry_mid_tick])
     const [, yBot] = api.coord([di, d.ry_ema_mid - d.ry_mid_tick])
@@ -443,27 +504,6 @@ function buildRyMidTickSeries(data: OHLC[]): Record<string, any> {
     renderItem,
     clip: true, silent: true, animation: false, z: 1,
   }
-}
-
-/** K 层趋势背景 markArea (按 k_trend 连续段整段填充)。 */
-function buildRyTrendMarkAreas(data: OHLC[]): any[] {
-  const areas: any[] = []
-  let segStart = -1
-  let segVal = 0
-  for (let i = 0; i <= data.length; i++) {
-    const v = i < data.length ? (data[i].k_trend ?? 0) : -99
-    if (v !== segVal) {
-      if (segStart >= 0 && segVal !== 0) {
-        areas.push([
-          { xAxis: data[segStart].date, itemStyle: { color: segVal === 1 ? RY_K_FILL_BULL : RY_K_FILL_BEAR } },
-          { xAxis: data[i - 1].date },
-        ])
-      }
-      segStart = i
-      segVal = v
-    }
-  }
-  return areas
 }
 
 /** 数据是否携带融易主图字段 (无附着时不渲染叠加层)。 */
@@ -621,28 +661,40 @@ export const SUB_CHARTS: SubChartDef[] = [
         type: 'line',
         data: data.map(d => d.macd_plus_dif != null ? Number(d.macd_plus_dif) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },   // 平台原生 DIF 同款黄
-        itemStyle: { color: '#FACC15' },
+        lineStyle: { width: 2, color: 'rgba(255,255,255,0.8)' },   // Pine 能量场快线 (白 t20)
+        itemStyle: { color: 'rgba(255,255,255,0.8)' },
       },
       {
         name: 'DEA+',
         type: 'line',
         data: data.map(d => d.macd_plus_dea != null ? Number(d.macd_plus_dea) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#8B5CF6' },   // 平台原生 DEA 同款紫
-        itemStyle: { color: '#8B5CF6' },
+        lineStyle: { width: 2, color: 'rgba(255,235,59,0.8)' },    // Pine 能量场慢线 (黄 t20)
+        itemStyle: { color: 'rgba(255,235,59,0.8)' },
       },
       {
         name: 'MACD+',
         type: 'bar',
-        data: data.map(d => {
+        data: data.map((d, i) => {
           const v = d.macd_plus_hist
           if (v == null) return '-'
-          return {
-            value: Number(v),
-            // 平台规范: 能量柱正红负绿 (动能差量级缩放后的多空方向)
-            itemStyle: { color: v >= 0 ? 'rgba(240,68,56,0.6)' : 'rgba(18,183,106,0.6)' },
+          // R5 能量柱五色 (Pine 附图 line 146 一比一): 增长/回落 × 动能快线(RSI28 EMA5) 50 阈
+          const num = Number(v)
+          const vf = d.volume_rsi_fast != null ? Number(d.volume_rsi_fast) : null
+          const pv = i > 0 && data[i - 1].macd_plus_hist != null ? Number(data[i - 1].macd_plus_hist) : null
+          const growing = pv == null ? true : pv < num
+          const vfLow = vf != null && vf < 50
+          let color: string
+          if (num >= 0) {
+            color = growing
+              ? (vfLow ? RY5_BAR_GRAY : RY5_BAR_GREEN)
+              : (vfLow ? RY5_BAR_LGRAY : RY5_BAR_LGREEN)
+          } else {
+            color = growing
+              ? (vfLow ? RY5_BAR_LRED : RY5_BAR_LGRAY)
+              : (vfLow ? RY5_BAR_RED : RY5_BAR_GRAY)
           }
+          return { value: num, itemStyle: { color } }
         }),
         barWidth: '40%',
         animation: false,
@@ -660,8 +712,8 @@ export const SUB_CHARTS: SubChartDef[] = [
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: 'DIF+', color: '#FACC15', value: d.macd_plus_dif != null ? d.macd_plus_dif.toFixed(2) : '—' },
-        { label: 'DEA+', color: '#8B5CF6', value: d.macd_plus_dea != null ? d.macd_plus_dea.toFixed(2) : '—' },
+        { label: 'DIF+', color: '#FFFFFF', value: d.macd_plus_dif != null ? d.macd_plus_dif.toFixed(2) : '—' },
+        { label: 'DEA+', color: '#FFEB3B', value: d.macd_plus_dea != null ? d.macd_plus_dea.toFixed(2) : '—' },
         { label: '能量柱', color: d.macd_plus_hist != null && d.macd_plus_hist >= 0 ? '#C74040' : '#2D9B65', value: d.macd_plus_hist != null ? d.macd_plus_hist.toFixed(2) : '—' },
       ]
     },
@@ -673,12 +725,15 @@ export const SUB_CHARTS: SubChartDef[] = [
     // 资金流 ±1 量程 (RSI14 归一化), ±0.4 多空轨道阈值
     yAxisConfig: { min: -1, max: 1 },
     buildSeries: (data) => {
-      const fundLine = buildRsiPlusSeries(data.map(d => d.rsi_plus != null ? Number(d.rsi_plus) : null))
-      // 上下轨 ±0.4 参考线 (灰虚线, 与 CCI ±100 同款平台参考线样式)
+      const fundLine = buildRsiPlusSeries(data)
+      // ±0.4 多空轨道 (Pine hline white t50 实线) + 零轴灰线
       fundLine.markLine = {
         silent: true, symbol: 'none', animation: false,
-        data: [{ yAxis: 0 }, { yAxis: 0.4 }, { yAxis: -0.4 }],
-        lineStyle: { color: 'rgba(156,163,175,0.6)', width: 1, type: 'dashed' },
+        data: [
+          { yAxis: 0, lineStyle: { color: 'rgba(156,163,175,0.6)', width: 1 } },
+          { yAxis: 0.4, lineStyle: { color: 'rgba(255,255,255,0.5)', width: 1, type: 'solid' } },
+          { yAxis: -0.4, lineStyle: { color: 'rgba(255,255,255,0.5)', width: 1, type: 'solid' } },
+        ],
         label: { show: false },
       }
       return [
@@ -1449,8 +1504,10 @@ function buildOption(
       ],
     })
 
-    // 4. K 层趋势背景 (markArea, 多头绿/空头红整段)
-    markAreaData.push(...buildRyTrendMarkAreas(data))
+    // 4. K/K2/K3 趋势填充 (Pine fill(ohlc4, 轨道) t80, 整段背景 markArea 已删 — Pine 无此元素)
+    series.push(buildRyTrendFillSeries(data, 'k_trend', 'k_up', 'k_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
+    series.push(buildRyTrendFillSeries(data, 'k2_trend', 'k2_up', 'k2_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
+    series.push(buildRyTrendFillSeries(data, 'k3_trend', 'k3_up', 'k3_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
 
     // 5. 梯形菱形信号 + 多指标背离计数标签 (markPoint)
     data.forEach(d => {

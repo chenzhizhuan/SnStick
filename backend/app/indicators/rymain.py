@@ -12,7 +12,9 @@
     中轨刻度竖线半幅 = |MACD 快线| × 0.125
 
 K 波段/趋势通道 (SuperTrend 族: ATR10 × 3, hl2 基准):
-    K  = 当前周期;  K2 = 4 根合并周期;  K3 = 8 根合并周期
+    K  = 当前周期;  K2/K3 = TV f_resolveDynamicTimeframe(周期×4/×8) 的高周期桶
+    (A股 intraday 不跨 session: ≥单日时长按天切一根 — 60m: K2=K3=1天桶;
+     240m: K2=K3=1天桶=当前级; 日K: K2=4天、K3=8天; 15m: 1h/2h 桶)
     上涨段画 up 轨 (多头色), 下跌段画 dn 轨 (空头色);
     ohlc4 与轨道之间按趋势色渐变填充 (K 层)
 
@@ -78,8 +80,9 @@ _RY_BAND_MULT = 0.55  # 牛熊通道波幅倍率
 _RY_EMA_MID = 24      # 中轨 EMA 周期
 _K_ATR_LEN = 10       # SuperTrend ATR 周期
 _K_MULT = 3.0         # SuperTrend ATR 倍率
-_K2_GROUP = 4         # K2 合并根数 (4× 周期)
-_K3_GROUP = 8         # K3 合并根数 (8× 周期)
+_K2_GROUP = 4         # K2 合并根数 (日K/默认: 4× 周期)
+_K3_GROUP = 8         # K3 合并根数 (日K/默认: 8× 周期)
+_SESSION_MIN = 240    # A股单日交易分钟数 (intraday 高周期桶不跨 session)
 _DIV_PRD = 10         # 背离 pivot 确认窗口
 _DIV_MAXPP = 10       # 背离回溯 pivot 数
 _DIV_MAXBARS = 100    # 背离最大跨度
@@ -133,9 +136,52 @@ def _supertrend(h: list, l: list, c: list, atr_len: int = _K_ATR_LEN, mult: floa
     return up, dn, trend
 
 
-def _group_bars(rows: list[dict], group: int) -> list[dict]:
-    """每 group 根合并 (open=首 close=末 极值/求和)。"""
-    out = []
+def _resolve_bucket(bar_minutes: int, mult: int) -> int:
+    """TV f_resolveDynamicTimeframe 语义的高周期桶根数 (A股, intraday 不跨 session)。
+
+    实测校准 (2026-10-22 TV 对拍): 4h 图 k2==k3 (16h/1D 都=1天桶),
+    60m 图 k2(4h)=k3(8h)=1天桶=4根 — 高周期 ≥ 单日 session 时按天切一根。
+    - bar ≥ 日线: 桶 = mult 根 (N 天)
+    - 高周期 ≥ 1440min (解析为 "ND"): N 天 × 每天 bar 数
+    - 否则: min(tf_min, 240) // bar_minutes (≥session 时 = 每天一根)
+    """
+    if bar_minutes >= 1440:
+        return mult
+    tf_min = bar_minutes * mult
+    if tf_min >= 1440:
+        days = max(1, int(round(tf_min / 1440)))
+        return days * max(1, _SESSION_MIN // bar_minutes)
+    return max(1, min(tf_min, _SESSION_MIN) // bar_minutes)
+
+
+def _group_bars(rows: list[dict], group: int, by_day: bool = False) -> tuple[list[dict], list[int]]:
+    """合并高周期桶: 每 group 根一桶 (open=首 close=末 极值/求和);
+    by_day=True 时按交易日分组 (60m 的 1 天桶 = 自然日对齐, 免相位错位)。
+    返回 (桶序列, 每根输入 bar 所属桶索引 owner)。"""
+    out: list[dict] = []
+    owner: list[int] = []
+    if by_day:
+        cur_key: str | None = None
+        for i, r in enumerate(rows):
+            key = str(r.get("date", ""))[:10]
+            if key != cur_key:
+                out.append({
+                    "open": r.get("open"),
+                    "high": r.get("high"),
+                    "low": r.get("low"),
+                    "close": r.get("close"),
+                })
+                cur_key = key
+            else:
+                b = out[-1]
+                hi, lo = r.get("high"), r.get("low")
+                if hi is not None:
+                    b["high"] = hi if b["high"] is None else max(b["high"], hi)
+                if lo is not None:
+                    b["low"] = lo if b["low"] is None else min(b["low"], lo)
+                b["close"] = r.get("close")
+            owner.append(len(out) - 1)
+        return out, owner
     for i in range(0, len(rows), group):
         chunk = rows[i:i + group]
         out.append({
@@ -144,15 +190,15 @@ def _group_bars(rows: list[dict], group: int) -> list[dict]:
             "low": min((r.get("low") for r in chunk if r.get("low") is not None), default=None),
             "close": chunk[-1].get("close"),
         })
-    return out
+    owner = [min(i // group, len(out) - 1) for i in range(len(rows))]
+    return out, owner
 
 
-def _map_group_to_bars(group_vals: list, group: int, total: int) -> list:
-    """桶级序列值映射回低周期每根 bar (桶终值, 高周期收盘口径)。"""
+def _map_group_to_bars(group_vals: list, owner: list[int]) -> list:
+    """桶级序列值映射回低周期每根 bar (owner 为每根 bar 的桶索引)。"""
     out: list = []
-    for i in range(total):
-        j = min(i // group, len(group_vals) - 1) if group_vals else None
-        out.append(group_vals[j] if j is not None and j >= 0 else None)
+    for j in owner:
+        out.append(group_vals[j] if j is not None and 0 <= j < len(group_vals) else None)
     return out
 
 
@@ -394,13 +440,16 @@ def _divergence_counts(h: list, l: list, c: list, v: list) -> tuple[list, list]:
 def attach_ry_main(
     rows: list[dict[str, Any]],
     warmup_rows: list[dict[str, Any]] | None = None,
+    bar_minutes: int | None = None,
 ) -> list[dict[str, Any]]:
     """对K行序列附着融易主图全部字段 (原地写回并返回 rows)。
 
     rows 按时间升序, 须含 open/high/low/close (volume 可选, 背离指标用)。
     warmup_rows: 窗口前更早的 OHLC 行 (升序) — EMA110/ATR50 递推深度长,
     日K路径需要 warmup 对齐全历史口径; 分钟周期可不传 (窗口内递推)。
-    K2/K3 用「每 4/8 根合并」近似高周期 security (桶终值映射, 收盘口径)。
+    K2/K3 桶根数按 TV f_resolveDynamicTimeframe 语义 (见 _resolve_bucket):
+    bar_minutes=None/≥1440 → 4/8 根 (起点除法); 60m → 1 天桶 (按日分组);
+    240m(4h) → 桶=1 (k2==k3==k, TV 实测 16h/1D 对 A 股均按天切)。
     """
     if not rows:
         return rows
@@ -428,18 +477,27 @@ def attach_ry_main(
     # ── K/K2/K3 SuperTrend 通道 ──
     k_up, k_dn, k_tr = _supertrend(h, l, c)
 
-    def _group_st(group: int):
-        gbars = _group_bars(all_rows, group)
+    def _group_st(group: int, by_day: bool = False):
+        if group <= 1:
+            return k_up, k_dn, k_tr
+        gbars, owner = _group_bars(all_rows, group, by_day=by_day)
         gh = [b["high"] for b in gbars]
         gl = [b["low"] for b in gbars]
         gc = [b["close"] for b in gbars]
         gu, gd, gt = _supertrend(gh, gl, gc)
-        return (_map_group_to_bars(gu, group, n_all),
-                _map_group_to_bars(gd, group, n_all),
-                _map_group_to_bars(gt, group, n_all))
+        return (_map_group_to_bars(gu, owner),
+                _map_group_to_bars(gd, owner),
+                _map_group_to_bars(gt, owner))
 
-    k2_up, k2_dn, k2_tr = _group_st(_K2_GROUP)
-    k3_up, k3_dn, k3_tr = _group_st(_K3_GROUP)
+    if bar_minutes is None or bar_minutes >= 1440:
+        g2, g3, day2, day3 = _K2_GROUP, _K3_GROUP, False, False
+    else:
+        g2 = _resolve_bucket(bar_minutes, 4)
+        g3 = _resolve_bucket(bar_minutes, 8)
+        per_day = _SESSION_MIN // bar_minutes if bar_minutes and _SESSION_MIN % bar_minutes == 0 else 0
+        day2 = day3 = per_day > 0 and g2 == per_day and g3 == per_day
+    k2_up, k2_dn, k2_tr = _group_st(g2, by_day=day2)
+    k3_up, k3_dn, k3_tr = _group_st(g3, by_day=day3)
 
     # ── K 线通道位置着色 (+1 上轨外多头 / -1 下轨外空头 / 0 通道内灰) ──
     bar_color: list = []

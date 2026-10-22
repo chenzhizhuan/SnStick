@@ -412,6 +412,10 @@ def get_daily(
         None, ge=1, le=500,
         description="私有指标量级缩放窗口 (默认 50=日K档; 4h 周期客户端传 160)",
     ),
+    ry_bar_minutes: Optional[int] = Query(
+        None, ge=1, le=1440,
+        description="融易 K2/K3 桶语义输入周期分钟数 (4h 面板传 240 → K2/K3=1天桶=当前级; 默认 None=日K档 4/8 根)",
+    ),
 ):
     """读取本地 enriched 表中某只股票的日 K。
 
@@ -471,7 +475,9 @@ def get_daily(
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
         # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
-        rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows, lookback=_resolve_plus_lookback(plus_lookback))
+        rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
+                                        lookback=_resolve_plus_lookback(plus_lookback),
+                                        ry_bar_minutes=ry_bar_minutes)
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
         return _gzip_payload(
             request,
@@ -484,7 +490,9 @@ def get_daily(
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
     # 私有化指标 (MACD+/RSI+) 独立线路: API 层现场附着 (带历史 warmup), 不落盘不回补
-    rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows, lookback=_resolve_plus_lookback(plus_lookback))
+    rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
+                                    lookback=_resolve_plus_lookback(plus_lookback),
+                                    ry_bar_minutes=ry_bar_minutes)
 
     resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
     return _gzip_payload(
@@ -517,6 +525,7 @@ def _resolve_plus_lookback(plus_lookback) -> int:
 
 def _attach_plus_with_warmup(
     repo, asset_type: str, symbol: str, rows: list[dict], lookback: int = _T_LOOKBACK_DAILY,
+    ry_bar_minutes: Optional[int] = None,
 ) -> list[dict]:
     """MACD+/RSI+ + 融易主图 附着 (带窗口前历史 warmup)。
 
@@ -525,9 +534,13 @@ def _attach_plus_with_warmup(
     close, ry 主图用 550 日历日 OHLC)。
     历史读失败时退化为窗口内递推 (数值仍可用, 仅前期偏差)。
     lookback: 量级缩放窗口 (日K默认 50; 4h 周期前端传 160 — Pine 周期预设档)。
+    ry_bar_minutes: 融易 K2/K3 桶语义输入周期 (4h 面板传 240; None=日K档)。
     """
     if not rows:
         return rows
+    # 直调端点 (测试) 时 FastAPI Query 默认对象会漏进来 — 与 _resolve_plus_lookback 同款净化
+    if ry_bar_minutes is not None and not isinstance(ry_bar_minutes, int):
+        ry_bar_minutes = None
     warmup: list[float | None] = []
     warmup_rows: list[dict] = []
     try:
@@ -553,7 +566,7 @@ def _attach_plus_with_warmup(
     except Exception:  # noqa: BLE001
         logger.debug("ry warmup 读取失败 %s", symbol, exc_info=True)
     attach_plus_indicators(rows, warmup_closes=warmup, lookback=lookback)
-    attach_ry_main(rows, warmup_rows=warmup_rows)
+    attach_ry_main(rows, warmup_rows=warmup_rows, bar_minutes=ry_bar_minutes)
     return rows
 
 
