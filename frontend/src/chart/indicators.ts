@@ -12,6 +12,7 @@
  *   - RSI:  RMA(α=1/n) on gain/loss (Wilder)
  */
 import type { ResampledBar } from './minuteResample'
+import type { RyFvgBox } from '@/components/EChartsCandlestick'
 
 export interface ChartIndicatorFields {
   ma5?: number | null
@@ -61,6 +62,8 @@ export interface ChartIndicatorFields {
   ry_btm_price?: number | null
   div_top_count?: number | null
   div_btm_count?: number | null
+  /** 融易 FVG 活跃区间 (仅末行携带, 区间型字段) */
+  fvg_list?: RyFvgBox[]
 }
 
 export type EnrichedBar = ResampledBar & ChartIndicatorFields
@@ -77,7 +80,7 @@ export type IntradayInputBar = ResampledBar & Partial<Pick<
   | 'k2_trend' | 'k2_up' | 'k2_dn'
   | 'k3_trend' | 'k3_up' | 'k3_dn'
   | 'ry_bar_color' | 'ry_top_signal' | 'ry_top_price' | 'ry_btm_signal' | 'ry_btm_price'
-  | 'div_top_count' | 'div_btm_count'
+  | 'div_top_count' | 'div_btm_count' | 'fvg_list'
 >>
 
 // ── 基础算子 ──────────────────────────────────────────────

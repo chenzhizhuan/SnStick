@@ -544,7 +544,9 @@ export function ChartPane({ pane, drawTool, syncDrawings, onChange, isActive = f
             data={data}
             markers={markers}
             height={chartBoxH}
-            showMA
+            // 1:1 对齐 TV 融易主图布局: Pine showmas=false (MA plot 注释掉) —
+            // 工作台主图不叠加 MA5/10/20/60 四均线 (其他页面默认 true 不受影响)
+            showMA={false}
             chartStyle={pane.chartStyle}
             // RSI 副图固定零轴震荡形态 (RSI-50, ±50) — 工作台既定形态, 无开关
             rsiZeroAxis

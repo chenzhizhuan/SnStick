@@ -21,7 +21,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api, type KlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { chartIntradayRefetchInterval } from '@/lib/kline'
-import type { OHLC } from '@/components/EChartsCandlestick'
+import type { OHLC, RyFvgBox } from '@/components/EChartsCandlestick'
 import { DEFAULT_PERIOD, periodDef, type Period } from './periods'
 import type { ResampledBar } from './minuteResample'
 import { resampleDaily } from './dailyResample'
@@ -127,6 +127,8 @@ function mapDailyRow(r: KlineRow): OHLC {
     ry_btm_price: (r['ry_btm_price'] as number | null | undefined) ?? null,
     div_top_count: (r['div_top_count'] as number | null | undefined) ?? null,
     div_btm_count: (r['div_btm_count'] as number | null | undefined) ?? null,
+    // 融易 FVG 活跃区间 (仅末行携带, 区间型字段)
+    fvg_list: (r['fvg_list'] as RyFvgBox[] | null | undefined) ?? undefined,
     is_live: r.is_live === true,
   }
 }

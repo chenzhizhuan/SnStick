@@ -77,6 +77,21 @@ export interface OHLC {
   /** 多指标背离计数 (顶部负背离/底部正背离) */
   div_top_count?: number | null
   div_btm_count?: number | null
+  /** 融易 FVG (公平价值缺口) 活跃区间 — 仅末行携带 (服务端 rymain.py) */
+  fvg_list?: RyFvgBox[]
+}
+
+/** 融易 FVG 活跃区间 (Pine 主图最后模块: 检测/失效/合并后的存活盒子)。 */
+export interface RyFvgBox {
+  /** 起始 bar 的 date 标签 (未失效区间前端画到末根 — 全量延伸口径) */
+  start: string
+  min: number
+  max: number
+  is_bull: boolean
+  combined?: boolean
+  high_vol?: number
+  low_vol?: number
+  total_vol?: number
 }
 
 export interface ChartMarker {
@@ -397,6 +412,66 @@ const RY_BAR_BEAR = '#C71C31'                // K 线着色空头 (通道下方)
 const RY_BAR_FLAT = '#AEAAAA'                // K 线着色通道内 (灰)
 const RY_DIV_TOP_BG = '#000080'              // 顶部背离标签底 (Pine color.navy)
 const RY_DIV_BTM_BG = '#FFEB3B'              // 底部背离标签底 (Pine color.yellow)
+// FVG 盒子 (Pine renderFVG 原色: 主盒 #87878788 t×1.5/×1.1; 量能子盒 bull/bear t40)
+const FVG_MAIN = 'rgba(135,135,135,0.30)'         // 主盒 (t70 ≈ 透明度 30%)
+const FVG_MAIN_COMBINED = 'rgba(135,135,135,0.49)' // 合并区间主盒 (t×1.1 ≈ 49%)
+const FVG_POS = 'rgba(38,166,154,0.40)'           // 量能子盒上半 (bullColor #26A69A66)
+const FVG_NEG = 'rgba(255,82,82,0.40)'            // 量能子盒下半 (bearColor #FF525266)
+
+/** FVG 活跃区间渲染 (Pine 一比一): 主灰盒从起点延伸到末根 + 左 1/3 量能子盒
+ *  (上半 bull 色/high_vol 宽, 下半 bear 色/low_vol 宽, mirror 口径均从左端起)。 */
+function buildRyFvgSeries(data: OHLC[], dateIndexMap: Map<string, number>): Record<string, any> {
+  const lastIdx = data.length - 1
+  const boxes = (data[lastIdx]?.fvg_list ?? [])
+    .filter((b: RyFvgBox) => b.start != null && b.min != null && b.max != null)
+  const resolveIdx = (start: string): number => {
+    const exact = dateIndexMap.get(start)
+    if (exact != null) return exact
+    // 日K→4h 标签前缀对齐 / 起点在视野左外时夹到首根 (盒子从左缘进入)
+    for (let i = 0; i < data.length; i++) {
+      if (data[i].date >= start) return i
+    }
+    return 0
+  }
+  const renderItem = (params: any, api: any) => {
+    const b = boxes[params.dataIndex]
+    if (!b) return
+    const s = resolveIdx(b.start)
+    const x1 = api.coord([s, b.max])[0]
+    const x2 = api.coord([lastIdx, b.max])[0]
+    const yMax = api.coord([s, b.max])[1]
+    const yMin = api.coord([s, b.min])[1]
+    const mid = (yMax + yMin) / 2
+    const left = Math.min(x1, x2)
+    const width = Math.abs(x2 - x1)
+    const children: any[] = [{
+      type: 'rect',
+      shape: { x: left, y: yMax, width, height: yMin - yMax },
+      style: { fill: b.combined ? FVG_MAIN_COMBINED : FVG_MAIN }, silent: true, z: 1,
+    }]
+    const tv = Number(b.total_vol) || 0
+    if (tv > 0) {
+      const w3 = width / 3  // volumeBarsLeftSide: 量能子区占区间左 1/3
+      const wPos = (Number(b.high_vol) || 0) / tv * w3
+      const wNeg = (Number(b.low_vol) || 0) / tv * w3
+      children.push({
+        type: 'rect', shape: { x: left, y: yMax, width: wPos, height: mid - yMax },
+        style: { fill: FVG_POS }, silent: true, z: 2,
+      })
+      children.push({
+        type: 'rect', shape: { x: left, y: mid, width: wNeg, height: yMin - mid },
+        style: { fill: FVG_NEG }, silent: true, z: 2,
+      })
+    }
+    return { type: 'group', children }
+  }
+  return {
+    name: 'FVG', type: 'custom', coordinateSystem: 'cartesian2d',
+    // y 维 '-' 空值不参与轴 extent (占位 0 会拉爆 Y 轴 — 同 ry fill 教训)
+    data: boxes.map((_: RyFvgBox, i: number) => [i, '-']),
+    renderItem, clip: true, silent: true, animation: false, z: 1,
+  }
+}
 
 /** K/K2/K3 趋势填充 (Pine fill(ohlc4, 轨道)): 多头 ohlc4↔up / 空头 ohlc4↔dn 梯形,
  *  趋势切换段不画 (linebr 语义)。同段趋势连续填充视觉连片。 */
@@ -646,10 +721,11 @@ export const SUB_CHARTS: SubChartDef[] = [
           const v = d.macd_plus_hist
           if (v == null) return '-'
           // R5 能量柱五色 (Pine 附图 line 146 一比一): 增长/回落 × 动能快线(RSI28 EMA5) 50 阈
+          // prev=na (首根/断档) → Pine na 比较恒 false → 回落色 (非增长)
           const num = Number(v)
           const vf = d.volume_rsi_fast != null ? Number(d.volume_rsi_fast) : null
           const pv = i > 0 && data[i - 1].macd_plus_hist != null ? Number(data[i - 1].macd_plus_hist) : null
-          const growing = pv == null ? true : pv < num
+          const growing = pv != null ? pv < num : false
           const vfLow = vf != null && vf < 50
           let color: string
           if (num >= 0) {
@@ -1493,6 +1569,12 @@ function buildOption(
     if (showRYK) series.push(buildRyTrendFillSeries(data, 'k_trend', 'k_up', 'k_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
     if (showRYK2) series.push(buildRyTrendFillSeries(data, 'k2_trend', 'k2_up', 'k2_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
     if (showRYK3) series.push(buildRyTrendFillSeries(data, 'k3_trend', 'k3_up', 'k3_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
+
+    // 4.5 FVG (公平价值缺口) — Pine 主图模块无独立开关 (恒渲染), 跟随融易主图任一层
+    const fvgBoxes = data[data.length - 1]?.fvg_list
+    if (fvgBoxes != null && fvgBoxes.length > 0) {
+      series.push(buildRyFvgSeries(data, dateIndexMap))
+    }
 
     // 5. 梯形菱形信号 + 多指标背离计数标签 (markPoint)
     data.forEach(d => {

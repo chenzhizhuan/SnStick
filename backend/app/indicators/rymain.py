@@ -87,6 +87,127 @@ _DIV_PRD = 10         # 背离 pivot 确认窗口
 _DIV_MAXPP = 10       # 背离回溯 pivot 数
 _DIV_MAXBARS = 100    # 背离最大跨度
 
+# ── FVG (公平价值缺口, Pine 主图最后一模块) 参数 — 逐常量一比一 ──
+_FVG_SENS = 6.0          # fvgSensitivityText="Extreme" → 6
+_FVG_MAX_KEEP = 125      # showLastXFVGs
+_FVG_DELETE_BARS = 360   # deleteUntouchedAfterXBars (f_get_dynamic_bars 线性设计恒 360)
+_FVG_EXTEND_X = 15       # extendZonesBy (bar_time 单位, 视觉宽度≈0)
+
+
+def _compute_fvg(rows: list[dict[str, Any]], atr10: list) -> list[dict[str, Any]]:
+    """FVG 模块逐式 (Pine 1841-1952): 检测(Same Type + Extreme 敏感度) →
+    失效(Close 法) → 未触及删除(360 根) → 同向相交合并 → 输出活跃区间。
+
+    - Same Type: 构成 FVG 的三根 K 线同阴或同阳 (fvgBars="Same Type")
+    - 敏感度 (Average Range 法): barSizeSum×6 > ATR10/1.5 且 maxCODiff ≤ ATR10,
+      且 FVGSize×6 > ATR10 (双重 Extreme 过滤); allowGaps=false
+    - 失效: bull 收盘跌破 min / bear 收盘破 max (fvgEndMethod="Close")
+    - 未触及: bull low≤max / bear high≥min 更新 lastTouched
+    - 合并 (islast): 同向且 X(start~end|start+15)×Y(min~max) 相交 → 并集
+      (活跃区间 X 宽度≈15 时间单位 → 合并几乎仅同起点重叠时触发, 忠实照搬)
+    - 输出: showInvalidated=false → 只返回未失效区间; extendLastFVGs 实际
+      口径为全量延伸 (循环条件 ≤360) → 前端全部画到末根
+    """
+    n = len(rows)
+    if n < 3:
+        return []
+    fvgs: list[dict[str, Any]] = []  # 头 = 最新 (Pine unshift)
+    # Pine 前 2 根历史为 na → 不检测; 从 i=2 起 (避免 i<2 负索引回绕到末尾 K 线
+    # 伪造三连 — warmup 下 atr10[0] 非空时该路径可触发)
+    for i in range(2, n):
+        r, r1, r2 = rows[i], rows[i - 1], rows[i - 2]
+        o, c, h, l = r.get("open"), r.get("close"), r.get("high"), r.get("low")
+        o1, c1 = r1.get("open"), r1.get("close")
+        o2, c2 = r2.get("open"), r2.get("close")
+        h2, l2 = r2.get("high"), r2.get("low")
+        v, v1, v2 = r.get("volume") or 0, r1.get("volume") or 0, r2.get("volume") or 0
+        atr = atr10[i]
+        if None in (o, c, h, l, o1, c1, o2, c2, h2, l2) or atr is None or atr <= 0:
+            continue
+        same_type = (o > c and o1 > c1 and o2 > c2) or (o <= c and o1 <= c1 and o2 <= c2)
+        if same_type:
+            bar_sum = abs(o - c) + abs(o1 - c1) + abs(o2 - c2)
+            max_co = max(abs(c2 - o1), abs(c1 - o))
+            cond = (bar_sum * _FVG_SENS > atr / 1.5) and (max_co <= atr)
+            bear = cond and h < l2 and c1 < l2
+            bull = cond and l > h2 and c1 > h2
+            if bear or bull:
+                size = abs(l2 - h) if bear else abs(l - h2)
+                if size * _FVG_SENS > atr:
+                    total_v = v + v1 + v2
+                    if bear:
+                        fvg: dict[str, Any] = {"max": l2, "min": h, "is_bull": False,
+                                               "low_vol": v + v1, "high_vol": v2}
+                    else:
+                        fvg = {"max": l, "min": h2, "is_bull": True,
+                               "low_vol": v2, "high_vol": v + v1}
+                    fvg.update({"start_i": i, "end_i": None, "disabled": False,
+                                "combined": False, "total_vol": total_v, "last_touch": i})
+                    fvgs.insert(0, fvg)
+                    if len(fvgs) > _FVG_MAX_KEEP:
+                        fvgs.pop()
+        # 失效/触及 (Close 法; 含新入列区间)
+        for f in fvgs:
+            if f["end_i"] is not None:
+                continue
+            if f["is_bull"] and l <= f["max"]:
+                f["last_touch"] = i
+            if (not f["is_bull"]) and h >= f["min"]:
+                f["last_touch"] = i
+            if f["is_bull"] and c < f["min"]:
+                f["end_i"] = i
+            if (not f["is_bull"]) and c > f["max"]:
+                f["end_i"] = i
+        # 无效删除: 失效 (showInvalidated=false) / 禁用 / 未触及超 360 根
+        fvgs = [
+            f for f in fvgs
+            if not f["disabled"] and f["end_i"] is None
+            and (i - f["last_touch"]) <= _FVG_DELETE_BARS
+        ]
+
+    # 合并 (islast): 同向相交 → 并集 (循环至稳)
+    while True:
+        merged = False
+        for a_i in range(len(fvgs)):
+            for b_i in range(len(fvgs)):
+                if a_i == b_i:
+                    continue
+                a, b = fvgs[a_i], fvgs[b_i]
+                if a["is_bull"] != b["is_bull"]:
+                    continue
+                ax2 = a["end_i"] if a["end_i"] is not None else a["start_i"] + _FVG_EXTEND_X
+                bx2 = b["end_i"] if b["end_i"] is not None else b["start_i"] + _FVG_EXTEND_X
+                if (min(ax2, bx2) - max(a["start_i"], b["start_i"])) > 0 \
+                        and (min(a["max"], b["max"]) - max(a["min"], b["min"])) > 0:
+                    nf = {
+                        "max": max(a["max"], b["max"]), "min": min(a["min"], b["min"]),
+                        "is_bull": a["is_bull"],
+                        "start_i": min(a["start_i"], b["start_i"]),
+                        "end_i": max(a["end_i"] or 0, b["end_i"] or 0) or None,
+                        "disabled": False, "combined": True,
+                        "total_vol": a["total_vol"] + b["total_vol"],
+                        "low_vol": a["low_vol"] + b["low_vol"],
+                        "high_vol": a["high_vol"] + b["high_vol"],
+                        "last_touch": max(a["last_touch"], b["last_touch"]),
+                    }
+                    fvgs = [f for j, f in enumerate(fvgs) if j not in (a_i, b_i)]
+                    fvgs.insert(0, nf)
+                    merged = True
+                    break
+            if merged:
+                break
+        if not merged:
+            break
+
+    # 输出: 活跃区间 (未失效/未禁用), start 为起始 bar 的 date 标签
+    return [
+        {"start": str(rows[f["start_i"]].get("date", ""))[:32],
+         "min": f["min"], "max": f["max"], "is_bull": f["is_bull"],
+         "combined": f["combined"],
+         "high_vol": f["high_vol"], "low_vol": f["low_vol"], "total_vol": f["total_vol"]}
+        for f in fvgs if f["end_i"] is None and not f["disabled"]
+    ]
+
 
 def _cols(rows: list[dict[str, Any]]) -> tuple[list, list, list, list]:
     o = [r.get("open") for r in rows]
@@ -547,6 +668,10 @@ def attach_ry_main(
     # ── 多指标背离计数 ──
     div_top, div_btm = _divergence_counts(h, l, c, v)
 
+    # ── FVG (公平价值缺口, Pine 主图最后模块): 全历史口径 (含 warmup) ──
+    atr10 = _wilder_atr(h, l, c, _K_ATR_LEN)
+    fvg_list = _compute_fvg(all_rows, atr10)
+
     # ── 写回窗口行 ──
     for i, r in enumerate(rows):
         j = off + i
@@ -572,4 +697,7 @@ def attach_ry_main(
         r["ry_btm_price"] = btm_price[j]
         r["div_top_count"] = div_top[j]
         r["div_btm_count"] = div_btm[j]
+    # FVG 活跃区间只挂末行 (区间型字段, 非每行单值; 前端取末行渲染盒子)
+    if fvg_list and rows:
+        rows[-1]["fvg_list"] = fvg_list
     return rows

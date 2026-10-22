@@ -218,3 +218,97 @@ it('无 markers 时 ry 菱形/背离方块 markPoint 仍回填到主 K 线系列
   expect(mp).toContain('dvB')
   expect(mp).toContain('diamond')
 })
+
+it('showMA=false 不渲染 MA 序列 (工作台 1:1: TV 融易主图布局无均线, Pine showmas=false)', async () => {
+  // 有 MA 数据但开关关 → 不画 (ChartPane 传 showMA={false})
+  const data: OHLC[] = rows(20).map((r, i) => ({ ...r, ma5: 10 + i, ma10: 10, ma20: 10, ma60: 10 }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600000" height={400} visibleBars="all" showMA={false} />,
+  ))
+  const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+  const names = (option?.series ?? []).map((s: any) => s.name)
+  expect(names).not.toContain('MA5')
+  expect(names).not.toContain('MA10')
+  expect(names).not.toContain('MA20')
+  expect(names).not.toContain('MA60')
+})
+
+it('showMA 默认 true (其他页面) 仍渲染 MA 序列 — 回归保护', async () => {
+  const data: OHLC[] = rows(20).map((r, i) => ({ ...r, ma5: 10 + i, ma10: 10, ma20: 10, ma60: 10 }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600000" height={400} visibleBars="all" />,
+  ))
+  const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+  const names = (option?.series ?? []).map((s: any) => s.name)
+  expect(names).toContain('MA5')
+  expect(names).toContain('MA60')
+})
+
+it('MACD+ 能量柱五色配色矩阵 (Pine 附图 line 146 一比一: 增长/回落 × RSI28快线 50 阈)', async () => {
+  // 构造 9 根 (首根裸行 = prev na) 覆盖五色全分支; prev=na 首根走回落色 (Pine na 比较恒 false)
+  const hists = [1, 2, 2.5, 2, -1, -0.5, -0.4, -1.2]
+  const vfs = [60, 60, 40, 60, 40, 40, 60, 60]
+  const data: OHLC[] = makeRows(9).map((r, i) => i === 0 ? r : ({
+    ...r,
+    macd_plus_dif: 1, macd_plus_dea: 1,
+    macd_plus_hist: hists[i - 1],
+    volume_rsi_fast: vfs[i - 1],
+  }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600000" height={400} visibleBars="all"
+      activeIndicators={['macd_plus']} showMA={false} />,
+  ))
+  const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+  const macdBar = (option?.series ?? []).find((s: any) => s.name === 'MACD+')
+  expect(macdBar).toBeTruthy()
+  // 首根无 hist → '-' 占位 (不参与配色)
+  expect(macdBar.data[0]).toBe('-')
+  const colors = macdBar.data.slice(1).map((d: any) => d?.itemStyle?.color)
+  // 期望矩阵 (与 hists 逐项对齐):
+  //  h0 hist=1     vf=60 prev=na    → 正柱回落 vf≥50 → 浅绿 #C7E4B3
+  //  h1 hist=2     vf=60 增长       → 正柱增长 vf≥50 → 绿 #75BD42
+  //  h2 hist=2.5   vf=40 增长       → 正柱增长 vf<50 → 灰 #AEAAAA
+  //  h3 hist=2     vf=60 回落       → 正柱回落 vf≥50 → 浅绿 #C7E4B3
+  //  h4 hist=-1    vf=40 回落(更深) → 负柱下探 vf<50 → 红 #C71C31
+  //  h5 hist=-0.5  vf=40 增长       → 负柱回升 vf<50 → 浅红 #F4B7BE
+  //  h6 hist=-0.4  vf=60 增长       → 负柱回升 vf≥50 → 浅灰 #E7E6E6
+  //  h7 hist=-1.2  vf=60 回落       → 负柱下探 vf≥50 → 灰 #AEAAAA
+  expect(colors).toEqual([
+    '#C7E4B3', '#75BD42', '#AEAAAA', '#C7E4B3',
+    '#C71C31', '#F4B7BE', '#E7E6E6', '#AEAAAA',
+  ])
+})
+
+it('FVG 活跃区间渲染 (末行 fvg_list → FVG custom series)', async () => {
+  const data: OHLC[] = makeRows(20).map((r, i) => ({
+    ...r,
+    ry_mid: 10,   // hasRyMain 门槛
+    ...(i === 19 ? {
+      fvg_list: [
+        { start: DAYS[5], min: 9.0, max: 11.0, is_bull: true, combined: false, high_vol: 300, low_vol: 100, total_vol: 400 },
+        { start: DAYS[10], min: 8.0, max: 9.5, is_bull: false, combined: true, high_vol: 0, low_vol: 0, total_vol: 0 },
+      ],
+    } : {}),
+  }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600519.SH" height={500} visibleBars="all"
+      activeIndicators={['ry_k']} showMA={false} />,
+  ))
+  const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+  const fvg = (option?.series ?? []).find((s: any) => s.name === 'FVG')
+  expect(fvg).toBeTruthy()
+  expect(fvg.data).toHaveLength(2)
+  // y 维占位 '-' (不参与 Y 轴 extent — 防 0 拉爆)
+  expect(fvg.data[0][1]).toBe('-')
+})
+
+it('无 fvg_list 时不渲染 FVG series', async () => {
+  const data: OHLC[] = makeRows(20).map(r => ({ ...r, ry_mid: 10 }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600519.SH" height={500} visibleBars="all"
+      activeIndicators={['ry_k']} showMA={false} />,
+  ))
+  const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+  const names = (option?.series ?? []).map((s: any) => s.name)
+  expect(names).not.toContain('FVG')
+})
