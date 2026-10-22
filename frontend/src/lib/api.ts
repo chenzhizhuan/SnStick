@@ -2963,10 +2963,11 @@ export const api = {
       + (plusLookback ? `&plus_lookback=${plusLookback}` : '')
       + (ryBarMinutes ? `&ry_bar_minutes=${ryBarMinutes}` : ''),
     ),
-  klineDailyLatest: (symbol: string, plusLookback?: number) =>
+  klineDailyLatest: (symbol: string, plusLookback?: number, ryBarMinutes?: number) =>
     request<KlineDailyLatestResponse>(
       `/api/kline/daily/latest?symbol=${encodeURIComponent(symbol)}`
-      + (plusLookback ? `&plus_lookback=${plusLookback}` : ''),
+      + (plusLookback ? `&plus_lookback=${plusLookback}` : '')
+      + (ryBarMinutes ? `&ry_bar_minutes=${ryBarMinutes}` : ''),
     ),
   /** 图表工作台分钟聚合周期K (15m/60m): 服务端聚合 + MACD+/RSI+ 附着 (私有化收口) */
   klineIntraday: (symbol: string, period: '15m' | '60m', days = 60) =>

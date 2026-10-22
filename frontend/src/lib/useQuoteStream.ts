@@ -206,7 +206,7 @@ export function useQuoteStream(
         }
         const chartSymbols4h = getChartLiveSymbols4h()
         for (const symbol of chartSymbols4h) {
-          void qc.fetchQuery({ ...klineDailyLatestQueryOptions(symbol, 160), staleTime: 0 })
+          void qc.fetchQuery({ ...klineDailyLatestQueryOptions(symbol, 160, 240), staleTime: 0 })
             .then((latest) => {
               if (!latest.row) return
               const queries = qc.getQueryCache().findAll({ queryKey: ['chart', 'kline-daily-4h', symbol] })

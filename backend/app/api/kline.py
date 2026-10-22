@@ -710,6 +710,10 @@ def get_daily_latest(
         None, ge=1, le=500,
         description="私有指标量级缩放窗口 (默认 50=日K档; 4h 周期客户端传 160)",
     ),
+    ry_bar_minutes: Optional[int] = Query(
+        None, ge=1, le=1440,
+        description="融易 K2/K3 桶语义输入周期分钟数 (4h 面板实时行传 240)",
+    ),
 ):
     """返回内存中的当日单行 K 线, 供详情页实时增量更新。"""
     repo = request.app.state.repo
@@ -719,7 +723,7 @@ def get_daily_latest(
         # 私有化指标 (MACD+/RSI+): 单行无法递推, 用带历史 warmup 的附着让末行
         # plus 值随行情刷新 (与 get_daily 同口径同预热)。
         try:
-            _attach_plus_with_warmup(repo, asset_type, symbol, [row], lookback=_resolve_plus_lookback(plus_lookback))
+            _attach_plus_with_warmup(repo, asset_type, symbol, [row], lookback=_resolve_plus_lookback(plus_lookback), ry_bar_minutes=ry_bar_minutes)
         except Exception:  # noqa: BLE001 — 历史读失败时实时行退化为无 plus 字段
             logger.debug("daily/latest plus 指标重算失败 %s", symbol, exc_info=True)
     return {
