@@ -1115,7 +1115,7 @@ function buildOption(
   // ====== 布局计算 ======
   // TV/同花顺同款: 价格轴在右侧 (最新价标签贴右缘, 符合阅读直觉);
   // left 只留 x 轴末端留白, right 让出 Y 轴标签宽度。
-  const left = 20
+  const left = 46
   const right = 60
   const topPad = 8
   const candleBottomPad = 22
@@ -1161,9 +1161,16 @@ function buildOption(
   xAxes.push({
     type: 'category', data: dates, boundaryGap: true,
     axisLine: { lineStyle: { color: CT().border } },
-    // hideOverlap: 分钟周期类目标签 ("YYYY-MM-DD HH:mm") 远宽于 bar 间距,
-    // 不隐藏重叠时会互相叠印成 "-89-22"/"2026-18-09" 式伪影
-    axisLabel: { color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace', hideOverlap: true },
+    // 两行短标签 ("MM-DD\nHH:mm") + hideOverlap: 分钟周期全量长标签远宽于
+    // bar 间距, 会互相叠印/左端溢出被裁 ("-89-22" 式伪影); TV 同为短日期标签
+    axisLabel: {
+      color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
+      hideOverlap: true,
+      formatter: (v: string) => {
+        const s = String(v)
+        return s.includes(' ') ? s.slice(5).replace(' ', '\n') : s.slice(5)
+      },
+    },
     axisTick: { show: false },
     splitLine: { show: false },
   })
