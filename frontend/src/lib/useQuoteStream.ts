@@ -189,12 +189,17 @@ export function useQuoteStream(
         // 两套口径 (私有化收口): 1d/2d/4d/1w/1M 默认 50 档 → kline-daily 缓存;
         // 4h 带 plus_lookback=160 → kline-daily-4h 专用缓存 (同 symbol 互不污染)。
         // 触发源为 SSE 推送 (盘后无推送自动静止), 与实时行情开关联动 (enabledRef 已判)。
+        // raw 不复权缓存 (key 末段 adjust='raw') 不参与合并 — daily/latest 单行是
+        // qfq 口径指标, 合进 raw 缓存会污染末根; raw 窗格本身不注册 (Chart.tsx),
+        // 此处过滤的是切换复权后 gc 窗口 (10min) 内残留的 raw 缓存。
+        const notRawKey = (key: readonly unknown[], adjustIdx: number) => key[adjustIdx] !== 'raw'
         const chartSymbols = getChartLiveSymbols()
         for (const symbol of chartSymbols) {
           void qc.fetchQuery({ ...klineDailyLatestQueryOptions(symbol), staleTime: 0 })
             .then((latest) => {
               if (!latest.row) return
               const queries = qc.getQueryCache().findAll({ queryKey: ['chart', 'kline-daily', symbol] })
+                .filter(q => notRawKey(q.queryKey, 4))
               for (const query of queries) {
                 qc.setQueryData<KlineDailyResponse>(
                   query.queryKey,
@@ -210,6 +215,7 @@ export function useQuoteStream(
             .then((latest) => {
               if (!latest.row) return
               const queries = qc.getQueryCache().findAll({ queryKey: ['chart', 'kline-daily-4h', symbol] })
+                .filter(q => notRawKey(q.queryKey, 3))
               for (const query of queries) {
                 qc.setQueryData<KlineDailyResponse>(
                   query.queryKey,
@@ -230,6 +236,7 @@ export function useQuoteStream(
             .then((latest) => {
               if (!latest.row) return
               const queries = qc.getQueryCache().findAll({ queryKey: ['chart', 'intraday', symbol] })
+                .filter(q => notRawKey(q.queryKey, 4))
               for (const query of queries) {
                 qc.setQueryData<KlineIntradayResponse>(
                   query.queryKey,
