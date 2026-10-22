@@ -1161,7 +1161,9 @@ function buildOption(
   xAxes.push({
     type: 'category', data: dates, boundaryGap: true,
     axisLine: { lineStyle: { color: CT().border } },
-    axisLabel: { color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+    // hideOverlap: 分钟周期类目标签 ("YYYY-MM-DD HH:mm") 远宽于 bar 间距,
+    // 不隐藏重叠时会互相叠印成 "-89-22"/"2026-18-09" 式伪影
+    axisLabel: { color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace', hideOverlap: true },
     axisTick: { show: false },
     splitLine: { show: false },
   })
