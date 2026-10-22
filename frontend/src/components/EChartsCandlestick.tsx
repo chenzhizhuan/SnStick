@@ -470,7 +470,9 @@ function buildRyTrendFillSeries(
   }
   return {
     name: `${trendKey}Fill`, type: 'custom', coordinateSystem: 'cartesian2d',
-    data: data.map((_, i) => [i, 0]), renderItem,
+    // data y 维用 '-' (ECharts 空值): 不参与 Y 轴 extent — 占位 0 会把主图
+    // Y 轴拉爆到含 0 (与中轨 encode.y 同源教训); renderItem 取值走闭包 data
+    data: data.map((_, i) => [i, '-']), renderItem,
     clip: true, silent: true, animation: false, z: 1,
   }
 }
