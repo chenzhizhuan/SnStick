@@ -769,17 +769,17 @@ export const SUB_CHARTS: SubChartDef[] = [
     key: 'rsi_plus',
     label: 'RSI+',
     height: 72,
-    // 资金流 ±1 量程 (RSI14 归一化), ±0.4 多空轨道阈值
-    yAxisConfig: { min: -1, max: 1 },
+    // 资金流 ±1 量程 (RSI14 归一化) — Y 轴自适应 (TV 实测左日线 -0.60~0.40 /
+    // 右周线 -0.40~0.40, 随数据范围自动定界, 不固定 ±1)
     buildSeries: (data) => {
       const fundLine = buildRsiPlusSeries(data)
-      // ±0.4 多空轨道 (Pine hline white t50 实线) + 零轴灰线
+      // 零轴灰线 (Pine hline 资金流零轴); ±0.4 多空轨道不画 — Pine
+      // display=OPEN_FUND_TRACKING_FILTER ? all : none 且默认 false,
+      // TV 实拍副图仅虚线网格无白色实线轨道 (复刻对拍 2026-10-23 定案)
       fundLine.markLine = {
         silent: true, symbol: 'none', animation: false,
         data: [
           { yAxis: 0, lineStyle: { color: 'rgba(156,163,175,0.6)', width: 1 } },
-          { yAxis: 0.4, lineStyle: { color: 'rgba(255,255,255,0.5)', width: 1, type: 'solid' } },
-          { yAxis: -0.4, lineStyle: { color: 'rgba(255,255,255,0.5)', width: 1, type: 'solid' } },
         ],
         label: { show: false },
       }
@@ -1731,9 +1731,11 @@ function buildOption(
       position: 'right',
       ...(isFixedRange ? yCfg : {}),
       gridIndex: gridIdx,
-      splitNumber: 2,
+      // TV 副图实测 (对拍 2026-10-23): RSI+ 4 刻度 (0/-0.2/-0.4/-0.6)、
+      // MACD+ 5 刻度 (-40~40 间隔 20) → splitNumber 4; 网格为浅色虚线
+      splitNumber: 4,
       axisLine: { show: false }, axisTick: { show: false },
-      splitLine: { lineStyle: { color: CT().grid } },
+      splitLine: { lineStyle: { color: CT().grid, type: 'dashed' } },
       axisLabel: {
         show: true, color: CT().text, fontSize: 9,
         fontFamily: 'JetBrains Mono, monospace',

@@ -41,6 +41,7 @@ API 层附着 (kline.py), 不落盘 — 与 plus.py 同一条私有化独立线�
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from .plus import _ema_series, _wilder_rma_series, _wilder_rsi_series
@@ -80,12 +81,63 @@ _RY_BAND_MULT = 0.55  # 牛熊通道波幅倍率
 _RY_EMA_MID = 24      # 中轨 EMA 周期
 _K_ATR_LEN = 10       # SuperTrend ATR 周期
 _K_MULT = 3.0         # SuperTrend ATR 倍率
-_K2_GROUP = 4         # K2 合并根数 (日K/默认: 4× 周期)
-_K3_GROUP = 8         # K3 合并根数 (日K/默认: 8× 周期)
+_K2_MULT = 4          # K2 共振周期倍数 (Pine: 周期分钟×4 → TV 高周期)
+_K3_MULT = 8          # K3 共振周期倍数 (Pine: 周期分钟×8 → TV 高周期)
+_K2_GROUP = 4         # K2 合并根数 (旧日K路径: 连续 4 根 — 语义上等于 "4D")
+_K3_GROUP = 8         # K3 合并根数 (旧日K路径: 连续 8 根 — 与 TV "1W" 自然周不同, 已废弃)
 _SESSION_MIN = 240    # A股单日交易分钟数 (intraday 高周期桶不跨 session)
 _DIV_PRD = 10         # 背离 pivot 确认窗口
 _DIV_MAXPP = 10       # 背离回溯 pivot 数
 _DIV_MAXBARS = 100    # 背离最大跨度
+
+# TV 周桶锚定: epoch 周一 (1970-01-05, ISO 周起点) — NW 周期桶边界从此每 N 周一桶
+_TV_EPOCH_MONDAY = date(1970, 1, 5)
+
+
+def _resolve_tv_timeframe(total_minutes: float) -> str:
+    """Pine f_resolveDynamicTimeframe 一比一移植: 总分钟数 → TV 周期串。
+
+    年(≥525960min→"12M"+)/月("NM")/周("NW")/天("ND")/小时(分钟数串)。
+    日K及以上周期才会走此路径 (分钟周期沿用 _resolve_bucket 的 session 对齐口径)。
+    """
+    MIN_YEAR, MIN_MONTH, MIN_WEEK, MIN_DAY, MIN_HOUR = 525960, 43830, 10080, 1440, 60
+    if total_minutes >= MIN_YEAR:
+        months = max(12, round(total_minutes / MIN_YEAR) * 12)
+        return f"{months}M"
+    if total_minutes >= MIN_MONTH:
+        return f"{max(1, round(total_minutes / MIN_MONTH))}M"
+    if total_minutes >= MIN_WEEK:
+        return f"{max(1, round(total_minutes / MIN_WEEK))}W"
+    if total_minutes >= MIN_DAY:
+        return f"{max(1, round(total_minutes / MIN_DAY))}D"
+    if total_minutes >= MIN_HOUR:
+        return str(max(1, round(total_minutes / MIN_HOUR)) * MIN_HOUR)
+    return str(max(1, round(total_minutes)))
+
+
+def _tv_tf_bucket_key(d: date, tf: str) -> int:
+    """TV 高周期串 → 自然历法桶 key (NW/NM; "ND" 不适用 — 连续交易日桶)。
+
+    NW: 绝对周序 (epoch 周一 1970-01-05 锚) 每 N 周一桶; NM: 1970-01 起月份
+    index 每 N 自然月一桶。N≥2 时加半周期偏移 (N//2) — TV request.security
+    高周期 bar 实证相位 (600519 raw 序列对拍 2026-10-23: 4W 桶边界在
+    周序≡2 (mod 4), 2M 桶边界在 2月/4月/…/12月初, 无偏移时轨道差 17~34 元,
+    加偏移后 4W 差 4.38 / 2M 差 1.98 — 数据源微差量级)。
+    1W/1M 无偏移 (纯自然周/月, TV 标准周期)。
+    """
+    if tf.endswith("W"):
+        n = max(1, int(tf[:-1]))
+        weeks = (d - _TV_EPOCH_MONDAY).days // 7
+        if n >= 2:
+            return (weeks + n // 2) // n
+        return weeks
+    if tf.endswith("M"):
+        n = max(1, int(tf[:-1]))
+        m = d.year * 12 + d.month - 1
+        if n >= 2:
+            return (m + n // 2) // n
+        return m
+    return 0
 
 # ── FVG (公平价值缺口, Pine 主图最后一模块) 参数 — 逐常量一比一 ──
 _FVG_SENS = 6.0          # fvgSensitivityText="Extreme" → 6
@@ -312,6 +364,49 @@ def _group_bars(rows: list[dict], group: int, by_day: bool = False) -> tuple[lis
             "close": chunk[-1].get("close"),
         })
     owner = [min(i // group, len(out) - 1) for i in range(len(rows))]
+    return out, owner
+
+
+def _parse_row_date(r: dict) -> date | None:
+    d = r.get("date")
+    if isinstance(d, date):
+        return d
+    s = str(d)[:10] if d is not None else ""
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _group_bars_by_tvtf(rows: list[dict], tf: str) -> tuple[list[dict], list[int]]:
+    """按 TV 高周期串 (NW/NM 自然历法桶) 分桶 — _group_bars 同款聚合口径。
+
+    "ND" 之外的周期走此路径; key 单调不减 (rows 时间升序 → 历法 key 单调),
+    相邻同 key 归一桶。date 缺失行归入前桶 (owner 跟随, 不单独成桶)。"""
+    out: list[dict] = []
+    owner: list[int] = []
+    cur_key: int | None = None
+    for r in rows:
+        d = _parse_row_date(r)
+        key = _tv_tf_bucket_key(d, tf) if d is not None else cur_key
+        if key is None or key != cur_key:
+            out.append({
+                "open": r.get("open"),
+                "high": r.get("high"),
+                "low": r.get("low"),
+                "close": r.get("close"),
+            })
+            if key is not None:
+                cur_key = key
+        else:
+            b = out[-1]
+            hi, lo = r.get("high"), r.get("low")
+            if hi is not None:
+                b["high"] = hi if b["high"] is None else max(b["high"], hi)
+            if lo is not None:
+                b["low"] = lo if b["low"] is None else min(b["low"], lo)
+            b["close"] = r.get("close")
+        owner.append(len(out) - 1)
     return out, owner
 
 
@@ -566,15 +661,21 @@ def attach_ry_main(
     rows: list[dict[str, Any]],
     warmup_rows: list[dict[str, Any]] | None = None,
     bar_minutes: int | None = None,
+    tf_minutes: int | None = None,
 ) -> list[dict[str, Any]]:
     """对K行序列附着融易主图全部字段 (原地写回并返回 rows)。
 
     rows 按时间升序, 须含 open/high/low/close (volume 可选, 背离指标用)。
     warmup_rows: 窗口前更早的 OHLC 行 (升序) — EMA110/ATR50 递推深度长,
     日K路径需要 warmup 对齐全历史口径; 分钟周期可不传 (窗口内递推)。
-    K2/K3 桶根数按 TV f_resolveDynamicTimeframe 语义 (见 _resolve_bucket):
-    bar_minutes=None/≥1440 → 4/8 根 (起点除法); 60m → 1 天桶 (按日分组);
-    240m(4h) → 桶=1 (k2==k3==k, TV 实测 16h/1D 对 A 股均按天切)。
+    bar_minutes: 分钟周期桶语义 (60m → 1 天桶按日分组; 240m(4h) → 桶=1)。
+    tf_minutes: 当前图表周期总分钟数 (≥1440 = 日K及以上) — TV 高周期
+    K2/K3 语义 (Pine request.security + f_resolveDynamicTimeframe):
+    K2=周期×4、K3=周期×8 → "4D"(连续 4 交易日桶)/"1W"(自然周)/"4W"(4
+    自然周, epoch 周一锚)/"2M"(2 自然月)等 — 修正旧实现"连续 4/8 根
+    合并"与 TV 自然历法桶的边界错位 (SuperTrend 翻转点不同 → 轨道值差)。
+    日线: K2="4D" K3="1W"; 周线: K2="4W" K3="2M"; 月线: K2="4M" K3="8M"。
+    tf_minutes=None → 旧行为 (bar_minutes 分钟逻辑 / 4/8 根) — 兼容旧调用。
     """
     if not rows:
         return rows
@@ -614,15 +715,38 @@ def attach_ry_main(
                 _map_group_to_bars(gd, owner),
                 _map_group_to_bars(gt, owner))
 
-    if bar_minutes is None or bar_minutes >= 1440:
+    def _group_st_tvtf(tf: str):
+        """TV 高周期串分桶 → 桶级 SuperTrend → map 回每根 bar。"""
+        if tf.endswith("D"):
+            n = max(1, int(tf[:-1]))
+            if n <= 1:
+                return k_up, k_dn, k_tr
+            gbars, owner = _group_bars(all_rows, n)  # "ND" = 连续 N 交易日桶
+        else:
+            gbars, owner = _group_bars_by_tvtf(all_rows, tf)  # NW/NM 自然历法桶
+        gh = [b["high"] for b in gbars]
+        gl = [b["low"] for b in gbars]
+        gc = [b["close"] for b in gbars]
+        gu, gd, gt = _supertrend(gh, gl, gc)
+        return (_map_group_to_bars(gu, owner),
+                _map_group_to_bars(gd, owner),
+                _map_group_to_bars(gt, owner))
+
+    if tf_minutes is not None and tf_minutes >= 1440:
+        # TV 高周期语义 (Pine K2_MULT=4 / K3_MULT=8 → f_resolveDynamicTimeframe)
+        k2_up, k2_dn, k2_tr = _group_st_tvtf(_resolve_tv_timeframe(tf_minutes * _K2_MULT))
+        k3_up, k3_dn, k3_tr = _group_st_tvtf(_resolve_tv_timeframe(tf_minutes * _K3_MULT))
+    elif bar_minutes is None or bar_minutes >= 1440:
         g2, g3, day2, day3 = _K2_GROUP, _K3_GROUP, False, False
+        k2_up, k2_dn, k2_tr = _group_st(g2, by_day=day2)
+        k3_up, k3_dn, k3_tr = _group_st(g3, by_day=day3)
     else:
         g2 = _resolve_bucket(bar_minutes, 4)
         g3 = _resolve_bucket(bar_minutes, 8)
         per_day = _SESSION_MIN // bar_minutes if bar_minutes and _SESSION_MIN % bar_minutes == 0 else 0
         day2 = day3 = per_day > 0 and g2 == per_day and g3 == per_day
-    k2_up, k2_dn, k2_tr = _group_st(g2, by_day=day2)
-    k3_up, k3_dn, k3_tr = _group_st(g3, by_day=day3)
+        k2_up, k2_dn, k2_tr = _group_st(g2, by_day=day2)
+        k3_up, k3_dn, k3_tr = _group_st(g3, by_day=day3)
 
     # ── K 线通道位置着色 (+1 上轨外多头 / -1 下轨外空头 / 0 通道内灰) ──
     bar_color: list = []

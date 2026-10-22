@@ -602,6 +602,10 @@ def _resample_daily_rows(rows: list[dict], agg: str) -> list[dict]:
 # agg 周期 → Pine 量级标尺预设档 (附图 f_getPresetLookback: <1周=50, <1月=10, ≥1月=3)
 _AGG_LOOKBACK = {"1w": 10, "1M": 3, "2d": 50, "4d": 50}
 
+# agg 周期 → 当前图表周期总分钟数 (rymain K2/K3 TV 高周期换算输入:
+# K2=周期×4 → "1W"/"2W"/"4W"; K3=周期×8 → "2W"/"1M"/"2M")
+_AGG_TF_MINUTES = {"2d": 2880, "4d": 5760, "1w": 10080, "1M": 43200}
+
 
 def _attach_plus_with_warmup(
     repo, asset_type: str, symbol: str, rows: list[dict], lookback: int = _T_LOOKBACK_DAILY,
@@ -630,6 +634,11 @@ def _attach_plus_with_warmup(
             repo, asset_type, symbol, rows, lookback=lookback,
             ry_bar_minutes=ry_bar_minutes, agg=agg,
         )
+    # 日K (非 agg 非 4h): K2/K3 走 TV 高周期换算 (K2="4D" 连续 4 交易日桶 /
+    # K3="1W" 自然周 — Pine request.security 语义); 4h/分钟周期传 ry_bar_minutes
+    # (<1440) 走 rymain 分钟桶分支, tf_minutes 不参与
+    is_minute_bar = isinstance(ry_bar_minutes, int) and ry_bar_minutes < 1440
+    tf_minutes: Optional[int] = None if is_minute_bar else 1440
     warmup: list[float | None] = []
     warmup_rows: list[dict] = []
     try:
@@ -655,7 +664,7 @@ def _attach_plus_with_warmup(
     except Exception:  # noqa: BLE001
         logger.debug("ry warmup 读取失败 %s", symbol, exc_info=True)
     attach_plus_indicators(rows, warmup_closes=warmup, lookback=lookback)
-    attach_ry_main(rows, warmup_rows=warmup_rows, bar_minutes=ry_bar_minutes)
+    attach_ry_main(rows, warmup_rows=warmup_rows, bar_minutes=ry_bar_minutes, tf_minutes=tf_minutes)
     return rows
 
 
@@ -663,7 +672,7 @@ def _attach_plus_with_agg_history(
     repo, asset_type: str, symbol: str, rows: list[dict],
     lookback: int, ry_bar_minutes: Optional[int], agg: str,
 ) -> list[dict]:
-    """agg 模式附着: 指标画在聚合 K 上 (Pine 周期语义), 对齐 TV 全历史递推。
+    """    agg 模式附着: 指标画在聚合 K 上 (Pine 周期语义), 对齐 TV 全历史递推。
 
     rows 为窗口内原始日K行 (端点层不预聚合)。warmup 拉全历史原始日K
     (截止窗口首日前一日), 与窗口行拼接后一次性聚合:
@@ -675,6 +684,8 @@ def _attach_plus_with_agg_history(
       主请求与「往左加载更多」跨页桶边界稳定一致。
     在完整聚合序列上附着指标后, 切出窗口首日所在桶起的聚合 K 返回
     (窗口首日所在桶可能含窗口前数据 — 跨界桶, 与 TV 全历史分桶一致)。
+    K2/K3 桶语义: _AGG_TF_MINUTES[agg] → rymain TV 高周期换算 (Pine
+    request.security + f_resolveDynamicTimeframe: 周线 K2="4W" K3="2M" 等)。
     全历史读取失败时退化为窗口内聚合递推 (数值可用, 前期偏差)。
     """
     first = rows[0].get("date")
@@ -700,7 +711,8 @@ def _attach_plus_with_agg_history(
     # 完整聚合序列上附着 (warmup 已并入序列, 前置递推传空);
     # is_live 继承已由 _resample_daily_rows 处理 (末根活动桶保留实时标记)
     attach_plus_indicators(agg_rows, warmup_closes=[], lookback=lookback)
-    attach_ry_main(agg_rows, warmup_rows=[], bar_minutes=ry_bar_minutes)
+    attach_ry_main(agg_rows, warmup_rows=[], bar_minutes=ry_bar_minutes,
+                   tf_minutes=_AGG_TF_MINUTES.get(agg))
     return agg_rows[win_idx:]
 
 
