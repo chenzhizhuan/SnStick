@@ -24,19 +24,60 @@ export interface ChartIndicatorFields {
   rsi_6?: number | null
   rsi_14?: number | null
   rsi_24?: number | null
-  /** 私有化指标 (服务端附着透传, 非前端计算): macd_plus_hist = 能量柱 (非标准 MACD 柱) */
+  /** 私有化指标 (服务端附着透传, 非前端计算): macd_plus_hist = 能量柱 (动能差量级缩放) */
   macd_plus_dif?: number | null
   macd_plus_dea?: number | null
   macd_plus_hist?: number | null
-  /** 私有化指标 (服务端附着透传, 非前端计算): ±100 单值 */
+  /** 私有化指标 (服务端附着透传): 资金流 ±1 单值 */
   rsi_plus?: number | null
+  /** 动能双腿 (RSI28 EMA5/60, 服务端附着透传) */
+  volume_rsi_fast?: number | null
+  volume_rsi_slow?: number | null
+  /** 资金流信号 (服务端状态机输出透传): 背景/追踪/交叉事件 */
+  fund_bg_color?: number | null
+  fund_tracking_state?: number | null
+  fund_cross_up_lower?: boolean
+  fund_cross_down_upper?: boolean
+  /** 融易主图 (服务端 rymain.py 附着透传): 牛熊通道/中轨/K 通道/信号 */
+  ry_upper?: number | null
+  ry_mid?: number | null
+  ry_lower?: number | null
+  ry_mid_trend?: number | null
+  ry_mid_tick?: number | null
+  ry_ema_mid?: number | null
+  k_trend?: number | null
+  k_up?: number | null
+  k_dn?: number | null
+  k2_trend?: number | null
+  k2_up?: number | null
+  k2_dn?: number | null
+  k3_trend?: number | null
+  k3_up?: number | null
+  k3_dn?: number | null
+  ry_bar_color?: number | null
+  ry_top_signal?: boolean
+  ry_top_price?: number | null
+  ry_btm_signal?: boolean
+  ry_btm_price?: number | null
+  div_top_count?: number | null
+  div_btm_count?: number | null
 }
 
 export type EnrichedBar = ResampledBar & ChartIndicatorFields
 
 /** 分钟聚合周期输入 bar: 基础字段 + 服务端附着的私有指标字段 (透传用) */
 export type IntradayInputBar = ResampledBar & Partial<Pick<
-  ChartIndicatorFields, 'macd_plus_dif' | 'macd_plus_dea' | 'macd_plus_hist' | 'rsi_plus'
+  ChartIndicatorFields,
+  'macd_plus_dif' | 'macd_plus_dea' | 'macd_plus_hist' | 'rsi_plus'
+  | 'volume_rsi_fast' | 'volume_rsi_slow'
+  | 'fund_bg_color' | 'fund_tracking_state'
+  | 'fund_cross_up_lower' | 'fund_cross_down_upper'
+  | 'ry_upper' | 'ry_mid' | 'ry_lower' | 'ry_mid_trend' | 'ry_mid_tick' | 'ry_ema_mid'
+  | 'k_trend' | 'k_up' | 'k_dn'
+  | 'k2_trend' | 'k2_up' | 'k2_dn'
+  | 'k3_trend' | 'k3_up' | 'k3_dn'
+  | 'ry_bar_color' | 'ry_top_signal' | 'ry_top_price' | 'ry_btm_signal' | 'ry_btm_price'
+  | 'div_top_count' | 'div_btm_count'
 >>
 
 // ── 基础算子 ──────────────────────────────────────────────
@@ -131,6 +172,35 @@ export function enrichChartIndicators(bars: IntradayInputBar[]): EnrichedBar[] {
     o.macd_plus_dea = bars[i].macd_plus_dea ?? null
     o.macd_plus_hist = bars[i].macd_plus_hist ?? null
     o.rsi_plus = bars[i].rsi_plus ?? null
+    o.volume_rsi_fast = bars[i].volume_rsi_fast ?? null
+    o.volume_rsi_slow = bars[i].volume_rsi_slow ?? null
+    o.fund_bg_color = bars[i].fund_bg_color ?? null
+    o.fund_tracking_state = bars[i].fund_tracking_state ?? null
+    o.fund_cross_up_lower = bars[i].fund_cross_up_lower === true
+    o.fund_cross_down_upper = bars[i].fund_cross_down_upper === true
+    // 融易主图: 服务端 rymain.py 附着值透传 (前端不再计算)
+    o.ry_upper = bars[i].ry_upper ?? null
+    o.ry_mid = bars[i].ry_mid ?? null
+    o.ry_lower = bars[i].ry_lower ?? null
+    o.ry_mid_trend = bars[i].ry_mid_trend ?? null
+    o.ry_mid_tick = bars[i].ry_mid_tick ?? null
+    o.ry_ema_mid = bars[i].ry_ema_mid ?? null
+    o.k_trend = bars[i].k_trend ?? null
+    o.k_up = bars[i].k_up ?? null
+    o.k_dn = bars[i].k_dn ?? null
+    o.k2_trend = bars[i].k2_trend ?? null
+    o.k2_up = bars[i].k2_up ?? null
+    o.k2_dn = bars[i].k2_dn ?? null
+    o.k3_trend = bars[i].k3_trend ?? null
+    o.k3_up = bars[i].k3_up ?? null
+    o.k3_dn = bars[i].k3_dn ?? null
+    o.ry_bar_color = bars[i].ry_bar_color ?? null
+    o.ry_top_signal = bars[i].ry_top_signal === true
+    o.ry_top_price = bars[i].ry_top_price ?? null
+    o.ry_btm_signal = bars[i].ry_btm_signal === true
+    o.ry_btm_price = bars[i].ry_btm_price ?? null
+    o.div_top_count = bars[i].div_top_count ?? null
+    o.div_btm_count = bars[i].div_btm_count ?? null
   }
   return out
 }

@@ -190,7 +190,19 @@ describe('mergeLiveIntoIntraday 分钟末根实时叠加', () => {
   const bar = (over: Partial<IntradayPlusBar> = {}): IntradayPlusBar => ({
     date: '2026-10-15 10:30', open: 1300, high: 1310, low: 1295, close: 1305,
     volume: 1000, amount: null, macd_plus_dif: null, macd_plus_dea: null,
-    macd_plus_hist: null, rsi_plus: null, ...over,
+    macd_plus_hist: null, rsi_plus: null,
+    volume_rsi_fast: null, volume_rsi_slow: null,
+    fund_bg_color: null, fund_tracking_state: null,
+    fund_cross_up_lower: false, fund_cross_down_upper: false,
+    ry_upper: null, ry_mid: null, ry_lower: null,
+    ry_mid_trend: null, ry_mid_tick: null, ry_ema_mid: null,
+    k_trend: null, k_up: null, k_dn: null,
+    k2_trend: null, k2_up: null, k2_dn: null,
+    k3_trend: null, k3_up: null, k3_dn: null,
+    ry_bar_color: null, ry_top_signal: false, ry_top_price: null,
+    ry_btm_signal: false, ry_btm_price: null,
+    div_top_count: null, div_btm_count: null,
+    ...over,
   })
   /** 构造 intraday 聚合响应。 */
   const resp = (bars: IntradayPlusBar[], symbol = '600519.SH') =>

@@ -85,8 +85,11 @@ def test_daily_latest_returns_only_current_memory_row(monkeypatch) -> None:
     assert body["source"] == "live"
     # macd_plus_*/rsi_plus 是 /daily/latest 实时行新增字段 (与 get_daily 同口径)。
     # _FakeRepo 无 get_daily_asset → warmup 静默失败 → 单行窗口退化计算:
-    # dif/dea 退化为 0.0 (EMA 无历史), hist=None (SMA50 窗口不足),
-    # rsi_plus=0.0 (Pine nz 口径)。生产环境 warmup 正常, 数值非退化。
+    # dif/dea 退化为 0.0 (EMA 无历史), hist/volume_rsi_* = None (SMA50 窗口不足),
+    # rsi_plus = None (Wilder RSI14 单行无值), fund 信号保持初始态
+    # (bg=0/state=0/无交叉)。融易主图 ry: EMA 单行首值起步 (ry_mid/ry_ema_mid
+    # = close), ATR50 无值 → 通道 None, SuperTrend trend 保持初值 1,
+    # ry_bar_color=0 (通道 None 归灰), 信号/背离计数全空。生产环境 warmup 正常。
     assert body["row"] == {
         "symbol": "600000.SH",
         "date": date.today().isoformat(),
@@ -102,7 +105,35 @@ def test_daily_latest_returns_only_current_memory_row(monkeypatch) -> None:
         "macd_plus_dif": 0.0,
         "macd_plus_dea": 0.0,
         "macd_plus_hist": None,
-        "rsi_plus": 0.0,
+        "volume_rsi_fast": None,
+        "volume_rsi_slow": None,
+        "rsi_plus": None,
+        "fund_bg_color": 0,
+        "fund_tracking_state": 0,
+        "fund_cross_up_lower": False,
+        "fund_cross_down_upper": False,
+        "ry_upper": None,
+        "ry_mid": 10.6,
+        "ry_lower": None,
+        "ry_mid_trend": 0,
+        "ry_mid_tick": 0.0,
+        "ry_ema_mid": 10.6,
+        "k_trend": 1,
+        "k_up": None,
+        "k_dn": None,
+        "k2_trend": 1,
+        "k2_up": None,
+        "k2_dn": None,
+        "k3_trend": 1,
+        "k3_up": None,
+        "k3_dn": None,
+        "ry_bar_color": 0,
+        "ry_top_signal": False,
+        "ry_top_price": None,
+        "ry_btm_signal": False,
+        "ry_btm_price": None,
+        "div_top_count": 0,
+        "div_btm_count": 0,
     }
     assert repo.latest_asset_calls == 0
 

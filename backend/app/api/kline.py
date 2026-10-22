@@ -23,6 +23,7 @@ from app.indicators.intraday import (
 )
 from app.indicators.pipeline import compute_enriched, compute_enriched_single
 from app.indicators.plus import _T_LOOKBACK_DAILY, attach_plus_indicators
+from app.indicators.rymain import attach_ry_main
 from app.market_time import cn_now, cn_today, in_continuous_session
 from app.price_limits import (
     is_no_limit_day,
@@ -493,9 +494,12 @@ def get_daily(
     )
 
 
-# 私有化指标 (MACD+/RSI+) 递推预热窗口: 250 日历日 ≈ 170 交易日,
-# EMA26+DEA9 递推残差 (25/27)^170 ≈ 1e-7, 与原版全历史落盘值对齐。
+# 私有化指标 (MACD+/RSI+/融易主图) 递推预热窗口: 250 日历日 ≈ 170 交易日,
+# EMA60+RSI28(RMA28) 递推残差收敛深度 << 170 根, 量级标尺 50 窗口亦覆盖,
+# 与全历史递推口径对齐 (fund 状态机在 warmup 段预收敛)。
+# 融易主图 EMA110/ATR50 深度更长, 用 550 日历日 ≈ 380 交易日 warmup。
 _PLUS_WARMUP_DAYS = 250
+_RY_WARMUP_DAYS = 550
 
 
 def _resolve_plus_lookback(plus_lookback) -> int:
@@ -514,16 +518,18 @@ def _resolve_plus_lookback(plus_lookback) -> int:
 def _attach_plus_with_warmup(
     repo, asset_type: str, symbol: str, rows: list[dict], lookback: int = _T_LOOKBACK_DAILY,
 ) -> list[dict]:
-    """MACD+/RSI+ 附着 (带窗口前历史 warmup)。
+    """MACD+/RSI+ + 融易主图 附着 (带窗口前历史 warmup)。
 
     EMA/RMA 递推指标只在返回窗口内算会因 warmup 不足偏离全历史口径
-    (原版 enriched 落盘值); 取窗口前 250 日历日 close 前置递推对齐。
+    (原版 enriched 落盘值); 取窗口前历史前置递推对齐 (plus 用 250 日历日
+    close, ry 主图用 550 日历日 OHLC)。
     历史读失败时退化为窗口内递推 (数值仍可用, 仅前期偏差)。
     lookback: 量级缩放窗口 (日K默认 50; 4h 周期前端传 160 — Pine 周期预设档)。
     """
     if not rows:
         return rows
     warmup: list[float | None] = []
+    warmup_rows: list[dict] = []
     try:
         first = rows[0].get("date")
         first_d = first if isinstance(first, date) else date.fromisoformat(str(first)[:10])
@@ -535,7 +541,19 @@ def _attach_plus_with_warmup(
         warmup = [float(c) if c is not None else None for c in hist["close"].to_list()]
     except Exception:  # noqa: BLE001 — 预热读失败退化为窗口内递推
         logger.debug("plus warmup 读取失败 %s", symbol, exc_info=True)
+    try:
+        first = rows[0].get("date")
+        first_d = first if isinstance(first, date) else date.fromisoformat(str(first)[:10])
+        hist2 = repo.get_daily_asset(
+            asset_type, symbol,
+            first_d - timedelta(days=_RY_WARMUP_DAYS), first_d - timedelta(days=1),
+            columns=["date", "open", "high", "low", "close", "volume"],
+        ).sort("date")
+        warmup_rows = hist2.to_dicts()
+    except Exception:  # noqa: BLE001
+        logger.debug("ry warmup 读取失败 %s", symbol, exc_info=True)
     attach_plus_indicators(rows, warmup_closes=warmup, lookback=lookback)
+    attach_ry_main(rows, warmup_rows=warmup_rows)
     return rows
 
 

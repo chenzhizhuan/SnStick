@@ -1,13 +1,15 @@
 """图表工作台分钟聚合周期 (15m/60m) 私有指标服务端线路测试。
 
-核心是「跨语言对拍」: 用迁移前前端实现 (chart/indicators.ts + minuteResample.ts,
-2026-10-14 已删除) 对真实行情 fixture 生成的参考值, 验证服务端聚合与 MACD+/RSI+
-附着逐字段一致 — 私有化收口 (算法从前端撤回服务端) 的数值不回归安全网。
+核心是「同口径对拍」: 用服务端 R5 口径实现 (indicators/plus.py + intraday.py)
+对真实行情 fixture (600519.SH, 2026-10-14 抓取) 生成的参考值, 验证聚合与
+MACD+/RSI+/fund 信号附着逐字段一致 — 算法口径变更 (2026-10-22 R5 校准) 的
+数值不回归安全网。
 
 fixture (600519.SH, 2026-10-14 抓取):
     minute_600519_60d.json   60 交易日 1 分钟K (14220 行, API 原样响应)
     daily_600519_260d.json   260 交易日日K (4h 周期数据源)
-    intraday_plus_reference.json  前端旧实现产出的末 40 根参考值
+    intraday_plus_reference.json  R5 口径末 40 根参考值 (再生成脚本见仓库
+                                  历史提交记录, 生成方式与测试同源)
 """
 from __future__ import annotations
 
@@ -59,7 +61,17 @@ def _assert_bar_equal(actual: dict, expected: dict) -> None:
     """逐字段对拍 (浮点允许跨平台 libm 末位噪声)。"""
     assert actual["date"] == expected["date"]
     for key in ("open", "high", "low", "close", "volume", "amount",
-                "macd_plus_dif", "macd_plus_dea", "macd_plus_hist", "rsi_plus"):
+                "macd_plus_dif", "macd_plus_dea", "macd_plus_hist",
+                "volume_rsi_fast", "volume_rsi_slow", "rsi_plus",
+                "fund_bg_color", "fund_tracking_state",
+                "fund_cross_up_lower", "fund_cross_down_upper",
+                # 融易主图 (R5)
+                "ry_upper", "ry_mid", "ry_lower", "ry_mid_trend", "ry_mid_tick",
+                "ry_ema_mid", "k_trend", "k_up", "k_dn",
+                "k2_trend", "k2_up", "k2_dn", "k3_trend", "k3_up", "k3_dn",
+                "ry_bar_color", "ry_top_signal", "ry_top_price",
+                "ry_btm_signal", "ry_btm_price",
+                "div_top_count", "div_btm_count"):
         a, e = actual.get(key), expected.get(key)
         if e is None or a is None:
             assert a == e, f"{actual['date']} {key}: {a!r} != {e!r}"
@@ -183,7 +195,7 @@ class TestIntradayCrossCheck:
     """跨语言对拍: 服务端实现 vs 迁移前前端实现的真实数据参考值。"""
 
     @pytest.mark.parametrize("period,minutes", [("15m", 15), ("60m", 60)])
-    def test_minute_aggregation_matches_frontend_reference(self, period, minutes):
+    def test_minute_aggregation_matches_reference(self, period, minutes):
         ref = _load_reference()
         rows = _load_minute_rows()
         bars = attach_intraday_plus(resample_minutes(to_minute_start_semantics(rows), minutes), minutes)
@@ -193,10 +205,11 @@ class TestIntradayCrossCheck:
             _assert_bar_equal(actual_bar, expected_bar)
         # 能量柱满窗口 (SMA200/160 在 60 日聚合 bars 尾部必有值)
         assert bars[-1]["macd_plus_hist"] is not None
+        assert bars[-1]["fund_bg_color"] in (0, 1, 2)
 
-    def test_4h_daily_source_matches_frontend_reference(self):
+    def test_4h_daily_source_matches_reference(self):
         # 4h 周期: 日K行 (260 根) → 160 档附着 (无 warmup 纯窗口递推,
-        # 与迁移前前端 dailyRowsTo4hBars+enrichChartIndicators 同口径)
+        # 与前端 dailyRowsTo4hBars 数据流同口径)
         ref = _load_reference()
         payload = json.loads((FIXTURES / "daily_600519_260d.json").read_text(encoding="utf-8"))
         rows = payload["rows"]
@@ -250,7 +263,10 @@ class TestIntradayAPI:
         assert len(body["bars"]) > 0
         bar = body["bars"][-1]
         for key in ("date", "open", "high", "low", "close", "volume",
-                    "macd_plus_dif", "macd_plus_dea", "macd_plus_hist", "rsi_plus"):
+                    "macd_plus_dif", "macd_plus_dea", "macd_plus_hist",
+                    "volume_rsi_fast", "volume_rsi_slow", "rsi_plus",
+                    "fund_bg_color", "fund_tracking_state",
+                    "fund_cross_up_lower", "fund_cross_down_upper"):
             assert key in bar
         assert " " in bar["date"]  # "YYYY-MM-DD HH:mm" 标签格式
 

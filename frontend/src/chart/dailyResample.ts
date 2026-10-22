@@ -46,11 +46,27 @@ export function resampleDaily(bars: OHLC[], period: number): OHLC[] {
       cur.rsi_6 = b.rsi_6 ?? cur.rsi_6
       cur.rsi_14 = b.rsi_14 ?? cur.rsi_14
       cur.rsi_24 = b.rsi_24 ?? cur.rsi_24
-      // 私有化指标线路 (泰坦 T5.0) 同口径末值透传
+      // 私有化指标线路 (R5) 同口径末值透传
       cur.macd_plus_dif = b.macd_plus_dif ?? cur.macd_plus_dif
       cur.macd_plus_dea = b.macd_plus_dea ?? cur.macd_plus_dea
       cur.macd_plus_hist = b.macd_plus_hist ?? cur.macd_plus_hist
+      cur.volume_rsi_fast = b.volume_rsi_fast ?? cur.volume_rsi_fast
+      cur.volume_rsi_slow = b.volume_rsi_slow ?? cur.volume_rsi_slow
       cur.rsi_plus = b.rsi_plus ?? cur.rsi_plus
+      cur.fund_bg_color = b.fund_bg_color ?? cur.fund_bg_color
+      cur.fund_tracking_state = b.fund_tracking_state ?? cur.fund_tracking_state
+      // fund 交叉事件为单根事件, 不做桶内合并 (末根事件透传)
+      if (b.fund_cross_up_lower === true) cur.fund_cross_up_lower = true
+      if (b.fund_cross_down_upper === true) cur.fund_cross_down_upper = true
+      // 融易主图 (R5) 同口径末值透传
+      for (const k of ['ry_upper', 'ry_mid', 'ry_lower', 'ry_mid_trend', 'ry_mid_tick',
+        'ry_ema_mid', 'k_trend', 'k_up', 'k_dn', 'k2_trend', 'k2_up', 'k2_dn',
+        'k3_trend', 'k3_up', 'k3_dn', 'ry_bar_color', 'ry_top_price', 'ry_btm_price',
+        'div_top_count', 'div_btm_count'] as const) {
+        ;(cur as any)[k] = (b as any)[k] ?? (cur as any)[k]
+      }
+      if (b.ry_top_signal === true) cur.ry_top_signal = true
+      if (b.ry_btm_signal === true) cur.ry_btm_signal = true
       cur.is_live = b.is_live
       count++
     }
