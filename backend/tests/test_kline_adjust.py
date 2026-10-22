@@ -82,12 +82,13 @@ def _raw_frame() -> pl.DataFrame:
 
 
 class _RawRepo:
-    """记录 get_daily_asset 的 columns 请求 (验证 warmup 是否追加 raw 列)。"""
+    """记录 get_daily_asset 的 columns/start 请求 (验证 warmup raw 列 + 全历史起点)。"""
 
     def __init__(self, frame, raw_columns_ok: bool = True):
         self._frame = frame
         self._raw_columns_ok = raw_columns_ok
         self.columns_seen: list[list[str] | None] = []
+        self.starts_seen: list[date] = []
 
     def resolve_asset_type(self, symbol: str) -> str:
         return "stock"
@@ -100,6 +101,7 @@ class _RawRepo:
 
     def get_daily_asset(self, asset_type, symbol, start, end, columns=None):
         self.columns_seen.append(list(columns) if columns else None)
+        self.starts_seen.append(start)
         # 缺 raw 列兜底测试: 请求含 raw 列 → 抛错 (模拟指数/ETF 无 raw 列的表)
         if columns and "raw_close" in columns and not self._raw_columns_ok:
             raise pl.exceptions.ColumnNotFoundError("raw_close")
@@ -193,6 +195,34 @@ def test_daily_direct_call_query_default_sanitized():
     assert resp["rows"][-1]["close"] == 1406.73
 
 
+def test_daily_ry_warmup_reads_full_history():
+    """/daily 主端点 ry warmup 读全历史 (1990 起) — K2/K3 的 "4D" 连续交易日桶
+    从序列起点计数, 550 天暖机桶相位偏离 TV 全历史对齐 (600519 实测日线
+    K2 1179.26 vs 全历史 1166.73); plus warmup 仍 250 天 (EMA 收敛快)。"""
+    repo = _RawRepo(_raw_frame())
+    kline_api.get_daily(
+        _request(repo), symbol="600000.SH", days=120,
+        start_date=None, end_date=None, ext_columns=None,
+    )
+    # ry warmup 读 (OHLCV 6 列) 起点 = 1990-01-01; plus warmup (2 列) 起点 = 窗口首日-250 天
+    ohlcv_reads = [s for s, c in zip(repo.starts_seen, repo.columns_seen)
+                   if c and "high" in c]
+    close_reads = [s for s, c in zip(repo.starts_seen, repo.columns_seen)
+                   if c and "high" not in c]
+    assert ohlcv_reads and all(s == date(1990, 1, 1) for s in ohlcv_reads), ohlcv_reads
+    assert close_reads and all(s == _D0 - timedelta(days=250) for s in close_reads), close_reads
+
+
+def test_attach_warmup_default_uses_550d_not_full_history():
+    """默认 (未传 ry_full_history, /daily/latest 高频路径) ry warmup 仍 550 天。"""
+    repo = _RawRepo(_raw_frame())
+    rows = _raw_frame().to_dicts()
+    kline_api._attach_plus_with_warmup(repo, "stock", "600000.SH", rows)
+    ohlcv_reads = [s for s, c in zip(repo.starts_seen, repo.columns_seen)
+                   if c and "high" in c]
+    assert ohlcv_reads and all(s == _D0 - timedelta(days=550) for s in ohlcv_reads), ohlcv_reads
+
+
 # ── /intraday 端点: raw 跳过分钟复权投影 ────────────────────────
 
 
@@ -251,3 +281,39 @@ def test_intraday_adjust_invalid_rejected():
             period="15m", days=60, adjust="hfq",
         )
     assert ei.value.status_code == 400
+
+
+def test_intraday_raw_converts_minute_prices_by_daily_ratio():
+    """raw 模式: 分钟存储为 qfq 基准 → 按同日日K raw_close/close 比例反推原始价;
+    qfq 模式 (默认) 不换算。"""
+
+    class _RatioRepo(_IntradayRepo):
+        def get_daily_asset(self, asset_type, symbol, start, end, columns=None):
+            return pl.DataFrame({
+                "date": [date(2026, 10, 20)],
+                "close": [100.0], "raw_close": [102.37],
+            })
+
+    resp = kline_api.get_intraday(
+        _request(_RatioRepo(_minute_frame())), symbol="600000.SH",
+        period="15m", days=60, adjust="raw",
+    )
+    bar = resp["bars"][0]
+    # 10.2 × (102.37/100) = 10.4417
+    assert bar["close"] == pytest.approx(10.2 * 1.0237, rel=1e-6)
+    assert bar["open"] == pytest.approx(10.0 * 1.0237, rel=1e-6)
+
+    resp_q = kline_api.get_intraday(
+        _request(_IntradayRepo(_minute_frame())), symbol="600000.SH",
+        period="15m", days=60,
+    )
+    assert resp_q["bars"][0]["close"] == pytest.approx(10.2, rel=1e-6)
+
+
+def test_intraday_raw_ratio_missing_keeps_prices():
+    """日K比例表不可用 (无 get_daily_asset / 缺 raw 列) → 分钟价格保持原值不炸。"""
+    resp = kline_api.get_intraday(
+        _request(_IntradayRepo(_minute_frame())), symbol="600000.SH",
+        period="15m", days=60, adjust="raw",
+    )
+    assert resp["bars"][0]["close"] == pytest.approx(10.2, rel=1e-6)

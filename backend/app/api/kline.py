@@ -506,7 +506,7 @@ def get_daily(
         rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                         lookback=_resolve_plus_lookback(plus_lookback),
                                         ry_bar_minutes=None if agg else ry_bar_minutes,
-                                        agg=agg, raw_mode=raw_mode)
+                                        agg=agg, raw_mode=raw_mode, ry_full_history=True)
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
         return _gzip_payload(
             request,
@@ -525,7 +525,7 @@ def get_daily(
     rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                     lookback=_resolve_plus_lookback(plus_lookback),
                                     ry_bar_minutes=None if agg else ry_bar_minutes,
-                                    agg=agg, raw_mode=raw_mode)
+                                    agg=agg, raw_mode=raw_mode, ry_full_history=True)
 
     resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
     return _gzip_payload(
@@ -653,6 +653,29 @@ def _to_raw_ohlcv(rows: list[dict]) -> list[dict]:
 _AGG_TF_MINUTES = {"2d": 2880, "4d": 5760, "1w": 10080, "1M": 43200}
 
 
+def _daily_raw_ratio_map(repo, symbol: str, start: date, end: date) -> dict[str, float]:
+    """日K行级复权比例表 (raw_close/close, 按日期) — 分钟 qfq→raw 反推用。
+
+    分钟存储为 qfq 基准且无 raw 列 (marker 未迁移); 用同日日K行的
+    raw_close/close 比例反推原始价。当日 ratio=1 两口径同价。
+    读失败/缺 raw_close 列 (指数/ETF) 返回空表 → 调用方按原值处理。
+    """
+    try:
+        df = repo.get_daily_asset("stock", symbol, start, end,
+                                  columns=["date", "close", "raw_close"])
+        if df.is_empty() or "raw_close" not in df.columns:
+            return {}
+        out: dict[str, float] = {}
+        for r in df.to_dicts():
+            c, rc = r.get("close"), r.get("raw_close")
+            if c and rc and c > 0:
+                out[str(r.get("date"))[:10]] = rc / c
+        return out
+    except Exception:  # noqa: BLE001
+        logger.debug("分钟 raw 比例表读取失败 %s", symbol, exc_info=True)
+        return {}
+
+
 def _read_daily_warmup(repo, asset_type: str, symbol: str, start: date, end: date,
                        columns: list[str], raw_mode: bool):
     """读 warmup 历史; raw 模式追加 raw 列, 标的表缺 raw 列 (指数/ETF 无复权概念)
@@ -671,6 +694,7 @@ def _attach_plus_with_warmup(
     ry_bar_minutes: Optional[int] = None,
     agg: Optional[str] = None,
     raw_mode: bool = False,
+    ry_full_history: bool = False,
 ) -> list[dict]:
     """MACD+/RSI+ + 融易主图 附着 (带窗口前历史 warmup)。
 
@@ -685,6 +709,10 @@ def _attach_plus_with_warmup(
     (Pine 语义: 指标画在聚合 K 上, 对齐 TV 全历史递推口径)。
     raw_mode: 不复权模式 — rows 已由端点层换算为 raw OHLC, warmup 历史
     同口径换算 (raw_close/high/low 列), 保证递推序列口径一致。
+    ry_full_history: ry 主图 warmup 读全历史 (1990 起) — K2/K3 的 "4D"
+    连续交易日桶从序列起点计数, 550 天暖机会使桶相位偏离 TV 全历史对齐
+    (600519 实测: 日线 K2 1179.26 vs 全历史 1166.73, 熊线 1290.58 vs
+    1290.59); 主 /daily 端点传 True, /daily/latest 高频路径保持 550 天。
     """
     if not rows:
         return rows
@@ -724,9 +752,10 @@ def _attach_plus_with_warmup(
     try:
         first = rows[0].get("date")
         first_d = first if isinstance(first, date) else date.fromisoformat(str(first)[:10])
+        ry_start = date(1990, 1, 1) if ry_full_history else first_d - timedelta(days=_RY_WARMUP_DAYS)
         hist2 = _read_daily_warmup(
             repo, asset_type, symbol,
-            first_d - timedelta(days=_RY_WARMUP_DAYS), first_d - timedelta(days=1),
+            ry_start, first_d - timedelta(days=1),
             ["date", "open", "high", "low", "close", "volume"], raw_mode,
         )
         warmup_rows = hist2.to_dicts()
@@ -1363,8 +1392,9 @@ def get_intraday(
     私有化收口 (2026-10-14): MACD+/RSI+ 算法全部在服务端计算, 聚合口径与
     迁移前前端实现逐字段一致 (见 indicators/intraday.py 模块注释)。
     bars 的 date 标签 = "YYYY-MM-DD HH:mm" (桶内首根时间, 开始时刻语义)。
-    adjust=raw: 分钟存储为原始基准 + 读取时复权投影; raw 模式跳过投影
-    返回原始价, 指标在 raw 序列上重算 (与 /daily raw 模式同口径)。
+    adjust=raw: 分钟存储为 qfq 基准 (无 raw 列, marker 未迁移) → 按交易日
+    日K行级比例 (raw_close/close) 反推原始价, 指标在 raw 序列上重算
+    (与 /daily raw 模式同口径; 比例缺失的日期保持原值)。
     """
     import polars as pl
 
@@ -1416,7 +1446,6 @@ def get_intraday(
             {**base_response, "bars": [], "source": "none"},
             pref_key="minute_batch_compress",
         )
-
     minute = minute.with_columns(pl.col("datetime").dt.date().alias("_trade_date"))
     trade_dates = sorted(minute["_trade_date"].unique().to_list())
     row_columns = [
@@ -1429,6 +1458,19 @@ def get_intraday(
         .select(row_columns)
         .to_dicts()
     )
+
+    # raw 模式: 分钟存储为 qfq 基准 → 按交易日日K行级比例 (raw_close/close)
+    # 反推原始价 (指标随后在 raw 序列上聚合重算); 比例缺失的日期保持原值。
+    if raw_mode and asset_type == "stock" and trade_dates:
+        ratio_map = _daily_raw_ratio_map(repo, symbol, trade_dates[0], trade_dates[-1])
+        if ratio_map:
+            for r in rows:
+                ratio = ratio_map.get(str(r.get("datetime"))[:10])
+                if ratio is not None and ratio != 1:
+                    for f_ in ("open", "high", "low", "close"):
+                        v = r.get(f_)
+                        if v is not None:
+                            r[f_] = v * ratio
 
     # 结束时刻 → 开始时刻语义换算 → 时段切桶聚合 → 私有指标附着
     rows = to_minute_start_semantics(rows)
