@@ -15,14 +15,26 @@ import type { DrawTool } from './drawings'
 const DRAW_TOOL_KEYS = ['cursor', 'trendline', 'hline', 'vline', 'fib', 'rect'] as const
 
 /** 工作台可用的叠加指标 — 图表模块特例: 私有化线路 MACD+/RSI+ 副图
- *  (R5 能量场/资金流) + 融易主图 ry 主图叠加 (牛熊通道/中轨/K 通道/信号)。
+ *  (R5 能量场/资金流) + 融易主图 ry 主图叠加。
+ *  主图叠加拆五个独立开关 (对齐 Pine 主图 OPEN_* 开关, 非 TV 统一开关):
+ *    ry_channel = OPEN_BULL_BEAR_LINE 牛熊分界线 (黄三线)
+ *    ry_mid     = OPEN_MIDDLE_BAND_LINE 中轨 (EMA24+刻度)
+ *    ry_k       = OPEN_K 核心层: 主力动能轨迹 (波段)
+ *    ry_k2      = OPEN_K2 趋势层: 机构护盘通道
+ *    ry_k3      = OPEN_K3 战略层: 宏观牛熊视界
  *  (泰坦 T5.0 优化版已被 R5 口径替换; 原版 MACD/RSI 按钮已移除, 其数据字段
  *  保留供信号检测与其他页面使用。
  *  EChartsCandlestick SUB_CHARTS 里的其余指标 (vol/kdj/obv/cci) 与 BOLL 叠加
  *  供其他页面 (个股弹窗/指数页) 使用; 旧持久化里的已废弃 key (含 macd/rsi)
  *  由 normalizePane 过滤, 避免无按钮可关的幽灵副图。
  *  全部算法: 后端 indicators/plus.py + rymain.py, 前端纯透传渲染。 */
-export const PANE_INDICATORS: readonly string[] = ['ry', 'macd_plus', 'rsi_plus']
+export const PANE_INDICATORS: readonly string[] = [
+  'ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3',
+  'macd_plus', 'rsi_plus',
+]
+
+/** 融易主图五层 key (旧统一 key 'ry' 迁移目标)。 */
+export const RY_MAIN_KEYS: readonly string[] = ['ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3']
 
 /** 信号开关 (默认全关, TV 同款按需开启) */
 export interface PaneSignals {
@@ -90,8 +102,8 @@ export function defaultPane(id: string, opts: { symbol?: string; name?: string; 
     name: opts.name,
     period: opts.period ?? DEFAULT_PERIOD,
     chartStyle: 'candle',
-    // 图表模块特例: 默认激活融易主图叠加 + 私有化线路 MACD+/RSI+ (R5 口径)
-    activeIndicators: ['ry', 'macd_plus', 'rsi_plus'],
+    // 图表模块特例: 默认激活融易主图五层 (同 Pine 默认全开) + MACD+/RSI+ (R5 口径)
+    activeIndicators: ['ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3', 'macd_plus', 'rsi_plus'],
     range: null,
     signals: {},
     sync: 'follow',
@@ -124,6 +136,11 @@ function normalizePane(raw: unknown, id: string): PaneConfig {
   const chartStyle = CHART_STYLES.includes(r.chartStyle as ChartStyle)
     ? (r.chartStyle as ChartStyle)
     : base.chartStyle
+  const rawActive = Array.isArray(r.activeIndicators) ? r.activeIndicators : []
+  // 旧统一 key 'ry' → 五层全开 (迁移: 主图叠加拆独立开关后旧布局保活)
+  const migrated = rawActive.includes('ry')
+    ? [...RY_MAIN_KEYS, ...rawActive.filter(k => k !== 'ry')]
+    : rawActive
   return {
     id,
     symbol: typeof r.symbol === 'string' ? r.symbol : '',
@@ -133,7 +150,7 @@ function normalizePane(raw: unknown, id: string): PaneConfig {
     activeIndicators: Array.isArray(r.activeIndicators)
       // 过滤白名单 + 去重 (手改 localStorage 的重复 key 会渲染出重复副图)
       ? Array.from(new Set(
-          r.activeIndicators.filter(
+          migrated.filter(
             (k): k is string => typeof k === 'string' && PANE_INDICATORS.includes(k),
           ),
         )).slice(0, 12)

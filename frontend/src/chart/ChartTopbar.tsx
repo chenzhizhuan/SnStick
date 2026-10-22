@@ -13,9 +13,18 @@ import { QK } from '@/lib/queryKeys'
 import { SUB_CHARTS } from '@/components/EChartsCandlestick'
 import { PERIODS, type Period } from './periods'
 import { RANGES } from './ranges'
-import { PANE_INDICATORS } from './useChartLayout'
+import { PANE_INDICATORS, RY_MAIN_KEYS } from './useChartLayout'
 
 export type ChartStyle = 'candle' | 'hollow' | 'line' | 'area'
+
+/** 融易主图五层按钮元数据 (对齐 Pine 主图 OPEN_* 开关命名)。 */
+const RY_MAIN_META: Record<string, { label: string; title: string }> = {
+  ry_channel: { label: '牛熊', title: '牛熊分界线 (融易黄三线 + K线着色)' },
+  ry_mid: { label: '中轨', title: '中轨 EMA24 + MACD 快线分色刻度' },
+  ry_k: { label: '波段', title: '核心层: 主力动能轨迹 (K SuperTrend)' },
+  ry_k2: { label: '趋势', title: '趋势层: 机构护盘通道 (K2)' },
+  ry_k3: { label: '战略', title: '战略层: 宏观牛熊视界 (K3)' },
+}
 
 /** 顶栏 → pane 的语义化 patch (toggle 类字段由 pane 转译为状态更新) */
 export interface ChartTopbarPatch {
@@ -361,22 +370,23 @@ export function ChartTopbar({ symbol, name, period, chartStyle, activeIndicators
 
         <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
 
-        {/* 指标开关 (副图 + 主图叠加; 图表模块特例: 私有化线路 R5) */}
+        {/* 指标开关 (副图 + 主图叠加; 图表模块特例: 私有化线路 R5)
+         *  融易主图拆五层独立开关 (对齐 Pine OPEN_*: 牛熊/中轨/波段/趋势/战略) */}
         <div className="flex shrink-0 items-center gap-1">
-          {PANE_INDICATORS.map(key => {
-            if (key === 'ry') {
-              // 融易主图: 主图叠加指标 (不在 SUB_CHARTS 副图注册表, 特判渲染)
-              return (
-                <Pill
-                  key="ry"
-                  active={activeIndicators.includes('ry')}
-                  label="融易"
-                  title="融易主图叠加 (牛熊通道/中轨/K通道/信号)"
-                  activeClass="bg-amber-400/15 text-amber-400"
-                  onClick={() => onChange({ toggleIndicator: 'ry' })}
-                />
-              )
-            }
+          {RY_MAIN_KEYS.map(key => {
+            const meta = RY_MAIN_META[key]
+            return (
+              <Pill
+                key={key}
+                active={activeIndicators.includes(key)}
+                label={meta.label}
+                title={meta.title}
+                activeClass="bg-amber-400/15 text-amber-400"
+                onClick={() => onChange({ toggleIndicator: key })}
+              />
+            )
+          })}
+          {PANE_INDICATORS.filter(k => !RY_MAIN_KEYS.includes(k)).map(key => {
             const def = SUB_CHARTS.find(s => s.key === key)
             if (!def) return null
             return (

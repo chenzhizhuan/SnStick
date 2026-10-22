@@ -310,11 +310,8 @@ const FUND_CROSS_B = 'rgba(38,166,154,0.4)'
 const FUND_CROSS_S = 'rgba(255,82,82,0.4)'
 const FUND_LETTER_B = '#FFFFFF'
 const FUND_LETTER_S = '#FFFFFF'
-// 主图 fund 背景 (Pine 主图 line 775-778 原色, 不透明): 状态段/交叉条
-const FUND_MAIN_BG_LOW = 'rgb(24,36,51)'
-const FUND_MAIN_BG_HIGH = 'rgb(51,23,28)'
-const FUND_MAIN_CROSS_B = 'rgba(135,45,70,0.5)'
-const FUND_MAIN_CROSS_S = 'rgba(48,90,149,0.5)'
+// (主图 fund 背景常量已删: Pine 主图 GLOBAL_SHOW_*=false, TV 主图无 fund 背景)
+// 主图信号/背景/字母三件套只在附图 (buildFundOverlaySeries) 渲染
 
 /** fund 行背景色 (交叉事件优先于状态背景)。 */
 function fundRowBg(d: OHLC): string | null {
@@ -384,38 +381,6 @@ function buildFundOverlaySeries(data: OHLC[]): Record<string, any> {
     renderItem,
     clip: true, silent: true, animation: false, z: 0,
   }
-}
-
-/** 主图 fund 背景 markArea 区间 (连续同色段合并 + 交叉事件单根深色条)。
- *  Pine 主图 line 775-778 原色: 状态段不透明深蓝/深红, 交叉条紫/蓝 t50。 */
-function buildFundBgMarkAreas(data: OHLC[]): any[] {
-  const areas: any[] = []
-  let segStart = -1
-  let segVal = 0
-  const pushSeg = (start: number, end: number, val: number) => {
-    const color = val === 1 ? FUND_MAIN_BG_LOW : FUND_MAIN_BG_HIGH
-    areas.push([
-      { xAxis: data[start].date, itemStyle: { color } },
-      { xAxis: data[end].date },
-    ])
-  }
-  for (let i = 0; i <= data.length; i++) {
-    const v = i < data.length ? (data[i].fund_bg_color ?? 0) : -1
-    if (v !== segVal) {
-      if (segStart >= 0 && segVal !== 0) pushSeg(segStart, i - 1, segVal)
-      segStart = i
-      segVal = v
-    }
-    if (i < data.length) {
-      const cross = data[i].fund_cross_up_lower === true ? FUND_MAIN_CROSS_B
-        : data[i].fund_cross_down_upper === true ? FUND_MAIN_CROSS_S : null
-      // 交叉事件深色条覆盖在状态背景之上 (markArea 后画的在上层)
-      if (cross != null) {
-        areas.push([{ xAxis: data[i].date, itemStyle: { color: cross } }, { xAxis: data[i].date }])
-      }
-    }
-  }
-  return areas
 }
 
 // ── 融易主图 (R5) 渲染色 (Pine 原色口径一比一) ──────────────────
@@ -851,11 +816,19 @@ export const SUB_CHARTS: SubChartDef[] = [
 /** 向后兼容的 INDICATORS 导出 (不含 vol) */
 export const INDICATORS = SUB_CHARTS.filter(s => s.key !== 'vol')
 
-/** 主图叠加指标 (画在 K 线上方, 不占副图空间) */
+/** 主图叠加指标 (画在 K 线上方, 不占副图空间) — 融易主图拆五层独立开关
+ *  (ry_channel/ry_mid/ry_k/ry_k2/ry_k3, 见 useChartLayout RY_MAIN_KEYS)。 */
 export const OVERLAY_INDICATORS: { key: string; label: string }[] = [
   { key: 'boll', label: 'BOLL' },
-  { key: 'ry', label: '融易主图' },
+  { key: 'ry_channel', label: '牛熊分界线' },
+  { key: 'ry_mid', label: '中轨' },
+  { key: 'ry_k', label: '波段' },
+  { key: 'ry_k2', label: '趋势' },
+  { key: 'ry_k3', label: '战略' },
 ]
+
+/** 融易主图五层 key (信息栏/叠加段共用; 与 useChartLayout.RY_MAIN_KEYS 同源)。 */
+const RY_INFO_KEYS: readonly string[] = ['ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3']
 
 interface Props {
   data: OHLC[]
@@ -1042,7 +1015,15 @@ function buildOption(
   rsiZeroAxis: boolean,
   externalDrawings: DrawingObject[] | undefined,
 ): EChartsOption {
-  const showRYOverlay = activeIndicators.includes('ry') && hasRyMain(data)
+  // 融易主图五层独立开关 (对齐 Pine OPEN_*): 任一层开 = 指标加载 (K 线着色/
+  // 菱形/背离跟随, Pine 无独立开关); 主图 fund 背景不叠加 (Pine 主图 GLOBAL_SHOW_*=false)
+  const ryOn = (k: string) => activeIndicators.includes(k)
+  const showRYChannel = ryOn('ry_channel')
+  const showRYMid = ryOn('ry_mid')
+  const showRYK = ryOn('ry_k')
+  const showRYK2 = ryOn('ry_k2')
+  const showRYK3 = ryOn('ry_k3')
+  const showRYOverlay = (showRYChannel || showRYMid || showRYK || showRYK2 || showRYK3) && hasRyMain(data)
   // 融易主图着色: close 相对牛熊通道位置 (多头/空头/通道内灰), 覆盖默认红绿
   const candleData = showRYOverlay
     ? data.map(d => {
@@ -1212,11 +1193,8 @@ function buildOption(
       { xAxis: r.end },
     ]))
 
-  // 资金流背景 (R5): RSI+ 副图激活且数据带 fund 信号时, 主图同步叠加背景色块
-  // (超卖低位红 / 超买高位绿 / 交叉事件单根深色条)
-  if (activeIndicators.includes('rsi_plus') && hasFundSignal(data)) {
-    markAreaData.push(...buildFundBgMarkAreas(data))
-  }
+  // (主图 fund 背景已删: Pine 主图 GLOBAL_SHOW_BG/CROSS_HIGHLIGHTS = false,
+  //  TV 主图无 fund 背景/交叉条/B·S 字母 — 该三件套只在附图 RSI+/MACD+ 副图渲染)
 
   const markLineData: any[] = (priceLines ?? [])
     .filter(line => Number.isFinite(line.value))
@@ -1443,40 +1421,47 @@ function buildOption(
     })
   }
 
-  // ===== 融易主图叠加 (R5): 牛熊通道 + 中轨 + K/K2/K3 通道 + 信号 =====
+  // ===== 融易主图叠加 (R5): 五层独立开关 (Pine OPEN_*) =====
   // (visualMaps 需提前声明: 主图叠加与副图都会注入分段色 visualMap)
   const visualMaps: any[] = []
   if (showRYOverlay) {
-    // 1. 牛熊通道三条黄线 (牛/牛熊/熊; 牛熊线宽 2)
-    const ryChannelLine = (key: keyof OHLC, name: string, width: number) => ({
-      name, type: 'line',
-      data: data.map(d => (d[key] != null ? Number(d[key]) : '-')),
-      smooth: false, symbol: 'none', animation: false, silent: true, z: 2,
-      lineStyle: { width, color: RY_CHANNEL }, itemStyle: { color: RY_CHANNEL },
-    })
-    series.push(ryChannelLine('ry_upper', '牛线', 1))
-    series.push(ryChannelLine('ry_mid', '牛熊线', 2))
-    series.push(ryChannelLine('ry_lower', '熊线', 1))
+    const pushSegVisualMap = (bull: string, bear: string) => {
+      visualMaps.push({
+        show: false, seriesIndex: series.length - 1, dimension: 1,
+        pieces: [
+          { min: 1, max: 1, color: bull },
+          { min: -1, max: -1, color: bear },
+        ],
+      })
+    }
+    // 1. 牛熊通道三条黄线 (牛/牛熊/熊; 牛熊线宽 2) — OPEN_BULL_BEAR_LINE
+    if (showRYChannel) {
+      const ryChannelLine = (key: keyof OHLC, name: string, width: number) => ({
+        name, type: 'line',
+        data: data.map(d => (d[key] != null ? Number(d[key]) : '-')),
+        smooth: false, symbol: 'none', animation: false, silent: true, z: 2,
+        lineStyle: { width, color: RY_CHANNEL }, itemStyle: { color: RY_CHANNEL },
+      })
+      series.push(ryChannelLine('ry_upper', '牛线', 1))
+      series.push(ryChannelLine('ry_mid', '牛熊线', 2))
+      series.push(ryChannelLine('ry_lower', '熊线', 1))
+    }
 
-    // 2. 中轨 EMA24 (分段色: MACD 快线正负 → 二维 [值, trend] + visualMap) + 每根刻度竖线
+    // 2. 中轨 EMA24 (分段色: MACD 快线正负 → 二维 [值, trend] + visualMap) + 每根刻度竖线 — OPEN_MIDDLE_BAND_LINE
     // encode.y=0: Y 轴取第 0 维 (价格); 第 1 维 trend 只供 visualMap 分段色 —
     // 二维 data 默认 y 取末维 (±1) 会把 Y 轴拉爆到 0~价格上限
-    series.push({
-      name: '中轨', type: 'line', z: 2, silent: true, animation: false,
-      data: data.map(d => (d.ry_ema_mid != null
-        ? [Number(d.ry_ema_mid), (d.ry_mid_trend ?? 0) >= 0 ? 1 : -1] : '-')),
-      encode: { y: 0 },
-      smooth: false, symbol: 'none',
-      lineStyle: { width: 2 },
-    })
-    visualMaps.push({
-      show: false, seriesIndex: series.length - 1, dimension: 1,
-      pieces: [
-        { min: 1, max: 1, color: RY_MID_BULL },
-        { min: -1, max: -1, color: RY_MID_BEAR },
-      ],
-    })
-    series.push(buildRyMidTickSeries(data))
+    if (showRYMid) {
+      series.push({
+        name: '中轨', type: 'line', z: 2, silent: true, animation: false,
+        data: data.map(d => (d.ry_ema_mid != null
+          ? [Number(d.ry_ema_mid), (d.ry_mid_trend ?? 0) >= 0 ? 1 : -1] : '-')),
+        encode: { y: 0 },
+        smooth: false, symbol: 'none',
+        lineStyle: { width: 2 },
+      })
+      pushSegVisualMap(RY_MID_BULL, RY_MID_BEAR)
+      series.push(buildRyMidTickSeries(data))
+    }
 
     // 3. K/K2/K3 通道线 (trend=1 画 up 多头线 / -1 画 dn 空头线, 分段色; encode.y=0 同中轨)
     const kChannelLine = (trendKey: keyof OHLC, upKey: keyof OHLC, dnKey: keyof OHLC, name: string) => ({
@@ -1490,35 +1475,24 @@ function buildOption(
       smooth: false, symbol: 'none',
       lineStyle: { width: 2 },
     })
-    series.push(kChannelLine('k_trend', 'k_up', 'k_dn', '波段'))
-    visualMaps.push({
-      show: false, seriesIndex: series.length - 1, dimension: 1,
-      pieces: [
-        { min: 1, max: 1, color: RY_K_BULL },
-        { min: -1, max: -1, color: RY_K_BEAR },
-      ],
-    })
-    series.push(kChannelLine('k2_trend', 'k2_up', 'k2_dn', '趋势'))
-    visualMaps.push({
-      show: false, seriesIndex: series.length - 1, dimension: 1,
-      pieces: [
-        { min: 1, max: 1, color: RY_K_BULL },
-        { min: -1, max: -1, color: RY_K_BEAR },
-      ],
-    })
-    series.push(kChannelLine('k3_trend', 'k3_up', 'k3_dn', '战略'))
-    visualMaps.push({
-      show: false, seriesIndex: series.length - 1, dimension: 1,
-      pieces: [
-        { min: 1, max: 1, color: RY_K_BULL },
-        { min: -1, max: -1, color: RY_K_BEAR },
-      ],
-    })
+    // — OPEN_K 核心层 / OPEN_K2 趋势层 / OPEN_K3 战略层 —
+    if (showRYK) {
+      series.push(kChannelLine('k_trend', 'k_up', 'k_dn', '波段'))
+      pushSegVisualMap(RY_K_BULL, RY_K_BEAR)
+    }
+    if (showRYK2) {
+      series.push(kChannelLine('k2_trend', 'k2_up', 'k2_dn', '趋势'))
+      pushSegVisualMap(RY_K_BULL, RY_K_BEAR)
+    }
+    if (showRYK3) {
+      series.push(kChannelLine('k3_trend', 'k3_up', 'k3_dn', '战略'))
+      pushSegVisualMap(RY_K_BULL, RY_K_BEAR)
+    }
 
-    // 4. K/K2/K3 趋势填充 (Pine fill(ohlc4, 轨道) t80, 整段背景 markArea 已删 — Pine 无此元素)
-    series.push(buildRyTrendFillSeries(data, 'k_trend', 'k_up', 'k_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
-    series.push(buildRyTrendFillSeries(data, 'k2_trend', 'k2_up', 'k2_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
-    series.push(buildRyTrendFillSeries(data, 'k3_trend', 'k3_up', 'k3_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
+    // 4. K/K2/K3 趋势填充 (Pine fill(ohlc4, 轨道) t80) — 随各自通道层开关
+    if (showRYK) series.push(buildRyTrendFillSeries(data, 'k_trend', 'k_up', 'k_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
+    if (showRYK2) series.push(buildRyTrendFillSeries(data, 'k2_trend', 'k2_up', 'k2_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
+    if (showRYK3) series.push(buildRyTrendFillSeries(data, 'k3_trend', 'k3_up', 'k3_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
 
     // 5. 梯形菱形信号 + 多指标背离计数标签 (markPoint)
     data.forEach(d => {
@@ -1943,8 +1917,9 @@ export function EChartsCandlestick({
     }
     html += `</div>`
 
-    // 第二行: MA + BOLL + 融易主图数值
-    if (showMA || (d.ry_mid != null && activeIndicators.includes('ry'))) {
+    // 第二行: MA + BOLL + 融易主图数值 (五层独立开关各自显示)
+    const ryAny = RY_INFO_KEYS.some(k => activeIndicators.includes(k))
+    if (showMA || (d.ry_mid != null && ryAny)) {
       html += `<div style="display:flex;align-items:center;gap:10px;padding:0 8px;font:11px 'JetBrains Mono',monospace;select:none;min-height:20px;flex-wrap:wrap">`
       if (showMA) {
         if (d.ma5 != null) html += `<span style="color:${THEME.ma5}">MA5:${Number(d.ma5).toFixed(2)}</span>`
@@ -1955,16 +1930,24 @@ export function EChartsCandlestick({
           html += `<span style="color:#E879F9">BOLL:${Number(d.boll_upper).toFixed(2)}/${Number(d.ma20).toFixed(2)}/${Number(d.boll_lower).toFixed(2)}</span>`
         }
       }
-      if (activeIndicators.includes('ry') && d.ry_mid != null) {
+      if (activeIndicators.includes('ry_channel') && d.ry_mid != null) {
         html += `<span style="color:${RY_CHANNEL}">牛:${Number(d.ry_upper).toFixed(2)}/${Number(d.ry_mid).toFixed(2)}/${Number(d.ry_lower).toFixed(2)}</span>`
+      }
+      if (activeIndicators.includes('ry_mid')) {
         if (d.ry_ema_mid != null) {
           const mc = d.ry_mid_trend != null && d.ry_mid_trend > 0 ? RY_MID_BULL : d.ry_mid_trend != null && d.ry_mid_trend < 0 ? RY_MID_BEAR : RY_MID_FLAT
           html += `<span style="color:${mc}">中轨:${Number(d.ry_ema_mid).toFixed(2)}</span>`
         }
+      }
+      if (activeIndicators.includes('ry_k')) {
         const kv = d.k_trend === 1 ? d.k_up : d.k_trend === -1 ? d.k_dn : null
         if (kv != null) html += `<span style="color:${d.k_trend === 1 ? RY_MID_BULL : RY_MID_BEAR}">波段:${Number(kv).toFixed(2)}</span>`
+      }
+      if (activeIndicators.includes('ry_k2')) {
         const k2v = d.k2_trend === 1 ? d.k2_up : d.k2_trend === -1 ? d.k2_dn : null
         if (k2v != null) html += `<span style="color:${d.k2_trend === 1 ? RY_MID_BULL : RY_MID_BEAR}">趋势:${Number(k2v).toFixed(2)}</span>`
+      }
+      if (activeIndicators.includes('ry_k3')) {
         const k3v = d.k3_trend === 1 ? d.k3_up : d.k3_trend === -1 ? d.k3_dn : null
         if (k3v != null) html += `<span style="color:${d.k3_trend === 1 ? RY_MID_BULL : RY_MID_BEAR}">战略:${Number(k3v).toFixed(2)}</span>`
       }
@@ -2484,7 +2467,8 @@ export function EChartsCandlestick({
       html += `<span style="color:${CT().text}">${turnoverRate.toFixed(2)}%</span>`
     }
     html += `</div>`
-    if (showMA || (d.ry_mid != null && activeIndicators.includes('ry'))) {
+    const ryAny = RY_INFO_KEYS.some(k => activeIndicators.includes(k))
+    if (showMA || (d.ry_mid != null && ryAny)) {
       html += `<div style="display:flex;align-items:center;gap:10px;padding:0 8px;font:11px 'JetBrains Mono',monospace;min-height:20px;flex-wrap:wrap">`
       if (showMA) {
         if (d.ma5 != null) html += `<span style="color:${THEME.ma5}">MA5:${Number(d.ma5).toFixed(2)}</span>`
@@ -2495,14 +2479,24 @@ export function EChartsCandlestick({
           html += `<span style="color:#E879F9">BOLL:${Number(d.boll_upper).toFixed(2)}/${Number(d.ma20).toFixed(2)}/${Number(d.boll_lower).toFixed(2)}</span>`
         }
       }
-      if (activeIndicators.includes('ry') && d.ry_mid != null) {
+      if (activeIndicators.includes('ry_channel') && d.ry_mid != null) {
         html += `<span style="color:${RY_CHANNEL}">牛:${Number(d.ry_upper).toFixed(2)}/${Number(d.ry_mid).toFixed(2)}/${Number(d.ry_lower).toFixed(2)}</span>`
-        if (d.ry_ema_mid != null) {
-          const mc = d.ry_mid_trend != null && d.ry_mid_trend > 0 ? RY_MID_BULL : d.ry_mid_trend != null && d.ry_mid_trend < 0 ? RY_MID_BEAR : RY_MID_FLAT
-          html += `<span style="color:${mc}">中轨:${Number(d.ry_ema_mid).toFixed(2)}</span>`
-        }
+      }
+      if (activeIndicators.includes('ry_mid') && d.ry_ema_mid != null) {
+        const mc = d.ry_mid_trend != null && d.ry_mid_trend > 0 ? RY_MID_BULL : d.ry_mid_trend != null && d.ry_mid_trend < 0 ? RY_MID_BEAR : RY_MID_FLAT
+        html += `<span style="color:${mc}">中轨:${Number(d.ry_ema_mid).toFixed(2)}</span>`
+      }
+      if (activeIndicators.includes('ry_k')) {
         const kv = d.k_trend === 1 ? d.k_up : d.k_trend === -1 ? d.k_dn : null
         if (kv != null) html += `<span style="color:${d.k_trend === 1 ? RY_MID_BULL : RY_MID_BEAR}">波段:${Number(kv).toFixed(2)}</span>`
+      }
+      if (activeIndicators.includes('ry_k2')) {
+        const k2v = d.k2_trend === 1 ? d.k2_up : d.k2_trend === -1 ? d.k2_dn : null
+        if (k2v != null) html += `<span style="color:${d.k2_trend === 1 ? RY_MID_BULL : RY_MID_BEAR}">趋势:${Number(k2v).toFixed(2)}</span>`
+      }
+      if (activeIndicators.includes('ry_k3')) {
+        const k3v = d.k3_trend === 1 ? d.k3_up : d.k3_trend === -1 ? d.k3_dn : null
+        if (k3v != null) html += `<span style="color:${d.k3_trend === 1 ? RY_MID_BULL : RY_MID_BEAR}">战略:${Number(k3v).toFixed(2)}</span>`
       }
       html += `</div>`
     }

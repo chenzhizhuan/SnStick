@@ -148,12 +148,21 @@ def resample_minutes(rows: list[dict[str, Any]], period: int) -> list[dict[str, 
     return out
 
 
-def attach_intraday_plus(bars: list[dict[str, Any]], period: int) -> list[dict[str, Any]]:
-    """对聚合 bars 附着 MACD+/RSI+ 与融易主图字段 (原地写回并返回)。period ∈ {15, 60}。"""
+def attach_intraday_plus(
+    bars: list[dict[str, Any]],
+    period: int,
+    warmup_bars: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """对聚合 bars 附着 MACD+/RSI+ 与融易主图字段 (原地写回并返回)。period ∈ {15, 60}。
+
+    warmup_bars: 更早的聚合 bars (升序) — EMA110/ATR50/RSI 等递推指标的全历史口径
+    对齐 (分钟K存储窗口内最大深度), 与日K路径 550 日历日 warmup 同思路。
+    """
     lookback = INTRADAY_PERIODS.get(period)
     if lookback is None:
         raise ValueError(f"unsupported intraday period: {period}")
-    attach_plus_indicators(bars, warmup_closes=None, lookback=lookback)
+    warmup = warmup_bars or []
+    attach_plus_indicators(bars, warmup_closes=[b.get("close") for b in warmup] or None, lookback=lookback)
     # K2/K3 桶按 TV 语义: 60m → 1 天桶 (按日分组), 15m → 1h/2h 桶
-    attach_ry_main(bars, warmup_rows=None, bar_minutes=period)
+    attach_ry_main(bars, warmup_rows=warmup or None, bar_minutes=period)
     return bars

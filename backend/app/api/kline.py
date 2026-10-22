@@ -1179,23 +1179,33 @@ def get_intraday(
         )
 
     minute = minute.with_columns(pl.col("datetime").dt.date().alias("_trade_date"))
-    trade_dates = sorted(minute["_trade_date"].unique().to_list())[-days:]
+    trade_dates = sorted(minute["_trade_date"].unique().to_list())
     row_columns = [
         column
         for column in ("datetime", "open", "high", "low", "close", "volume", "amount")
         if column in minute.columns
     ]
     rows = (
-        minute.filter(pl.col("_trade_date").is_in(trade_dates))
-        .sort("datetime")
+        minute.sort("datetime")
         .select(row_columns)
         .to_dicts()
     )
 
     # 结束时刻 → 开始时刻语义换算 → 时段切桶聚合 → 私有指标附着
     rows = to_minute_start_semantics(rows)
-    bars = resample_minutes(rows, minutes)
-    attach_intraday_plus(bars, minutes)
+    all_bars = resample_minutes(rows, minutes)
+
+    # warmup 收敛 (2026-10-22 二次校准): 全窗口聚合, 末 days 交易日为返回段,
+    # 更早 bars 作递推 warmup — EMA110(牛熊)/ATR50/RSI 是长记忆递推指标,
+    # 只在返回窗口内递推会带起点瞬态 (60 交易日≈237 根 60m bars 时牛熊通道
+    # 与 TV 全历史口径差 ~1.5 元); warmup 段让瞬态在窗口前衰减。
+    if len(trade_dates) > days:
+        cutoff = trade_dates[-days]
+        warmup_bars = [b for b in all_bars if str(b["date"])[:10] < cutoff]
+        bars = [b for b in all_bars if str(b["date"])[:10] >= cutoff]
+    else:
+        warmup_bars, bars = [], all_bars
+    attach_intraday_plus(bars, minutes, warmup_bars=warmup_bars)
 
     return _gzip_payload(
         request,

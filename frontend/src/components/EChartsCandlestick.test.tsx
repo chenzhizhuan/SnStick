@@ -209,7 +209,7 @@ it('无 markers 时 ry 菱形/背离方块 markPoint 仍回填到主 K 线系列
     ...(i === 15 ? { div_btm_count: 3 } : {}),
   }))
   await act(async () => root.render(
-    <EChartsCandlestick data={data} symbol="600519.SH" height={500} visibleBars="all" activeIndicators={['ry', 'macd_plus', 'rsi_plus']} />,
+    <EChartsCandlestick data={data} symbol="600519.SH" height={500} visibleBars="all" activeIndicators={['ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3', 'macd_plus', 'rsi_plus']} />,
   ))
   const mp = lastMarkPoint()
   expect(mp).toContain('ryT')
