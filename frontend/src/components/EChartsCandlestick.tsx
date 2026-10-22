@@ -1257,23 +1257,17 @@ function buildOption(
     axisLabel: {
       color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
       formatter: (_v: string, index: number) => xLabelOf[index] ?? String(_v),
-      interval: (() => {
-        let lastShown = -1
-        let prevIdx = -1
-        return (index: number) => {
-          if (index <= prevIdx) lastShown = -1 // 新一轮轴渲染从左到右 → 重置贪心状态
-          prevIdx = index
-          const m = xLabelMetrics.current
-          const barW = m.axisWidth / Math.max(m.visibleCount, 1)
-          const stride = Math.max(2, Math.round(72 / Math.max(barW, 1)))
-          const minGap = xBoundary.has(index) ? 1 : stride
-          if (index - lastShown >= minGap) {
-            lastShown = index
-            return true
-          }
-          return false
-        }
-      })(),
+      // 无状态 interval (有状态贪心在 ECharts 的回调顺序下不可靠 — 实测跨月标签
+      // 会缺失): 边界点恒显示; 普通点按 stride 锚定数据索引 (index 固定 → 平移时
+      // 刻度跟着 bar 走, TV 同款); 紧邻边界点的普通点让位 (避免 "11月"+"3" 挤连)。
+      interval: (index: number) => {
+        if (xBoundary.has(index)) return true
+        const m = xLabelMetrics.current
+        const barW = m.axisWidth / Math.max(m.visibleCount, 1)
+        const stride = Math.max(2, Math.round(72 / Math.max(barW, 1)))
+        if (index % stride !== 0) return false
+        return !xBoundary.has(index - 1) && !xBoundary.has(index + 1)
+      },
     },
     // 十字悬浮标签: TV 格式 "周五 2026-10-09 09:30" (星期 + 全量日期时间)
     axisPointer: {
