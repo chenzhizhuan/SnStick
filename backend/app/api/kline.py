@@ -1200,7 +1200,7 @@ def get_intraday(
     # 只在返回窗口内递推会带起点瞬态 (60 交易日≈237 根 60m bars 时牛熊通道
     # 与 TV 全历史口径差 ~1.5 元); warmup 段让瞬态在窗口前衰减。
     if len(trade_dates) > days:
-        cutoff = trade_dates[-days]
+        cutoff = trade_dates[-days].isoformat()
         warmup_bars = [b for b in all_bars if str(b["date"])[:10] < cutoff]
         bars = [b for b in all_bars if str(b["date"])[:10] >= cutoff]
     else:
