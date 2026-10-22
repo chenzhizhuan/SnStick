@@ -467,12 +467,15 @@ def _divergence_counts(h: list, l: list, c: list, v: list) -> tuple[list, list]:
     def _detect_pos(src: list, i: int) -> bool:
         """正背离: 价格低于前 pivot low, 指标抬升。
         Pine 口径: pivot 列表存确认根位置 (pos+prd), len = i - 确认根 + prd
-        = i - pivot根; src[len] 即 pivot 根的指标值。"""
+        = i - pivot根; src[len] 即 pivot根的指标值。
+        遍历从最新 pivot 到最旧 (Pine array.unshift 头插后 for x=0..maxpp-1
+        即新→旧); 跨度超限 break 只应砍掉更旧的 — 若反向遍历, 最旧 pivot
+        先触发 break 会把全部更近的 pivot 一并跳过 (60m/4h 背离全 0 的根因)。"""
         if i < 1 or src[i] is None or src[i - 1] is None or c[i] is None or c[i - 1] is None:
             return False
         if not (src[i] > src[i - 1] or c[i] > c[i - 1]):
             return False
-        for pos, val in piv_lows[-_DIV_MAXPP:]:
+        for pos, val in reversed(piv_lows[-_DIV_MAXPP:]):
             ln = i - pos
             if pos == 0 or ln > _DIV_MAXBARS:
                 break
@@ -501,12 +504,13 @@ def _divergence_counts(h: list, l: list, c: list, v: list) -> tuple[list, list]:
         return False
 
     def _detect_neg(src: list, i: int) -> bool:
-        """负背离: 价格高于前 pivot high, 指标回落 (同正背离对称口径)。"""
+        """负背离: 价格高于前 pivot high, 指标回落 (同正背离对称口径,
+        遍历同样从最新 pivot 到最旧, 见 _detect_pos 注释)。"""
         if i < 1 or src[i] is None or src[i - 1] is None or c[i] is None or c[i - 1] is None:
             return False
         if not (src[i] < src[i - 1] or c[i] < c[i - 1]):
             return False
-        for pos, val in piv_highs[-_DIV_MAXPP:]:
+        for pos, val in reversed(piv_highs[-_DIV_MAXPP:]):
             ln = i - pos
             if pos == 0 or ln > _DIV_MAXBARS:
                 break

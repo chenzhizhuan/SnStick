@@ -1222,15 +1222,12 @@ function buildOption(
   xAxes.push({
     type: 'category', data: dates, boundaryGap: true,
     axisLine: { lineStyle: { color: CT().border } },
-    // 两行短标签 ("MM-DD\nHH:mm") + hideOverlap: 分钟周期全量长标签远宽于
-    // bar 间距, 会互相叠印/左端溢出被裁 ("-89-22" 式伪影); TV 同为短日期标签
+    // 平台原生全量长标签 (YYYY-MM-DD HH:mm) — 2026-10-22 依用户要求从
+    // "MM-DD\nHH:mm" 两行短格式复原; hideOverlap 保留 (964be0b5: 分钟周期
+    // 标签远宽于 bar 间距, 去掉会互相叠印出 "-89-22" 式伪影)
     axisLabel: {
       color: CT().text, fontSize: 10, fontFamily: 'JetBrains Mono, monospace',
       hideOverlap: true,
-      formatter: (v: string) => {
-        const s = String(v)
-        return s.includes(' ') ? s.slice(5).replace(' ', '\n') : s.slice(5)
-      },
     },
     axisTick: { show: false },
     splitLine: { show: false },

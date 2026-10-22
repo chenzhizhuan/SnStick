@@ -1640,7 +1640,49 @@
    "ry_btm_signal": false,
    "ry_btm_price": null,
    "div_top_count": 0,
-   "div_btm_count": 0
+   "div_btm_count": 0,
+   "fvg_list": [
+    {
+     "start": "2026-10-14 10:30",
+     "min": 1275.5199999999982,
+     "max": 1279.020000000003,
+     "is_bull": true,
+     "combined": false,
+     "high_vol": 3459.0,
+     "low_vol": 1375.0,
+     "total_vol": 4834.0
+    },
+    {
+     "start": "2026-09-30 13:15",
+     "min": 1241.5,
+     "max": 1246.44,
+     "is_bull": true,
+     "combined": false,
+     "high_vol": 6199.0,
+     "low_vol": 1036.0,
+     "total_vol": 7235.0
+    },
+    {
+     "start": "2026-09-30 13:00",
+     "min": 1239.53,
+     "max": 1240.7,
+     "is_bull": true,
+     "combined": false,
+     "high_vol": 3901.0,
+     "low_vol": 892.0,
+     "total_vol": 4793.0
+    },
+    {
+     "start": "2026-09-10 09:45",
+     "min": 1287.499999999999,
+     "max": 1290.88,
+     "is_bull": false,
+     "combined": false,
+     "high_vol": 2752.0,
+     "low_vol": 6029.0,
+     "total_vol": 8781.0
+    }
+   ]
   }
  ],
  "count_60m": 237,
@@ -1766,7 +1808,7 @@
    "ry_btm_signal": false,
    "ry_btm_price": null,
    "div_top_count": 0,
-   "div_btm_count": 0
+   "div_btm_count": 2
   },
   {
    "date": "2026-09-22 14:00",
@@ -1930,7 +1972,7 @@
    "ry_btm_signal": false,
    "ry_btm_price": null,
    "div_top_count": 0,
-   "div_btm_count": 0
+   "div_btm_count": 1
   },
   {
    "date": "2026-09-24 14:00",
@@ -1971,7 +2013,7 @@
    "ry_btm_signal": true,
    "ry_btm_price": 1232.2500000000105,
    "div_top_count": 0,
-   "div_btm_count": 0
+   "div_btm_count": 2
   },
   {
    "date": "2026-09-28 09:30",
@@ -2053,7 +2095,7 @@
    "ry_btm_signal": true,
    "ry_btm_price": 1228.1,
    "div_top_count": 0,
-   "div_btm_count": 0
+   "div_btm_count": 1
   },
   {
    "date": "2026-09-28 13:00",
@@ -3283,7 +3325,49 @@
    "ry_btm_signal": false,
    "ry_btm_price": null,
    "div_top_count": 0,
-   "div_btm_count": 0
+   "div_btm_count": 0,
+   "fvg_list": [
+    {
+     "start": "2026-10-14 10:30",
+     "min": 1274.9099999999933,
+     "max": 1279.020000000003,
+     "is_bull": true,
+     "combined": false,
+     "high_vol": 13172.0,
+     "low_vol": 8247.0,
+     "total_vol": 21419.0
+    },
+    {
+     "start": "2026-09-10 10:30",
+     "min": 1286.7699999999977,
+     "max": 1290.09,
+     "is_bull": false,
+     "combined": false,
+     "high_vol": 7201.0,
+     "low_vol": 10701.0,
+     "total_vol": 17902.0
+    },
+    {
+     "start": "2026-09-09 10:30",
+     "min": 1293.6,
+     "max": 1309.3,
+     "is_bull": false,
+     "combined": false,
+     "high_vol": 4110.0,
+     "low_vol": 17316.0,
+     "total_vol": 21426.0
+    },
+    {
+     "start": "2026-07-10 10:30",
+     "min": 1182.72,
+     "max": 1189.31,
+     "is_bull": true,
+     "combined": false,
+     "high_vol": 32228.0,
+     "low_vol": 7559.0,
+     "total_vol": 39787.0
+    }
+   ]
   }
  ],
  "count_4h": 260,
