@@ -8,7 +8,7 @@
  * 参照日期: 2026-09-30 为周三, 2026-10-03 为周六。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chartIntradayRefetchInterval, chartMinuteRangeRefetchInterval, mergeLiveIntoIntraday } from './kline'
+import { chartIntradayRefetchInterval, chartMinuteRangeRefetchInterval, mergeLiveIntoIntraday, notRawAdjustKey } from './kline'
 import type { IntradayPlusBar, KlineDailyLatestResponse, KlineIntradayResponse } from './api'
 
 const MS = 15_000
@@ -269,5 +269,30 @@ describe('mergeLiveIntoIntraday 分钟末根实时叠加', () => {
     const last = out!.bars.at(-1)!
     expect(last.volume).toBe(4321)
     expect(last.rsi_plus).toBe(55.7)
+  })
+})
+
+describe('notRawAdjustKey — qfq 实时合并排除 raw 残留缓存', () => {
+  it('三套 chart key 的 adjust 段位: raw=false / qfq/缺省=true', () => {
+    // ['chart','kline-daily',symbol,days,adjust] → idx 4
+    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500, 'raw'], 4)).toBe(false)
+    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500, 'qfq'], 4)).toBe(true)
+    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500], 4)).toBe(true)
+    // ['chart','kline-daily-4h',symbol,adjust] → idx 3
+    expect(notRawAdjustKey(['chart', 'kline-daily-4h', '600519.SH', 'raw'], 3)).toBe(false)
+    expect(notRawAdjustKey(['chart', 'kline-daily-4h', '600519.SH', 'qfq'], 3)).toBe(true)
+    // ['chart','intraday',symbol,period,adjust] → idx 4
+    expect(notRawAdjustKey(['chart', 'intraday', '600519.SH', '60m', 'raw'], 4)).toBe(false)
+    expect(notRawAdjustKey(['chart', 'intraday', '600519.SH', '60m', 'qfq'], 4)).toBe(true)
+  })
+
+  it('extra 键 (adjust 在第 5 段) 与 undefined 段位安全', () => {
+    // extra 键 ['chart','kline-daily-extra',symbol,start,end,adjust] — adjust 在 idx 5;
+    // daily SSE 合并的 findAll(['chart','kline-daily',symbol]) 不命中 extra 键 (第二段不同),
+    // 此处锁死段位语义防未来结构调整错位
+    expect(notRawAdjustKey(['chart', 'kline-daily-extra', '600519.SH', '2026-01-01', '2026-06-01', 'raw'], 5)).toBe(false)
+    expect(notRawAdjustKey(['chart', 'kline-daily-extra', '600519.SH', '2026-01-01', '2026-06-01', 'qfq'], 5)).toBe(true)
+    // 段位未定义 (旧缓存/结构变化) → 非 raw, fail-open 不丢合并
+    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500, undefined], 4)).toBe(true)
   })
 })

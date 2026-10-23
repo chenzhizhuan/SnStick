@@ -36,6 +36,17 @@ export function klineDailyLatestQueryOptions(symbol: string, plusLookback?: numb
   }
 }
 
+/** qfq 实时合并排除 raw (不复权) 残留缓存: 按 query key 中 adjust 段位过滤。
+ *  adjust 段位索引按 key 工厂结构固定:
+ *  - ['chart','kline-daily',symbol,days,adjust]        → 4
+ *  - ['chart','kline-daily-4h',symbol,adjust]           → 3
+ *  - ['chart','intraday',symbol,period,adjust]          → 4
+ *  daily/latest 单行是 qfq 口径指标, 合进 raw 缓存会污染末根 — raw 窗格本身
+ *  不注册 SSE (Chart.tsx), 此过滤针对「切回 qfq 后 gc 窗口内残留 raw 缓存」。 */
+export function notRawAdjustKey(key: readonly unknown[], adjustIdx: number): boolean {
+  return key[adjustIdx] !== 'raw'
+}
+
 export function mergeLatestKlineRow(
   current: KlineDailyResponse | undefined,
   latest: KlineDailyLatestResponse,
