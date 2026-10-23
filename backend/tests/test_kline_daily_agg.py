@@ -139,7 +139,7 @@ def test_resample_unknown_agg_passthrough():
 def _capture_attach(monkeypatch) -> dict:
     captured: dict = {}
 
-    def _fake_attach(repo, asset_type, symbol, rows, lookback=50, ry_bar_minutes=None, agg=None, raw_mode=False, ry_full_history=False):
+    def _fake_attach(repo, asset_type, symbol, rows, lookback=50, ry_bar_minutes=None, agg=None, raw_mode=False, ry_full_history=False, split_map=None):
         captured["lookback"] = lookback
         captured["ry_bar_minutes"] = ry_bar_minutes
         captured["agg"] = agg

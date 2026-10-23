@@ -420,7 +420,7 @@ def get_daily(
         None, description="聚合周期: 2d|4d|1w|1M — 在聚合 K 上重算私有指标 (Pine 周期语义; warmup 同口径聚合)",
     ),
     adjust: Optional[str] = Query(
-        None, description="复权方式: qfq(前复权,默认) | raw(不复权, TV 对拍口径; 指标在 raw 序列上重算)",
+        None, description="复权方式: qfq(前复权,默认) | raw(不复权,TV 关 ADJ 口径) | split(送转复权,TV 开 ADJ 口径 — 仅送转股调整, 现金分红不调)",
     ),
 ):
     """读取本地 enriched 表中某只股票的日 K。
@@ -430,7 +430,11 @@ def get_daily(
     - ext_columns: 可选，动态 LEFT JOIN 扩展数据表，结果平铺到 stock_info.ext 下
       (key 为 "{config_id}__{field_name}")，供日K信息条等场景展示自定义字段
     - adjust=raw: 不复权显示模式 — OHLC 换算回原始价, 私有指标在 raw 序列上
-      重算 (warmup 同口径), 对齐用户 TV 布局的显示口径 (2026-10-23 对拍实证)
+      重算 (warmup 同口径), 对齐用户 TV 布局关 ADJ 的显示口径 (2026-10-23 对拍实证)
+    - adjust=split: 送转复权模式 — raw 序列再按送转链缩放 (现金分红不调),
+      对齐 TV 开 ADJ 的显示口径 (TV "调整股息数据" 实测仅调送转:
+      600519 两次 10送1 后 2011-08 = raw×1/1.21 与 TV 分毫不差,
+      2021-09/2020-11/2021-02 因后续无送转 = raw 亦分毫不差)
     """
     import polars as pl
 
@@ -445,13 +449,16 @@ def get_daily(
     if adjust is None:
         adjust = "qfq"
     if adjust not in _ADJUST_MODES:
-        raise HTTPException(status_code=400, detail="adjust 仅支持 qfq | raw")
-    raw_mode = adjust == "raw"
+        raise HTTPException(status_code=400, detail="adjust 仅支持 qfq | raw | split")
+    split_mode = adjust == "split"
+    # split 序列 = raw 序列按送转链缩放 → 复用 raw 换算路径
+    raw_mode = adjust == "raw" or split_mode
     # agg 模式下 lookback 未传时按 Pine 量级标尺预设档推导 (1w/1M=10, 其余=50)
     if agg is not None and plus_lookback is None:
         plus_lookback = _AGG_LOOKBACK[agg]
 
     repo = request.app.state.repo
+    split_map = _split_factor_map(repo, symbol) if split_mode else None
     # 未传 end_date 时用北京今天: 实时注入只在内存缓存命中时补当日 K,
     # 缓存冷时 parquet 当日行能否进结果取决于这个窗口右端。
     end = date.fromisoformat(end_date) if end_date else cn_today()
@@ -499,6 +506,8 @@ def get_daily(
         rows = enriched.filter((pl.col("date") >= start) & (pl.col("date") <= end)).to_dicts()
         if raw_mode:
             rows = _to_raw_ohlcv(rows)
+        if split_mode:
+            rows = _to_split_ohlcv(rows, split_map)
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
         # agg 模式: 聚合在 _attach_plus_with_warmup 内部完成 (全历史拼接聚合
@@ -506,7 +515,8 @@ def get_daily(
         rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                         lookback=_resolve_plus_lookback(plus_lookback),
                                         ry_bar_minutes=None if agg else ry_bar_minutes,
-                                        agg=agg, raw_mode=raw_mode, ry_full_history=True)
+                                        agg=agg, raw_mode=raw_mode, ry_full_history=True,
+                                        split_map=split_map)
         resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
         return _gzip_payload(
             request,
@@ -517,6 +527,8 @@ def get_daily(
     rows = df.to_dicts()
     if raw_mode:
         rows = _to_raw_ohlcv(rows)
+    if split_mode:
+        rows = _to_split_ohlcv(rows, split_map)
 
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
@@ -525,7 +537,8 @@ def get_daily(
     rows = _attach_plus_with_warmup(repo, asset_type, symbol, rows,
                                     lookback=_resolve_plus_lookback(plus_lookback),
                                     ry_bar_minutes=None if agg else ry_bar_minutes,
-                                    agg=agg, raw_mode=raw_mode, ry_full_history=True)
+                                    agg=agg, raw_mode=raw_mode, ry_full_history=True,
+                                    split_map=split_map)
 
     resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
     return _gzip_payload(
@@ -621,8 +634,123 @@ def _resample_daily_rows(rows: list[dict], agg: str) -> list[dict]:
 # 即 Pine 预设边界为「严格大于 1月」才落 3 档, 1M 周期本身在 ≤1月 档 (与 1w 同档)。
 _AGG_LOOKBACK = {"1w": 10, "1M": 10, "2d": 50, "4d": 50}
 
-# 复权方式合法值: qfq=前复权 (默认) / raw=不复权 (TV 对拍口径)
-_ADJUST_MODES = ("qfq", "raw")
+# 复权方式合法值: qfq=前复权 (默认) / raw=不复权 (TV 关 ADJ 口径) /
+# split=送转复权 (TV 开 ADJ 口径 — 仅按送转股调整, 现金分红不调整)
+_ADJUST_MODES = ("qfq", "raw", "split")
+
+# 送转比例候选 (10送X → 1+X/10 的离散值; 含 10转10=2.0, 10转5=1.5 等;
+# A 股送转最小单位 10送1=1.1 — 不含 1.05 以免误拆纯现金大额分红)
+_SPLIT_RATIO_CANDIDATES = (
+    1.1, 1.15, 1.2, 1.25, 1.3, 1.33, 1.4, 1.5, 1.6, 1.8, 2.0,
+    2.5, 3.0, 3.33, 4.0, 5.0, 6.0, 8.0, 10.0,
+)
+# 现金分红部分合理上界 (ex_factor/送转比例 ≤ 此值视为现金, 超出视为无法拆解)
+_CASH_COMPONENT_MAX = 1.05
+# 低于此阈值的 ex_factor 直接视为纯现金分红 (送转部分 1.0)
+_SPLIT_DETECT_MIN = 1.05
+
+
+def _extract_split_component(ex_factor: float) -> float:
+    """从综合除权因子拆出送转 (split/bonus) 部分。
+
+    TickFlow ex_factor = 现金部分 × 送转部分 (无明细列时):
+    - ex_factor ≤ 1.05 → 纯现金分红, 送转 = 1.0;
+    - 否则找最大的离散送转候选 s, 使商 ex_factor/s ∈ [1.0, 1.05] (现金合理域);
+      找不到 → 保守视为现金 (送转 = 1.0)。
+    600519 全 30 事件拆解自洽 (8 送转: 1.1×1.1×1.3×1.2×2.0×1.1×1.1×1.1,
+    其余 22 条纯现金) — 2026-10-23 TV 对拍实证 (详见 test_kline_adjust_split)。
+    """
+    if ex_factor is None or not math.isfinite(ex_factor) or ex_factor <= _SPLIT_DETECT_MIN:
+        return 1.0
+    best = 1.0
+    for s in _SPLIT_RATIO_CANDIDATES:
+        if s > ex_factor:
+            break
+        q = ex_factor / s
+        if 1.0 <= q <= _CASH_COMPONENT_MAX:
+            best = max(best, s)
+    return best
+
+
+def _split_factor_map(repo, symbol: str) -> dict[str, list]:
+    """构造送转复权查表: {symbol} 的 (事件日期列表, 后缀积列表)。
+
+    返回 {"events": [d1, d2, ...], "suffix": [f1, f2, ...]} —
+    suffix[i] = Π(events[i:] 的送转因子), 即日期 > events[i-1] 的行
+    应除以的系数; 对行日期 d, i = bisect_right(events, d),
+    factor_after(d) = suffix[i] (i == len 时为 1.0)。
+    读表失败/无事件 → 空 dict (调用方按 factor=1 处理 = 退化为 raw)。
+    """
+    import bisect
+
+    out = {"events": [], "suffix": []}
+    try:
+        import polars as pl  # noqa: PLC0415 — 与端点同款局部导入
+
+        factors = pl.read_parquet(repo.store.data_dir / "adj_factor" / "all.parquet")
+        factors = (factors.filter(pl.col("symbol") == symbol)
+                   .select("trade_date", "ex_factor")
+                   .sort("trade_date"))
+        if factors.is_empty():
+            return out
+        events: list[date] = []
+        splits: list[float] = []
+        for r in factors.iter_rows(named=True):
+            td = r.get("trade_date")
+            ef = r.get("ex_factor")
+            if td is None or ef is None:
+                continue
+            d = td if isinstance(td, date) else date.fromisoformat(str(td)[:10])
+            s = _extract_split_component(float(ef))
+            if s > 1.0:
+                events.append(d)
+                splits.append(s)
+        # 后缀积 (含末尾哨兵 1.0)
+        suffix = [1.0] * (len(splits) + 1)
+        for i in range(len(splits) - 1, -1, -1):
+            suffix[i] = splits[i] * suffix[i + 1]
+        out["events"] = events
+        out["suffix"] = suffix
+        return out
+    except Exception:  # noqa: BLE001 — 指数/ETF 或表缺失 → 空表退化
+        logger.debug("送转链读取失败 %s", symbol, exc_info=True)
+        return out
+
+
+def _split_factor_after(split_map: dict, d: date) -> float:
+    """行日期 d 的送转缩放系数 (d 之后所有送转的乘积)。"""
+    import bisect
+
+    events = split_map.get("events") or []
+    if not events:
+        return 1.0
+    i = bisect.bisect_right(events, d)
+    suffix = split_map.get("suffix") or []
+    return suffix[i] if i < len(suffix) else 1.0
+
+
+def _to_split_ohlcv(rows: list[dict], split_map: dict) -> list[dict]:
+    """raw 行 → 送转复权 (TV ADJ 口径) 行 (原地改写)。
+
+    输入 rows 已是 raw OHLC (_to_raw_ohlcv 之后)。每行按其日期除以
+    「该日期之后所有送转事件的乘积」; 现金分红不调整 (与 TV 一致)。
+    无送转事件的标的 = factor 1.0 → 序列与 raw 相同 (TV 无 ADJ 时也如此)。
+    """
+    if not split_map.get("events"):
+        return rows
+    for r in rows:
+        d = r.get("date")
+        if d is None:
+            continue
+        dd = d if isinstance(d, date) else date.fromisoformat(str(d)[:10])
+        f = _split_factor_after(split_map, dd)
+        if f == 1.0:
+            continue
+        for k in ("open", "high", "low", "close"):
+            v = r.get(k)
+            if v is not None:
+                r[k] = v / f
+    return rows
 
 
 def _to_raw_ohlcv(rows: list[dict]) -> list[dict]:
@@ -698,6 +826,7 @@ def _attach_plus_with_warmup(
     agg: Optional[str] = None,
     raw_mode: bool = False,
     ry_full_history: bool = False,
+    split_map: Optional[dict] = None,
 ) -> list[dict]:
     """MACD+/RSI+ + 融易主图 附着 (带窗口前历史 warmup)。
 
@@ -716,6 +845,8 @@ def _attach_plus_with_warmup(
     连续交易日桶从序列起点计数, 550 天暖机会使桶相位偏离 TV 全历史对齐
     (600519 实测: 日线 K2 1179.26 vs 全历史 1166.73, 熊线 1290.58 vs
     1290.59); 主 /daily 端点传 True, /daily/latest 高频路径保持 550 天。
+    split_map: 送转复权链 (_split_factor_map 结果) — warmup 历史在 raw
+    换算后同口径按送转链缩放, 保证递推序列与 TV 开 ADJ 口径一致。
     """
     if not rows:
         return rows
@@ -726,6 +857,7 @@ def _attach_plus_with_warmup(
         return _attach_plus_with_agg_history(
             repo, asset_type, symbol, rows, lookback=lookback,
             ry_bar_minutes=ry_bar_minutes, agg=agg, raw_mode=raw_mode,
+            split_map=split_map,
         )
     # 日K (非 agg 非 4h): K2/K3 走 TV 高周期换算 (K2="4D" 连续 4 交易日桶 /
     # K3="1W" 自然周 — Pine request.security 语义); 4h/分钟周期传 ry_bar_minutes
@@ -749,6 +881,8 @@ def _attach_plus_with_warmup(
                 rc = r.get("raw_close")
                 if rc is not None:
                     r["close"] = rc
+        if split_map:
+            _to_split_ohlcv(hist_dicts, split_map)
         warmup = [float(r["close"]) if r.get("close") is not None else None for r in hist_dicts]
     except Exception:  # noqa: BLE001 — 预热读失败退化为窗口内递推
         logger.debug("plus warmup 读取失败 %s", symbol, exc_info=True)
@@ -764,6 +898,8 @@ def _attach_plus_with_warmup(
         warmup_rows = hist2.to_dicts()
         if raw_mode:
             _to_raw_ohlcv(warmup_rows)
+        if split_map:
+            _to_split_ohlcv(warmup_rows, split_map)
     except Exception:  # noqa: BLE001
         logger.debug("ry warmup 读取失败 %s", symbol, exc_info=True)
     attach_plus_indicators(rows, warmup_closes=warmup, lookback=lookback)
@@ -775,6 +911,7 @@ def _attach_plus_with_agg_history(
     repo, asset_type: str, symbol: str, rows: list[dict],
     lookback: int, ry_bar_minutes: Optional[int], agg: str,
     raw_mode: bool = False,
+    split_map: Optional[dict] = None,
 ) -> list[dict]:
     """    agg 模式附着: 指标画在聚合 K 上 (Pine 周期语义), 对齐 TV 全历史递推。
 
@@ -792,6 +929,8 @@ def _attach_plus_with_agg_history(
     request.security + f_resolveDynamicTimeframe: 周线 K2="4W" K3="2M" 等)。
     raw_mode: 不复权模式 — warmup 全历史同口径换算 (窗口行已在端点层
     换算), 聚合与递推全部在 raw 序列上进行。
+    split_map: 送转复权链 — warmup 在 raw 换算后按送转链缩放 (与窗口行
+    端点层处理同口径), 聚合与递推在送转复权序列上进行 (TV 开 ADJ 口径)。
     全历史读取失败时退化为窗口内聚合递推 (数值可用, 前期偏差)。
     """
     first = rows[0].get("date")
@@ -805,6 +944,8 @@ def _attach_plus_with_agg_history(
         hist_rows = hist.to_dicts()
         if raw_mode:
             _to_raw_ohlcv(hist_rows)
+        if split_map:
+            _to_split_ohlcv(hist_rows, split_map)
     except Exception:  # noqa: BLE001 — 全历史读失败退化为窗口内聚合
         logger.debug("agg warmup 全历史读取失败 %s", symbol, exc_info=True)
     # 拼接后一次性聚合 (窗口行可能带 is_live/指标列, 聚合函数只认 OHLCV/date)

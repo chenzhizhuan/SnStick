@@ -65,7 +65,7 @@ export type SplitTemplate = '1' | '2h' | '2v' | '4' | '1+3'
 /** 复权方式 — 全工作台统一 (数据流层注入所有窗格查询):
  *  qfq=前复权(默认) / raw=不复权 (TV 对拍口径, 2026-10-23 实证 TV 布局显示 raw 序列;
  *  后端 OHLC 换回原始价 + 私有指标在 raw 序列上重算, warmup 同口径)。 */
-export type AdjustMode = 'qfq' | 'raw'
+export type AdjustMode = 'qfq' | 'raw' | 'split'
 
 /** 图间联动全局开关 (仅 sync='follow' 的 pane 参与; 绘图为数据共享语义另见字段) */
 export interface SyncSwitches {
@@ -88,7 +88,7 @@ export interface ChartWorkspace {
   drawTool: DrawTool
   /** 双窗模板 (横2/竖2) 的分隔比例: 首窗占比 0.2-0.8, 默认 0.5; 切模板时重置 */
   splitRatio: number
-  /** 复权方式 (qfq 前复权默认 / raw 不复权) — 工作台级显示口径开关 */
+  /** 复权方式 (qfq 前复权默认 / raw 不复权 = TV 关 ADJ / split 送转复权 = TV 开 ADJ) — 工作台级显示口径开关 */
   adjust: AdjustMode
 }
 
@@ -216,7 +216,7 @@ export function normalizeWorkspace(raw: unknown): ChartWorkspace {
     drawTool,
     splitRatio,
     // 旧持久化无 adjust → qfq (默认); 非法值回落 qfq
-    adjust: obj?.adjust === 'raw' ? 'raw' : 'qfq',
+    adjust: obj?.adjust === 'raw' ? 'raw' : obj?.adjust === 'split' ? 'split' : 'qfq',
   }
 }
 
