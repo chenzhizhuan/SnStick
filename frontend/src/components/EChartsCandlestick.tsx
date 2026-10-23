@@ -758,10 +758,12 @@ export const SUB_CHARTS: SubChartDef[] = [
     ],
     buildInfo: (d) => {
       if (!d) return []
+      // 行序对齐 TV 图例 (2026-10-23 周线已收盘 bar 实证: TV 显示顺序 = 能量柱/DIF/DEA,
+      // 我们 (dif,dea,hist)=(-16.08,-24.97,59.73) 与 TV (-16.08,-24.97,59.73) 精确一致)
       return [
+        { label: '能量柱', color: d.macd_plus_hist != null && d.macd_plus_hist >= 0 ? '#C74040' : '#2D9B65', value: d.macd_plus_hist != null ? d.macd_plus_hist.toFixed(2) : '—' },
         { label: 'DIF+', color: '#FFFFFF', value: d.macd_plus_dif != null ? d.macd_plus_dif.toFixed(2) : '—' },
         { label: 'DEA+', color: '#FFEB3B', value: d.macd_plus_dea != null ? d.macd_plus_dea.toFixed(2) : '—' },
-        { label: '能量柱', color: d.macd_plus_hist != null && d.macd_plus_hist >= 0 ? '#C74040' : '#2D9B65', value: d.macd_plus_hist != null ? d.macd_plus_hist.toFixed(2) : '—' },
       ]
     },
   },

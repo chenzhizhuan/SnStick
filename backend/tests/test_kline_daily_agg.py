@@ -153,11 +153,13 @@ def _capture_attach(monkeypatch) -> dict:
 
 def test_daily_agg_derives_preset_lookback(monkeypatch):
     """agg 模式 lookback 未显式传时按 f_getPresetLookback 预设档推导:
-    1w=10 / 1M=3 / 2d=4d=50; ry_bar_minutes 强制 None (K2/K3 桶=聚合周期本身)。"""
+    1w=10 / 1M=10 (2026-10-23 TV 月线对拍实证: TV hist=-66.90 ↔ lookback=10 的 -67.15,
+    lookback=3 差 5.83 → Pine 边界为「>1月」才落 3 档) / 2d=4d=50;
+    ry_bar_minutes 强制 None (K2/K3 桶=聚合周期本身)。"""
     captured = _capture_attach(monkeypatch)
     frame = _rows_frame(["2026-09-14", "2026-09-15"], [1, 2], [2, 3], [0.5, 1.5], [1.5, 2.5], [100, 200])
     req = _request(frame)
-    for agg, expected in (("1w", 10), ("1M", 3), ("2d", 50), ("4d", 50)):
+    for agg, expected in (("1w", 10), ("1M", 10), ("2d", 50), ("4d", 50)):
         kline_api.get_daily(
             req, symbol="600000.SH", days=120, start_date=None, end_date=None,
             ext_columns=None, plus_lookback=None, ry_bar_minutes=None, agg=agg,

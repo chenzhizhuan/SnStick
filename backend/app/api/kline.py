@@ -447,7 +447,7 @@ def get_daily(
     if adjust not in _ADJUST_MODES:
         raise HTTPException(status_code=400, detail="adjust 仅支持 qfq | raw")
     raw_mode = adjust == "raw"
-    # agg 模式下 lookback 未传时按 Pine 量级标尺预设档推导 (1w=10, 1M=3, 其余=50)
+    # agg 模式下 lookback 未传时按 Pine 量级标尺预设档推导 (1w/1M=10, 其余=50)
     if agg is not None and plus_lookback is None:
         plus_lookback = _AGG_LOOKBACK[agg]
 
@@ -615,8 +615,11 @@ def _resample_daily_rows(rows: list[dict], agg: str) -> list[dict]:
     return out
 
 
-# agg 周期 → Pine 量级标尺预设档 (附图 f_getPresetLookback: <1周=50, <1月=10, ≥1月=3)
-_AGG_LOOKBACK = {"1w": 10, "1M": 3, "2d": 50, "4d": 50}
+# agg 周期 → Pine 量级标尺预设档 (附图 f_getPresetLookback)
+# 2026-10-23 TV 月线对拍实证修正: 1M → 10 (非 3) — TV 月线 hist=-66.90
+# 对应 lookback=10 的 -67.15 (数据源级残差 0.25), lookback=3 给 -72.73 (差 5.83);
+# 即 Pine 预设边界为「严格大于 1月」才落 3 档, 1M 周期本身在 ≤1月 档 (与 1w 同档)。
+_AGG_LOOKBACK = {"1w": 10, "1M": 10, "2d": 50, "4d": 50}
 
 # 复权方式合法值: qfq=前复权 (默认) / raw=不复权 (TV 对拍口径)
 _ADJUST_MODES = ("qfq", "raw")
