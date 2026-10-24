@@ -223,15 +223,20 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
     return null
   }, [])
 
-  /** 联动定位点: x 为 idx 像素, y 从上往下扫描出主图 grid 内的第一个合法像素。
- *  axisTrigger 要求 x/y 落在 grid 内才处理 axesInfo; 主副图间的间隙 (信息栏/间距)
- *  会使 getHeight()/2 之类取点失手, containPixel 扫描步进 4px 微秒级、稳定命中。 */
-  const getSyncPoint = useCallback((idx: number): [number, number] | null => {
+  /** 联动定位点: x 为 idx 像素, y 优先取源窗鼠标 y (跨窗格水平线同像素对齐,
+   *  左右分屏窗格等高同页面位置, 直接可用); 不合法时回退从上往下扫描主图
+   *  grid 内的第一个合法像素。axisTrigger 要求 x/y 落在 grid 内才处理 axesInfo;
+   *  主副图间的间隙会使 getHeight()/2 之类取点失手, containPixel 稳定命中。 */
+  const getSyncPoint = useCallback((idx: number, preferY?: number): [number, number] | null => {
     const chart = chartRef.current
     if (!chart) return null
     const px = chart.convertToPixel({ xAxisIndex: 0 }, idx)
     if (!Number.isFinite(px)) return null
     const h = chart.getHeight()
+    if (preferY != null && preferY >= 4 && preferY < h - 4
+      && chart.containPixel({ gridIndex: 0 }, [px, preferY])) {
+      return [px, preferY]
+    }
     for (let y = 4; y < h; y += 4) {
       if (chart.containPixel({ gridIndex: 0 }, [px, y])) return [px, y]
     }
@@ -240,6 +245,7 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
 
   // ── 联动 + 绘制: chartReady 时统一挂监听 (实例重建后自动重挂) ──
   const zoomRafRef = useRef(0)
+  const lastMouseYRef = useRef(0)
   const handleChartReady = useCallback((chart: ECharts | null) => {
     chartRef.current = chart
     if (!chart) return
@@ -285,7 +291,7 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       }
     })
 
-    // 十字光标广播: hover 的 date → 总线 (轻量, 不节流)
+    // 十字光标广播: hover 的 date + 鼠标 y (供对端水平线同像素对齐) → 总线 (轻量, 不节流)
     chart.on('updateAxisPointer', (event: any) => {
       if (!syncApi || syncApi.isApplying(pane.id) || paneSyncRef.current !== 'follow') return
       const ds = datesRef.current
@@ -300,13 +306,18 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
         }
       }
       if (foundIdx < 0) return
-      syncApi.broadcastCrosshair(pane.id, ds[foundIdx])
+      syncApi.broadcastCrosshair(pane.id, ds[foundIdx], lastMouseYRef.current)
     })
 
     // 鼠标离开本 pane → 广播清除各窗十字光标
     chart.getZr().on('globalout', () => {
       if (!syncApi || paneSyncRef.current !== 'follow') return
       syncApi.broadcastCrosshair(pane.id, null)
+    })
+
+    // 记录本窗鼠标 y: 十字广播时随 date 一起传给对端, 跨窗格水平线同像素对齐
+    chart.getZr().on('mousemove', (e: { offsetY: number }) => {
+      lastMouseYRef.current = e.offsetY
     })
 
     // 绘制交互: tool 非 cursor 时接管 (永久挂载, handler 内查 ref, 实例重建后不丢)

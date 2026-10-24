@@ -33,8 +33,9 @@ export interface PaneSyncHandle {
   getChart: () => ECharts | null
   /** 当前数据的时间标签数组 (升序, 供二分定位) */
   getDates: () => string[]
-  /** 联动定位点 [px, py]: px 为 idx 像素, py 为落进主图 grid 的合法像素 (扫描绕开 grid 间隙) */
-  getSyncPoint: (idx: number) => [number, number] | null
+  /** 联动定位点 [px, py]: px 为 idx 像素, py 优先取源窗鼠标 y (跨窗格水平线
+   *  同像素对齐, TV 同款; 不合法时回退扫描主图 grid 合法像素) */
+  getSyncPoint: (idx: number, preferY?: number) => [number, number] | null
   /** 重载本窗 symbol 的图形库 (收到绘图联动广播时由总线回调) */
   refreshDrawings: () => void
 }
@@ -45,7 +46,7 @@ export interface ChartSyncApi {
   updateHandle: (h: PaneSyncHandle) => void
   /** 本 pane 是否正在应用远端事件 (pane 的广播 listener 先查此标记防回环) */
   isApplying: (id: string) => boolean
-  broadcastCrosshair: (fromId: string, date: string | null) => void
+  broadcastCrosshair: (fromId: string, date: string | null, yPx?: number) => void
   broadcastZoom: (fromId: string, t0: string, t1: string) => void
   /** 绘图联动: 某窗图形库变更后, 同 symbol 的其他窗重载共享库即时显示 */
   broadcastDrawingsChanged: (fromId: string, symbol: string) => void
@@ -107,7 +108,7 @@ export function ChartSyncProvider({
       updateHandle: h => { panesRef.current.set(h.id, h) },
       isApplying: id => applyingRef.current.has(id),
 
-      broadcastCrosshair: (fromId, date) => {
+      broadcastCrosshair: (fromId, date, yPx) => {
         if (!syncRef.current.crosshair) return
         const from = panesRef.current.get(fromId)
         if (!from || from.sync !== 'follow') return
@@ -130,10 +131,11 @@ export function ChartSyncProvider({
           //   由 pane 端 getSyncPoint 扫描出主图内的合法 y
           // - axesInfo.value 直传数据下标保证数据对齐: 即使像素有亚像素误差,
           //   axisTrigger 也直接用 value, 不走 pointToData 换算 (跨股/跨周期天然对齐)
-          const point = h.getSyncPoint(idx)
+          const point = h.getSyncPoint(idx, yPx)
           if (!point) continue
           // y 轴指针 (水平线): 用对端自身像素换算主图 y 轴值, 与 x axesInfo 并传 —
-          // 否则 axisTrigger 只画垂直线 (用户指定: 联动十字要完整, 含水平线)
+          // 否则 axisTrigger 只画垂直线 (用户指定: 联动十字要完整, 水平线跟随鼠标 y,
+          // 左右分屏窗格等高同页面位置, 直接用源鼠标 y 像素即对端同位置)
           let yVal: number | null = null
           try {
             const v = chart.convertFromPixel({ gridIndex: 0 }, [point[0], point[1]])[1]
