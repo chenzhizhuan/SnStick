@@ -1796,6 +1796,11 @@ function buildOption(
   return {
     animation: false,
     backgroundColor: THEME.bg,
+    // 禁用 hover layer (默认阈值 3000, 图形数超限后 hover 触发全图迁移重绘):
+    // 迁移到独立离屏层后半透明元素 (趋势填充带 0.2 / 细线抗锯齿) 的合成
+    // 与主层不一致, 悬停时填充带有效透明度约翻倍 (合成色 65,34,48→111,28,44),
+    // 视觉上呈现为“跟随十字的填充带高亮” — 用户指定取消 (2026-10-25)。
+    hoverLayerThreshold: Infinity,
     tooltip: {
       // richText: 走 canvas 渲染, 无 DOM 依赖 — 手动 dispatch updateAxisPointer (图间十字联动)
       // 时 HTML 模式的 tooltip DOM 为 null 会抛异常, 中断 axisPointer 渲染导致联动十字不显示。

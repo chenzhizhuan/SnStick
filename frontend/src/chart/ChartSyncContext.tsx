@@ -132,6 +132,15 @@ export function ChartSyncProvider({
           //   axisTrigger 也直接用 value, 不走 pointToData 换算 (跨股/跨周期天然对齐)
           const point = h.getSyncPoint(idx)
           if (!point) continue
+          // y 轴指针 (水平线): 用对端自身像素换算主图 y 轴值, 与 x axesInfo 并传 —
+          // 否则 axisTrigger 只画垂直线 (用户指定: 联动十字要完整, 含水平线)
+          let yVal: number | null = null
+          try {
+            const v = chart.convertFromPixel({ gridIndex: 0 }, [point[0], point[1]])[1]
+            if (Number.isFinite(v)) yVal = v
+          } catch { /* grid 未就绪时保持 null, 只联动垂直线 */ }
+          const axesInfo: any[] = [{ axisDim: 'x', axisIndex: 0, value: idx }]
+          if (yVal != null) axesInfo.push({ axisDim: 'y', axisIndex: 0, value: yVal })
           applyTo(
             id,
             c => c.dispatchAction({
@@ -139,7 +148,7 @@ export function ChartSyncProvider({
               currTrigger: 'mousemove',
               x: point[0],
               y: point[1],
-              axesInfo: [{ axisDim: 'x', axisIndex: 0, value: idx }],
+              axesInfo,
             }),
             chart,
           )
