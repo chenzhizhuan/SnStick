@@ -233,9 +233,18 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
     const px = chart.convertToPixel({ xAxisIndex: 0 }, idx)
     if (!Number.isFinite(px)) return null
     const h = chart.getHeight()
-    if (preferY != null && preferY >= 4 && preferY < h - 4
-      && chart.containPixel({ gridIndex: 0 }, [px, preferY])) {
-      return [px, preferY]
+    // preferY 为源窗 clientY (视口坐标): 减本窗 canvas rect.top 得 canvas 内坐标
+    // (左右分屏窗格同页面高度, 同一 clientY 即同视觉位置)
+    if (preferY != null) {
+      try {
+        const cv = chart.getDom()?.querySelector('canvas')
+        if (cv) {
+          const yLocal = preferY - cv.getBoundingClientRect().top
+          if (yLocal >= 4 && yLocal < h - 4 && chart.containPixel({ gridIndex: 0 }, [px, yLocal])) {
+            return [px, yLocal]
+          }
+        }
+      } catch { /* canvas 未就绪时回退扫描 */ }
     }
     for (let y = 4; y < h; y += 4) {
       if (chart.containPixel({ gridIndex: 0 }, [px, y])) return [px, y]
@@ -316,13 +325,13 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       syncApi.broadcastCrosshair(pane.id, null)
     })
 
-    // 记录本窗鼠标 y: 十字广播时随 date 一起传给对端, 跨窗格水平线同像素对齐。
-    // 用 DOM 级监听 — zr.on('mousemove') 在本布局下不派发 (实测), DOM 事件可靠;
-    // offsetY 相对容器 div, 与 canvas 内坐标一致 (containPixel 同坐标系)
+    // 记录本窗鼠标 y (clientY 视口坐标, 与监听挂载点无关最可靠): 十字广播时
+    // 随 date 一起传给对端; 对端用自己的 canvas rect.top 换算成自身 canvas 内
+    // 坐标画水平线 — 左右分屏窗格同页面高度, 水平线同视觉位置 (TV 同款)
     const dom = chart.getDom()
     if (dom && !domHoverHookedRef.current) {
       dom.addEventListener('mousemove', (e: MouseEvent) => {
-        lastMouseYRef.current = e.offsetY
+        lastMouseYRef.current = e.clientY
       })
       domHoverHookedRef.current = true
     }
