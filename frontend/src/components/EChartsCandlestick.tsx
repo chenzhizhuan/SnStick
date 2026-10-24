@@ -408,6 +408,8 @@ const RY_MID_BEAR = '#26A69A'                // 中轨空头色 (青绿)
 const RY_MID_FLAT = 'rgba(156,163,175,0.5)'  // 中轨零值色 (灰 t50, Pine color.new(gray,50))
 const RY_K_BULL = 'rgba(199,28,49,0.7)'      // K 通道多头线 (红系; 用户要求 2026-10-25: 填充带移除后 t75 太淡不可见, 提至 t30 视觉等价)
 const RY_K_BEAR = 'rgba(117,189,66,0.7)'     // K 通道空头线 (绿系; 同上, 偏离 Pine t75 为用户指定可见度)
+const RY_K_FILL_BULL = 'rgba(199,28,49,0.2)' // K fill(ohlc4↔轨道) 多头 (Pine t80; 用户要求 2026-10-25 恢复)
+const RY_K_FILL_BEAR = 'rgba(117,189,66,0.2)'
 const RY_BAR_BULL = '#C71C31'                // K 线着色多头 (通道上方, 红)
 const RY_BAR_BEAR = '#75BD42'                // K 线着色空头 (通道下方, 绿)
 const RY_BAR_FLAT = '#AEAAAA'                // K 线着色通道内 (灰)
@@ -475,6 +477,51 @@ function buildRyFvgSeries(data: OHLC[], dateIndexMap: Map<string, number>): Reco
     // y 维 '-' 空值不参与轴 extent (占位 0 会拉爆 Y 轴 — 同 ry fill 教训)
     data: boxes.map(() => [lastIdx, '-']),
     renderItem, clip: true, silent: true, animation: false, z: 1,
+  }
+}
+
+/** K/K2/K3 趋势填充 (Pine fill(ohlc4, 轨道)): 多头 ohlc4↔up / 空头 ohlc4↔dn 梯形,
+ *  趋势切换段不画 (linebr 语义)。同段趋势连续填充视觉连片。
+ *  (2026-10-25 曾按用户指令移除, 同日用户澄清要保留效果仅去悬停轴标签蓝底高亮, 恢复) */
+function buildRyTrendFillSeries(
+  data: OHLC[],
+  trendKey: 'k_trend' | 'k2_trend' | 'k3_trend',
+  upKey: 'k_up' | 'k2_up' | 'k3_up',
+  dnKey: 'k_dn' | 'k2_dn' | 'k3_dn',
+  bull: string, bear: string,
+): Record<string, any> {
+  const ohlc4 = (d: OHLC) => (d.open != null && d.high != null && d.low != null && d.close != null
+    ? (Number(d.open) + Number(d.high) + Number(d.low) + Number(d.close)) / 4 : null)
+  const renderItem = (params: any, api: any) => {
+    const di = params.dataIndex
+    if (di <= 0) return
+    const d = data[di]
+    const p = data[di - 1]
+    const tr = d[trendKey]
+    const ptr = p[trendKey]
+    if (tr == null || ptr == null || tr !== ptr) return
+    const track = tr === 1 ? upKey : dnKey
+    const a0 = p[track]
+    const a1 = d[track]
+    const m0 = ohlc4(p)
+    const m1 = ohlc4(d)
+    if (a0 == null || a1 == null || m0 == null || m1 == null) return
+    const [x1, y1a] = api.coord([di - 1, a0])
+    const [x2, y2a] = api.coord([di, a1])
+    const [, y1m] = api.coord([di - 1, m0])
+    const [, y2m] = api.coord([di, m1])
+    return {
+      type: 'polygon',
+      shape: { points: [[x1, y1m], [x2, y2m], [x2, y2a], [x1, y1a]] },
+      style: { fill: tr === 1 ? bull : bear }, silent: true, z: 1,
+    }
+  }
+  return {
+    name: `${trendKey}Fill`, type: 'custom', coordinateSystem: 'cartesian2d',
+    // data y 维用 '-' (ECharts 空值): 不参与 Y 轴 extent — 占位 0 会把主图
+    // Y 轴拉爆到含 0 (与中轨 encode.y 同源教训); renderItem 取值走闭包 data
+    data: data.map((_, i) => [i, '-']), renderItem,
+    clip: true, silent: true, animation: false, z: 1,
   }
 }
 
@@ -1594,8 +1641,10 @@ function buildOption(
       pushSegVisualMap(RY_K_BULL, RY_K_BEAR)
     }
 
-    // 4. K/K2/K3 趋势填充带已按用户要求移除 (2026-10-25): 原 Pine fill(ohlc4, 轨道)
-    //    的半透明梯形连片视觉被用户误认为十字高亮; 如需恢复 revert 本提交即可。
+    // 4. K/K2/K3 趋势填充 (Pine fill(ohlc4, 轨道) t80) — 随各自通道层开关
+    if (showRYK) series.push(buildRyTrendFillSeries(data, 'k_trend', 'k_up', 'k_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
+    if (showRYK2) series.push(buildRyTrendFillSeries(data, 'k2_trend', 'k2_up', 'k2_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
+    if (showRYK3) series.push(buildRyTrendFillSeries(data, 'k3_trend', 'k3_up', 'k3_dn', RY_K_FILL_BULL, RY_K_FILL_BEAR))
 
     // 4.5 FVG (公平价值缺口) — Pine 主图模块无独立开关 (恒渲染), 跟随融易主图任一层
     const fvgBoxes = data[data.length - 1]?.fvg_list
