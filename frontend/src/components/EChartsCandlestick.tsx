@@ -219,19 +219,20 @@ function fmtVolumeRatio(value: number | null, digits = 2): string {
 // 梯形; 无跨项全局假设 → 与 progressive 分块、dataZoom 窗口过滤天然兼容;
 // 穿零段插值交点, 红绿子段共享交点 (连续无断口); 线为直线段 (该密度下
 // 与 catmull-rom 视觉无差, TV LC 参考亦为直线段)。
-// R5 附图能量柱五色 (Pine line 146 原色): 增长/回落 × 动能快线(RSI28 EMA5) <50/>=50
-const RY5_BAR_GREEN = '#75BD42'       // 正柱增长且 vf≥50 (能量确认)
-const RY5_BAR_LGREEN = '#C7E4B3'      // 正柱回落且 vf≥50
+// R5 附图能量柱五色 (Pine line 146 原色值, 2026-10-24 按 A 股红涨绿跌反转多空映射:
+// 正柱=红系 / 负柱=绿系; 增长/回落 × 动能快线(RSI28 EMA5) <50/>=50)
+const RY5_BAR_UP = '#C71C31'          // 正柱增长且 vf≥50 (能量确认, 红)
+const RY5_BAR_UP_L = '#F4B7BE'        // 正柱回落且 vf≥50 (浅红)
 const RY5_BAR_GRAY = '#AEAAAA'        // 正柱增长 vf<50 / 负柱下探 vf≥50 (反常区)
 const RY5_BAR_LGRAY = '#E7E6E6'       // 正柱回落 vf<50 / 负柱回升 vf≥50
-const RY5_BAR_LRED = '#F4B7BE'        // 负柱回升且 vf<50
-const RY5_BAR_RED = '#C71C31'         // 负柱下探且 vf<50 (能量确认)
-// R5 资金流曲线/填充 (Pine 附图 line 172-183 原色)
-const RY5_FUND_LINE_BULL = 'rgba(117,189,66,0.8)'   // state2 段 (绿 t20)
-const RY5_FUND_LINE_BEAR = 'rgba(199,28,49,0.8)'    // state0/1 段 (红 t20)
+const RY5_BAR_DOWN_L = '#C7E4B3'      // 负柱回升且 vf<50 (浅绿)
+const RY5_BAR_DOWN = '#75BD42'        // 负柱下探且 vf<50 (能量确认, 绿)
+// R5 资金流曲线/填充 (Pine 附图 line 172-183 原色值, 多空色按 A 股反转)
+const RY5_FUND_LINE_BULL = 'rgba(199,28,49,0.8)'    // state2 段 (红 t20)
+const RY5_FUND_LINE_BEAR = 'rgba(117,189,66,0.8)'   // state0/1 段 (绿 t20)
 const RY5_FUND_LINE_WARN = 'rgba(255,235,59,0.8)'   // state3/4 段 (黄 t20)
-const RY5_FUND_BULL = [117, 189, 66] as const
-const RY5_FUND_BEAR = [199, 28, 49] as const
+const RY5_FUND_BULL = [199, 28, 49] as const
+const RY5_FUND_BEAR = [117, 189, 66] as const
 
 /** RSI+ 序列 → custom series (逐项绘制: state 分色线段 + 零轴夹域能量梯形)
  *  Pine 附图口径: 线色 fund_rsi_line_color (state3/4 黄 / state2 绿 / 其余红);
@@ -400,15 +401,17 @@ function buildFundOverlaySeries(data: OHLC[]): Record<string, any> {
 
 // ── 融易主图 (R5) 渲染色 (Pine 原色口径一比一) ──────────────────
 const RY_CHANNEL = '#FACC15'                 // 牛熊通道三线 (黄)
-const RY_MID_BULL = '#26A69A'                // 中轨多头色 (绿)
-const RY_MID_BEAR = '#FF5252'                // 中轨空头色 (红)
+// ↓ 融易多空色系 2026-10-24 按 A 股红涨绿跌反转 (Pine 原为多头绿/空头红西方配色;
+//   色值保留 Pine 原值, 仅多空语义互换)
+const RY_MID_BULL = '#FF5252'                // 中轨多头色 (红)
+const RY_MID_BEAR = '#26A69A'                // 中轨空头色 (青绿)
 const RY_MID_FLAT = 'rgba(156,163,175,0.5)'  // 中轨零值色 (灰 t50, Pine color.new(gray,50))
-const RY_K_BULL = 'rgba(117,189,66,0.25)'    // K 通道多头线 (Pine t75)
-const RY_K_BEAR = 'rgba(199,28,49,0.25)'     // K 通道空头线 (Pine t75)
-const RY_K_FILL_BULL = 'rgba(117,189,66,0.2)'  // K fill(ohlc4↔轨道) (Pine t80)
-const RY_K_FILL_BEAR = 'rgba(199,28,49,0.2)'
-const RY_BAR_BULL = '#75BD42'                // K 线着色多头 (通道上方)
-const RY_BAR_BEAR = '#C71C31'                // K 线着色空头 (通道下方)
+const RY_K_BULL = 'rgba(199,28,49,0.25)'     // K 通道多头线 (红系, Pine t75)
+const RY_K_BEAR = 'rgba(117,189,66,0.25)'    // K 通道空头线 (绿系, Pine t75)
+const RY_K_FILL_BULL = 'rgba(199,28,49,0.2)' // K fill(ohlc4↔轨道) 多头 (Pine t80)
+const RY_K_FILL_BEAR = 'rgba(117,189,66,0.2)'
+const RY_BAR_BULL = '#C71C31'                // K 线着色多头 (通道上方, 红)
+const RY_BAR_BEAR = '#75BD42'                // K 线着色空头 (通道下方, 绿)
 const RY_BAR_FLAT = '#AEAAAA'                // K 线着色通道内 (灰)
 const RY_DIV_TOP_BG = '#000080'              // 顶部背离标签底 (Pine color.navy)
 const RY_DIV_BTM_BG = '#FFEB3B'              // 底部背离标签底 (Pine color.yellow)
@@ -734,12 +737,12 @@ export const SUB_CHARTS: SubChartDef[] = [
           let color: string
           if (num >= 0) {
             color = growing
-              ? (vfLow ? RY5_BAR_GRAY : RY5_BAR_GREEN)
-              : (vfLow ? RY5_BAR_LGRAY : RY5_BAR_LGREEN)
+              ? (vfLow ? RY5_BAR_GRAY : RY5_BAR_UP)
+              : (vfLow ? RY5_BAR_LGRAY : RY5_BAR_UP_L)
           } else {
             color = growing
-              ? (vfLow ? RY5_BAR_LRED : RY5_BAR_LGRAY)
-              : (vfLow ? RY5_BAR_RED : RY5_BAR_GRAY)
+              ? (vfLow ? RY5_BAR_DOWN_L : RY5_BAR_LGRAY)
+              : (vfLow ? RY5_BAR_DOWN : RY5_BAR_GRAY)
           }
           return { value: num, itemStyle: { color } }
         }),
@@ -1393,8 +1396,8 @@ function buildOption(
       : true
     const liveBadge = lastBar.is_live === true ? '●' : ''
     const codeText = `${liveBadge}${(symbol ?? '').split('.')[0]}`
-    const deepBg = lastUp ? '#06735F' : '#A62B2B'   // 代码段 (TV 深青/深红)
-    const liteBg = lastUp ? '#26A69A' : '#E05C5C'   // 价格段 (TV 浅青/浅红)
+    const deepBg = lastUp ? '#A62B2B' : '#06735F'   // 代码段 (深红=涨/深青=跌, A 股红涨绿跌)
+    const liteBg = lastUp ? '#E05C5C' : '#26A69A'   // 价格段 (浅红=涨/浅青=跌)
     markLineData.push({
       yAxis: lastBar.close,
       symbol: 'none',

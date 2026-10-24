@@ -259,7 +259,7 @@ it('showMA 默认 true (其他页面) 仍渲染 MA 序列 — 回归保护', asy
   expect(names).toContain('MA60')
 })
 
-it('MACD+ 能量柱五色配色矩阵 (Pine 附图 line 146 一比一: 增长/回落 × RSI28快线 50 阈)', async () => {
+it('MACD+ 能量柱五色配色矩阵 (A 股红涨绿跌: 正柱红系/负柱绿系; 增长/回落 × RSI28快线 50 阈)', async () => {
   // 构造 9 根 (首根裸行 = prev na) 覆盖五色全分支; prev=na 首根走回落色 (Pine na 比较恒 false)
   const hists = [1, 2, 2.5, 2, -1, -0.5, -0.4, -1.2]
   const vfs = [60, 60, 40, 60, 40, 40, 60, 60]
@@ -279,18 +279,18 @@ it('MACD+ 能量柱五色配色矩阵 (Pine 附图 line 146 一比一: 增长/�
   // 首根无 hist → '-' 占位 (不参与配色)
   expect(macdBar.data[0]).toBe('-')
   const colors = macdBar.data.slice(1).map((d: any) => d?.itemStyle?.color)
-  // 期望矩阵 (与 hists 逐项对齐):
-  //  h0 hist=1     vf=60 prev=na    → 正柱回落 vf≥50 → 浅绿 #C7E4B3
-  //  h1 hist=2     vf=60 增长       → 正柱增长 vf≥50 → 绿 #75BD42
+  // 期望矩阵 (与 hists 逐项对齐; A 股配色: 正柱红系/负柱绿系):
+  //  h0 hist=1     vf=60 prev=na    → 正柱回落 vf≥50 → 浅红 #F4B7BE
+  //  h1 hist=2     vf=60 增长       → 正柱增长 vf≥50 → 红 #C71C31
   //  h2 hist=2.5   vf=40 增长       → 正柱增长 vf<50 → 灰 #AEAAAA
-  //  h3 hist=2     vf=60 回落       → 正柱回落 vf≥50 → 浅绿 #C7E4B3
-  //  h4 hist=-1    vf=40 回落(更深) → 负柱下探 vf<50 → 红 #C71C31
-  //  h5 hist=-0.5  vf=40 增长       → 负柱回升 vf<50 → 浅红 #F4B7BE
+  //  h3 hist=2     vf=60 回落       → 正柱回落 vf≥50 → 浅红 #F4B7BE
+  //  h4 hist=-1    vf=40 回落(更深) → 负柱下探 vf<50 → 绿 #75BD42
+  //  h5 hist=-0.5  vf=40 增长       → 负柱回升 vf<50 → 浅绿 #C7E4B3
   //  h6 hist=-0.4  vf=60 增长       → 负柱回升 vf≥50 → 浅灰 #E7E6E6
   //  h7 hist=-1.2  vf=60 回落       → 负柱下探 vf≥50 → 灰 #AEAAAA
   expect(colors).toEqual([
-    '#C7E4B3', '#75BD42', '#AEAAAA', '#C7E4B3',
-    '#C71C31', '#F4B7BE', '#E7E6E6', '#AEAAAA',
+    '#F4B7BE', '#C71C31', '#AEAAAA', '#F4B7BE',
+    '#75BD42', '#C7E4B3', '#E7E6E6', '#AEAAAA',
   ])
 })
 
