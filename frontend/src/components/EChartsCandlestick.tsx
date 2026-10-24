@@ -1810,7 +1810,8 @@ function buildOption(
     axisPointer: {
       link: [{ xAxisIndex: 'all' }],
       label: {
-        backgroundColor: CT().crosshairLabelBg,
+        // 无底色 (用户指定 2026-10-24): 标签白字直接落在深色轴带上, 可读性不受影响
+        backgroundColor: 'transparent',
         fontFamily: 'JetBrains Mono, monospace',
         fontSize: 10,
       },
