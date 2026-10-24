@@ -316,14 +316,14 @@ function buildRsiPlusSeries(data: OHLC[]): Record<string, any> {
   }
 }
 
-// ── 资金流信号层 (R5) — Pine 附图 line 204-209 原色一比一: ──
+// ── 资金流信号层 (R5) — Pine 附图 line 204-209 原色一比一 (交叉色 2026-10-24 按 A 股反转): ──
 //   超卖低位(bg=1) 暗红 rgb(133,19,32) t80 / 超买高位(bg=2) 暗青 rgb(24,96,90) t80;
-//   B 交叉(上穿下轨) #26A69A t40 青绿背景 / S 交叉(下穿上轨) #FF5252 t40 红背景;
+//   B 交叉(上穿下轨) #FF5252 t40 红背景 / S 交叉(下穿上轨) #26A69A t40 青绿背景;
 //   B/S 字母白色 (plotchar color=white)。
 const FUND_BG_LOW = 'rgba(133,19,32,0.2)'
 const FUND_BG_HIGH = 'rgba(24,96,90,0.2)'
-const FUND_CROSS_B = 'rgba(38,166,154,0.4)'
-const FUND_CROSS_S = 'rgba(255,82,82,0.4)'
+const FUND_CROSS_B = 'rgba(255,82,82,0.4)'
+const FUND_CROSS_S = 'rgba(38,166,154,0.4)'
 const FUND_LETTER_B = '#FFFFFF'
 const FUND_LETTER_S = '#FFFFFF'
 // (主图 fund 背景常量已删: Pine 主图 GLOBAL_SHOW_*=false, TV 主图无 fund 背景)
@@ -418,8 +418,8 @@ const RY_DIV_BTM_BG = '#FFEB3B'              // 底部背离标签底 (Pine colo
 // FVG 盒子 (Pine renderFVG 原色: 主盒 #87878788 t×1.5/×1.1; 量能子盒 bull/bear t40)
 const FVG_MAIN = 'rgba(135,135,135,0.30)'         // 主盒 (t70 ≈ 透明度 30%)
 const FVG_MAIN_COMBINED = 'rgba(135,135,135,0.49)' // 合并区间主盒 (t×1.1 ≈ 49%)
-const FVG_POS = 'rgba(38,166,154,0.40)'           // 量能子盒上半 (bullColor #26A69A66)
-const FVG_NEG = 'rgba(255,82,82,0.40)'            // 量能子盒下半 (bearColor #FF525266)
+const FVG_POS = 'rgba(255,82,82,0.40)'            // 量能子盒上半 (多头缺口, A 股反转后红系)
+const FVG_NEG = 'rgba(38,166,154,0.40)'           // 量能子盒下半 (空头缺口, A 股反转后青绿系)
 
 /** FVG 活跃区间渲染 (Pine 一比一): 主灰盒从起点延伸到末根 + 左 1/3 量能子盒
  *  (上半 bull 色/high_vol 宽, 下半 bear 色/low_vol 宽, mirror 口径均从左端起)。 */
