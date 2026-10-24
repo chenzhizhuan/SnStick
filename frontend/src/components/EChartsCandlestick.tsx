@@ -219,20 +219,21 @@ function fmtVolumeRatio(value: number | null, digits = 2): string {
 // 梯形; 无跨项全局假设 → 与 progressive 分块、dataZoom 窗口过滤天然兼容;
 // 穿零段插值交点, 红绿子段共享交点 (连续无断口); 线为直线段 (该密度下
 // 与 catmull-rom 视觉无差, TV LC 参考亦为直线段)。
-// R5 附图能量柱五色 (Pine line 146 原色值, 2026-10-24 按 A 股红涨绿跌反转多空映射:
-// 正柱=红系 / 负柱=绿系; 增长/回落 × 动能快线(RSI28 EMA5) <50/>=50)
-const RY5_BAR_UP = '#C71C31'          // 正柱增长且 vf≥50 (能量确认, 红)
-const RY5_BAR_UP_L = '#F4B7BE'        // 正柱回落且 vf≥50 (浅红)
+// R5 附图能量柱五色 (2026-10-25 用户指定改用平台原有色板 THEME.bull #C74040 / bear #2D9B65,
+// 原Pine色 #C71C31/#75BD42 系偏鲜艳; 明暗层级关系保留: 深色=能量确认/浅色=回落回升)
+// 正柱=红系 / 负柱=绿系; 增长/回落 × 动能快线(RSI28 EMA5) <50/>=50
+const RY5_BAR_UP = '#C74040'          // 正柱增长且 vf≥50 (能量确认, 平台红)
+const RY5_BAR_UP_L = '#E9B3B3'        // 正柱回落且 vf≥50 (浅红)
 const RY5_BAR_GRAY = '#AEAAAA'        // 正柱增长 vf<50 / 负柱下探 vf≥50 (反常区)
 const RY5_BAR_LGRAY = '#E7E6E6'       // 正柱回落 vf<50 / 负柱回升 vf≥50
-const RY5_BAR_DOWN_L = '#C7E4B3'      // 负柱回升且 vf<50 (浅绿)
-const RY5_BAR_DOWN = '#75BD42'        // 负柱下探且 vf<50 (能量确认, 绿)
-// R5 资金流曲线/填充 (Pine 附图 line 172-183 原色值, 多空色按 A 股反转)
-const RY5_FUND_LINE_BULL = 'rgba(199,28,49,0.8)'    // state2 段 (红 t20)
-const RY5_FUND_LINE_BEAR = 'rgba(117,189,66,0.8)'   // state0/1 段 (绿 t20)
+const RY5_BAR_DOWN_L = '#ABD7C1'      // 负柱回升且 vf<50 (浅绿)
+const RY5_BAR_DOWN = '#2D9B65'        // 负柱下探且 vf<50 (能量确认, 平台绿)
+// R5 资金流曲线/填充 (多空色按平台色板, 2026-10-25)
+const RY5_FUND_LINE_BULL = 'rgba(199,64,64,0.8)'    // state2 段 (平台红 t20)
+const RY5_FUND_LINE_BEAR = 'rgba(45,155,101,0.8)'   // state0/1 段 (平台绿 t20)
 const RY5_FUND_LINE_WARN = 'rgba(255,235,59,0.8)'   // state3/4 段 (黄 t20)
-const RY5_FUND_BULL = [199, 28, 49] as const
-const RY5_FUND_BEAR = [117, 189, 66] as const
+const RY5_FUND_BULL = [199, 64, 64] as const
+const RY5_FUND_BEAR = [45, 155, 101] as const
 
 /** RSI+ 序列 → custom series (逐项绘制: state 分色线段 + 零轴夹域能量梯形)
  *  Pine 附图口径: 线色 fund_rsi_line_color (state3/4 黄 / state2 绿 / 其余红);
@@ -320,10 +321,10 @@ function buildRsiPlusSeries(data: OHLC[]): Record<string, any> {
 //   超卖低位(bg=1) 暗红 rgb(133,19,32) t80 / 超买高位(bg=2) 暗青 rgb(24,96,90) t80;
 //   B 交叉(上穿下轨) #FF5252 t40 红背景 / S 交叉(下穿上轨) #26A69A t40 青绿背景;
 //   B/S 字母白色 (plotchar color=white)。
-const FUND_BG_LOW = 'rgba(133,19,32,0.2)'
-const FUND_BG_HIGH = 'rgba(24,96,90,0.2)'
-const FUND_CROSS_B = 'rgba(255,82,82,0.4)'
-const FUND_CROSS_S = 'rgba(38,166,154,0.4)'
+const FUND_BG_LOW = 'rgba(149,48,48,0.2)'
+const FUND_BG_HIGH = 'rgba(34,116,76,0.2)'
+const FUND_CROSS_B = 'rgba(199,64,64,0.4)'
+const FUND_CROSS_S = 'rgba(45,155,101,0.4)'
 const FUND_LETTER_B = '#FFFFFF'
 const FUND_LETTER_S = '#FFFFFF'
 // (主图 fund 背景常量已删: Pine 主图 GLOBAL_SHOW_*=false, TV 主图无 fund 背景)
@@ -399,27 +400,37 @@ function buildFundOverlaySeries(data: OHLC[]): Record<string, any> {
   }
 }
 
-// ── 融易主图 (R5) 渲染色 (Pine 原色口径一比一) ──────────────────
+// ── 融易主图 (R5) 渲染色 (2026-10-25 用户指定: 红绿改用平台原有色板) ──────
 const RY_CHANNEL = '#FACC15'                 // 牛熊通道三线 (黄)
-// ↓ 融易多空色系 2026-10-24 按 A 股红涨绿跌反转 (Pine 原为多头绿/空头红西方配色;
-//   色值保留 Pine 原值, 仅多空语义互换)
-const RY_MID_BULL = '#FF5252'                // 中轨多头色 (红)
-const RY_MID_BEAR = '#26A69A'                // 中轨空头色 (青绿)
+// ↓ 融易多空色系: 2026-10-24 按 A 股红涨绿跌反转语义; 2026-10-25 用户指定
+//   色值从 Pine 原值 (#FF5252/#26A69A/#C71C31/#75BD42 系) 换为平台色板
+//   (#C74040 红 / #2D9B65 绿), 主副图红绿全局统一
+const RY_MID_BULL = '#C74040'                // 中轨多头色 (平台红)
+const RY_MID_BEAR = '#2D9B65'                // 中轨空头色 (平台绿)
 const RY_MID_FLAT = 'rgba(156,163,175,0.5)'  // 中轨零值色 (灰 t50, Pine color.new(gray,50))
-const RY_K_BULL = 'rgba(199,28,49,0.7)'      // K 通道多头线 (红系; 用户要求 2026-10-25: 填充带移除后 t75 太淡不可见, 提至 t30 视觉等价)
-const RY_K_BEAR = 'rgba(117,189,66,0.7)'     // K 通道空头线 (绿系; 同上, 偏离 Pine t75 为用户指定可见度)
-const RY_K_FILL_BULL = 'rgba(199,28,49,0.2)' // K fill(ohlc4↔轨道) 多头 (Pine t80; 用户要求 2026-10-25 恢复)
-const RY_K_FILL_BEAR = 'rgba(117,189,66,0.2)'
-const RY_BAR_BULL = '#C71C31'                // K 线着色多头 (通道上方, 红)
-const RY_BAR_BEAR = '#75BD42'                // K 线着色空头 (通道下方, 绿)
+const RY_K_BULL = 'rgba(199,64,64,0.7)'      // K 通道多头线 (平台红; 用户要求 2026-10-25 可见浓度 0.7)
+const RY_K_BEAR = 'rgba(45,155,101,0.7)'     // K 通道空头线 (平台绿; 同上)
+const RY_K_FILL_BULL = 'rgba(199,64,64,0.2)' // K fill(ohlc4↔轨道) 多头 (t80; 用户要求 2026-10-25 恢复)
+const RY_K_FILL_BEAR = 'rgba(45,155,101,0.2)'
+const RY_BAR_BULL = '#C74040'                // K 线着色多头 (通道上方, 平台红)
+const RY_BAR_BEAR = '#2D9B65'                // K 线着色空头 (通道下方, 平台绿)
 const RY_BAR_FLAT = '#AEAAAA'                // K 线着色通道内 (灰)
 const RY_DIV_TOP_BG = '#000080'              // 顶部背离标签底 (Pine color.navy)
 const RY_DIV_BTM_BG = '#FFEB3B'              // 底部背离标签底 (Pine color.yellow)
 // FVG 盒子 (Pine renderFVG 原色: 主盒 #87878788 t×1.5/×1.1; 量能子盒 bull/bear t40)
 const FVG_MAIN = 'rgba(135,135,135,0.30)'         // 主盒 (t70 ≈ 透明度 30%)
 const FVG_MAIN_COMBINED = 'rgba(135,135,135,0.49)' // 合并区间主盒 (t×1.1 ≈ 49%)
-const FVG_POS = 'rgba(255,82,82,0.40)'            // 量能子盒上半 (多头缺口, A 股反转后红系)
-const FVG_NEG = 'rgba(38,166,154,0.40)'           // 量能子盒下半 (空头缺口, A 股反转后青绿系)
+const FVG_POS = 'rgba(199,64,64,0.40)'            // 量能子盒上半 (多头缺口, 平台红)
+const FVG_NEG = 'rgba(45,155,101,0.40)'           // 量能子盒下半 (空头缺口, 平台绿)
+
+// ── Y 轴双向缩放池 (TV 同款, 用户要求 2026-10-25): 轴范围 = 数据范围上下各扩 50% ──
+// 默认窗口只框数据 ±3% (池的 23.5%~76.5%) → 缩小(拉宽窗口)可见数据外空白, 放大不变;
+// 此前轴范围 = 数据范围, 默认窗口 [0,100] 已满 → 缩小方向永远无响应 ("只能单向放大")。
+const Y_POOL_PAD = 0.5
+const Y_POOL_SPAN = 1 + Y_POOL_PAD * 2
+const Y_GAP = 0.03
+const Y_DEFAULT_START = ((Y_POOL_PAD - Y_GAP) / Y_POOL_SPAN) * 100   // 23.5
+const Y_DEFAULT_END = ((Y_POOL_PAD + 1 + Y_GAP) / Y_POOL_SPAN) * 100 // 76.5
 
 /** FVG 活跃区间渲染 (Pine 一比一): 主灰盒从起点延伸到末根 + 左 1/3 量能子盒
  *  (上半 bull 色/high_vol 宽, 下半 bear 色/low_vol 宽, mirror 口径均从左端起)。 */
@@ -803,10 +814,9 @@ export const SUB_CHARTS: SubChartDef[] = [
       const items: { label: string; color: string; value: string }[] = [
         { label: 'RSI+', color: c, value: v != null ? v.toFixed(2) : '—' },
       ]
-      if (d.fund_cross_up_lower === true) items.push({ label: 'B', color: FUND_LETTER_B, value: '上穿下轨' })
-      if (d.fund_cross_down_upper === true) items.push({ label: 'S', color: FUND_LETTER_S, value: '下穿上轨' })
+      // 2026-10-25 用户指定: 高位标识与 S/B 交叉提示从值显示去除, 只留 RSI+ 数值
+      // (低位/超卖标识保留; 图内 S/B 字母与背景条为图元渲染, 不属值显示)
       if (d.fund_bg_color === 1) items.push({ label: '低位', color: '#C74040', value: '超卖' })
-      if (d.fund_bg_color === 2) items.push({ label: '高位', color: '#2D9B65', value: '超买' })
       return items
     },
   },
@@ -1062,9 +1072,9 @@ function buildSubInfoGraphics(
     graphics.push({
       id: `sub-val-${key}`,
       type: 'text',
-      // 右上角 (right 64 = 60px Y 轴刻度区 + 4px 留白), 不与刻度数字重叠;
+      // 右上角 (right 112 = 108px Y 轴刻度区 + 4px 留白), 不与刻度数字重叠;
       // TV 观感: 指标名在左上, 指标值在右上贴轴
-      right: 64,
+      right: 112,
       style: {
         text: richTextParts.join(`{gap|  }`),
         y: curTop + 3,
@@ -1191,7 +1201,9 @@ function buildOption(
   // TV/同花顺同款: 价格轴在右侧 (最新价标签贴右缘, 符合阅读直觉);
   // left 只留 x 轴末端留白, right 让出 Y 轴标签宽度。
   const left = 46
-  const right = 60
+  // 右侧轴区 108px: 容纳双段式现价标签 (~98px + 边距) 完整显示不裁切
+  // (2026-10-25 修复: 原 60px 时标签被右侧裁掉 ~45px, "600519 13" 后不可见)
+  const right = 108
   const topPad = 8
   const candleBottomPad = 22
 
@@ -1216,20 +1228,19 @@ function buildOption(
   const priceLineValues = (priceLines ?? [])
     .map(line => line.value)
     .filter(value => Number.isFinite(value) && value > 0)
-  const axisMin = priceLineValues.length > 0
-    ? ({ min, max }: { min: number; max: number }) => {
-        const nextMin = Math.min(min, ...priceLineValues)
-        const nextMax = Math.max(max, ...priceLineValues)
-        return nextMin - Math.max((nextMax - nextMin) * 0.03, nextMax * 0.001)
-      }
-    : undefined
-  const axisMax = priceLineValues.length > 0
-    ? ({ min, max }: { min: number; max: number }) => {
-        const nextMin = Math.min(min, ...priceLineValues)
-        const nextMax = Math.max(max, ...priceLineValues)
-        return nextMax + Math.max((nextMax - nextMin) * 0.03, nextMax * 0.001)
-      }
-    : undefined
+  // Y 轴缩放池 (用户要求 2026-10-25 双向缩放): 轴范围 = 数据范围上下各扩 50% (池 = 2×数据),
+  // 默认窗口只框数据±3% (见 Y_DEFAULT_*); 此前轴范围=数据范围、默认窗口 [0,100] 已满,
+  // 缩小方向永远无响应 ("只能单向放大")。priceLines 并入池前数据范围。
+  const axisMin = ({ min, max }: { min: number; max: number }) => {
+    const lo = priceLineValues.length > 0 ? Math.min(min, ...priceLineValues) : min
+    const hi = priceLineValues.length > 0 ? Math.max(max, ...priceLineValues) : max
+    return lo - (hi - lo) * Y_POOL_PAD
+  }
+  const axisMax = ({ min, max }: { min: number; max: number }) => {
+    const lo = priceLineValues.length > 0 ? Math.min(min, ...priceLineValues) : min
+    const hi = priceLineValues.length > 0 ? Math.max(max, ...priceLineValues) : max
+    return hi + (hi - lo) * Y_POOL_PAD
+  }
 
   // ===== grid 0: K线主图 =====
   grids.push({ left, right, top: topPad, height: candleAvail })
@@ -1296,8 +1307,7 @@ function buildOption(
     position: 'right',
     min: axisMin,
     max: axisMax,
-    // 上下各留 3% 边距: 防止最高/最低点的蜡烛贴边, 涨停/炸板标签被遮挡
-    boundaryGap: [0.03, 0.03],
+    // 上下边距由默认 Y 窗口 (数据±3%) 提供; 显式 min/max 下 boundaryGap 不生效故移除
     splitArea: { show: false },
     axisLine: { show: false }, axisTick: { show: false },
     splitLine: { lineStyle: { color: CT().grid } },
@@ -1397,8 +1407,8 @@ function buildOption(
       : true
     const liveBadge = lastBar.is_live === true ? '●' : ''
     const codeText = `${liveBadge}${(symbol ?? '').split('.')[0]}`
-    const deepBg = lastUp ? '#A62B2B' : '#06735F'   // 代码段 (深红=涨/深青=跌, A 股红涨绿跌)
-    const liteBg = lastUp ? '#E05C5C' : '#26A69A'   // 价格段 (浅红=涨/浅青=跌)
+    const deepBg = lastUp ? '#953030' : '#22744C'   // 代码段 (深红=涨/深绿=跌, 平台色板暗阶)
+    const liteBg = lastUp ? '#C74040' : '#2D9B65'   // 价格段 (平台红=涨/平台绿=跌)
     markLineData.push({
       yAxis: lastBar.close,
       symbol: 'none',
@@ -1785,8 +1795,11 @@ function buildOption(
     yZooms.push({
       type: 'inside',
       yAxisIndex: [g],
-      start: 0,
-      end: 100,
+      start: Y_DEFAULT_START,
+      end: Y_DEFAULT_END,
+      // filterMode none: 不滤数据纯轴窗口裁剪 — 显式 min/max 池下 'filter' 会把
+      // 窗口外数据滤掉再反馈进 min/max 函数 (池随缩放收缩的循环)
+      filterMode: 'none',
       zoomOnMouseWheel: false,
       moveOnMouseMove: false,
       moveOnMouseWheel: false,
@@ -1928,7 +1941,7 @@ export function EChartsCandlestick({
   const prevDataRef = useRef<OHLC[]>([])
   // Y 轴(价格/指标)手动缩放窗口 per grid (TV 同款, 主图 0 + 副图 1..N):
   // 刻度区滚轮/拖拽缩放、图区内上下拖拽平移后记录, setOption 重建时恢复;
-  // 重置按钮 / 双击 / 换股后清空 → 回落 0-100 (跟随数据自动定界)。
+  // 重置按钮 / 双击 / 换股后清空 → 回落默认窗口 Y_DEFAULT_* (数据±3%, 双向缩放池内)。
   const yZoomByGridRef = useRef<Map<number, { start: number; end: number }>>(new Map())
   // dataZoom 监听只在图表创建时注册一次, 直接调用会一直执行「创建那次渲染」的 updateCompactPresentation:
   // 它的 data/dateIndexMap/markers 停在旧标的, 会把上一只的买卖标记 merge 回新标的图上。
@@ -1937,13 +1950,13 @@ export function EChartsCandlestick({
   // 竖虚线(crosshair)是否可见: 控制信息栏「至今」字段的显隐。鼠标移出图表区即 false。
   const hoverActiveRef = useRef(false)
 
-  // Y 轴价格缩放: 重置按钮 (TV 同款「A」) → 全部 grid 恢复自动定界窗口
+  // Y 轴价格缩放: 重置按钮 (TV 同款「A」) → 全部 grid 恢复默认窗口 (数据±3%, 池内百分比)
   const resetYPrice = useCallback(() => {
     const chart = chartRef.current
     if (!chart) return
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
-      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
+      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: Y_DEFAULT_START, end: Y_DEFAULT_END })
     }
     yZoomByGridRef.current.clear()
   }, [])
@@ -1964,7 +1977,7 @@ export function EChartsCandlestick({
     chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: z.start, end: z.end })
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
-      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
+      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: Y_DEFAULT_START, end: Y_DEFAULT_END })
     }
     window.setTimeout(() => {
       const c = chart as any
@@ -2121,7 +2134,7 @@ export function EChartsCandlestick({
         }
       }
       if (activeIndicators.includes('ry_channel') && d.ry_mid != null) {
-        html += `<span style="color:${RY_CHANNEL}">牛:${Number(d.ry_upper).toFixed(2)}/${Number(d.ry_mid).toFixed(2)}/${Number(d.ry_lower).toFixed(2)}</span>`
+        html += `<span style="color:${RY_CHANNEL}">牛熊:${Number(d.ry_upper).toFixed(2)}/${Number(d.ry_mid).toFixed(2)}/${Number(d.ry_lower).toFixed(2)}</span>`
       }
       if (activeIndicators.includes('ry_mid')) {
         if (d.ry_ema_mid != null) {
@@ -2629,14 +2642,14 @@ export function EChartsCandlestick({
     chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: xWin.start, end: xWin.end })
     // 恢复 Y 轴手动缩放窗口 (主图+全部副图; 切周期/指标等重建后保持; 新标的已随
     // _symbol 重置清空)。setOption 不会重置 dataZoom 的窗口状态, 未缩放的 grid 也需
-    // 显式归位 0-100, 否则换股后旧标的的价格窗口会残留到新标的上。
+    // 显式归位默认窗口 (Y_DEFAULT_*), 否则换股后旧标的的价格窗口会残留到新标的上。
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
       const yZoom = yZoomByGridRef.current.get(g)
       chart.dispatchAction({
         type: 'dataZoom', dataZoomIndex: 1 + g,
-        start: yZoom ? yZoom.start : 0,
-        end: yZoom ? yZoom.end : 100,
+        start: yZoom ? yZoom.start : Y_DEFAULT_START,
+        end: yZoom ? yZoom.end : Y_DEFAULT_END,
       })
     }
 
@@ -2689,7 +2702,7 @@ export function EChartsCandlestick({
         }
       }
       if (activeIndicators.includes('ry_channel') && d.ry_mid != null) {
-        html += `<span style="color:${RY_CHANNEL}">牛:${Number(d.ry_upper).toFixed(2)}/${Number(d.ry_mid).toFixed(2)}/${Number(d.ry_lower).toFixed(2)}</span>`
+        html += `<span style="color:${RY_CHANNEL}">牛熊:${Number(d.ry_upper).toFixed(2)}/${Number(d.ry_mid).toFixed(2)}/${Number(d.ry_lower).toFixed(2)}</span>`
       }
       if (activeIndicators.includes('ry_mid') && d.ry_ema_mid != null) {
         const mc = d.ry_mid_trend != null && d.ry_mid_trend > 0 ? RY_MID_BULL : d.ry_mid_trend != null && d.ry_mid_trend < 0 ? RY_MID_BEAR : RY_MID_FLAT

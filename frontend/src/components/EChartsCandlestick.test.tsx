@@ -279,18 +279,18 @@ it('MACD+ 能量柱五色配色矩阵 (A 股红涨绿跌: 正柱红系/负柱绿
   // 首根无 hist → '-' 占位 (不参与配色)
   expect(macdBar.data[0]).toBe('-')
   const colors = macdBar.data.slice(1).map((d: any) => d?.itemStyle?.color)
-  // 期望矩阵 (与 hists 逐项对齐; A 股配色: 正柱红系/负柱绿系):
-  //  h0 hist=1     vf=60 prev=na    → 正柱回落 vf≥50 → 浅红 #F4B7BE
-  //  h1 hist=2     vf=60 增长       → 正柱增长 vf≥50 → 红 #C71C31
+  // 期望矩阵 (与 hists 逐项对齐; 平台色板: 正柱红系/负柱绿系):
+  //  h0 hist=1     vf=60 prev=na    → 正柱回落 vf≥50 → 浅红 #E9B3B3
+  //  h1 hist=2     vf=60 增长       → 正柱增长 vf≥50 → 平台红 #C74040
   //  h2 hist=2.5   vf=40 增长       → 正柱增长 vf<50 → 灰 #AEAAAA
-  //  h3 hist=2     vf=60 回落       → 正柱回落 vf≥50 → 浅红 #F4B7BE
-  //  h4 hist=-1    vf=40 回落(更深) → 负柱下探 vf<50 → 绿 #75BD42
-  //  h5 hist=-0.5  vf=40 增长       → 负柱回升 vf<50 → 浅绿 #C7E4B3
+  //  h3 hist=2     vf=60 回落       → 正柱回落 vf≥50 → 浅红 #E9B3B3
+  //  h4 hist=-1    vf=40 回落(更深) → 负柱下探 vf<50 → 平台绿 #2D9B65
+  //  h5 hist=-0.5  vf=40 增长       → 负柱回升 vf<50 → 浅绿 #ABD7C1
   //  h6 hist=-0.4  vf=60 增长       → 负柱回升 vf≥50 → 浅灰 #E7E6E6
   //  h7 hist=-1.2  vf=60 回落       → 负柱下探 vf≥50 → 灰 #AEAAAA
   expect(colors).toEqual([
-    '#F4B7BE', '#C71C31', '#AEAAAA', '#F4B7BE',
-    '#75BD42', '#C7E4B3', '#E7E6E6', '#AEAAAA',
+    '#E9B3B3', '#C74040', '#AEAAAA', '#E9B3B3',
+    '#2D9B65', '#ABD7C1', '#E7E6E6', '#AEAAAA',
   ])
 })
 
