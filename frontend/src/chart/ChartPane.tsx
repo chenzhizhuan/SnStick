@@ -246,6 +246,7 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
   // ── 联动 + 绘制: chartReady 时统一挂监听 (实例重建后自动重挂) ──
   const zoomRafRef = useRef(0)
   const lastMouseYRef = useRef(0)
+  const domHoverHookedRef = useRef(false)
   const handleChartReady = useCallback((chart: ECharts | null) => {
     chartRef.current = chart
     if (!chart) return
@@ -315,10 +316,16 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       syncApi.broadcastCrosshair(pane.id, null)
     })
 
-    // 记录本窗鼠标 y: 十字广播时随 date 一起传给对端, 跨窗格水平线同像素对齐
-    chart.getZr().on('mousemove', (e: { offsetY: number }) => {
-      lastMouseYRef.current = e.offsetY
-    })
+    // 记录本窗鼠标 y: 十字广播时随 date 一起传给对端, 跨窗格水平线同像素对齐。
+    // 用 DOM 级监听 — zr.on('mousemove') 在本布局下不派发 (实测), DOM 事件可靠;
+    // offsetY 相对容器 div, 与 canvas 内坐标一致 (containPixel 同坐标系)
+    const dom = chart.getDom()
+    if (dom && !domHoverHookedRef.current) {
+      dom.addEventListener('mousemove', (e: MouseEvent) => {
+        lastMouseYRef.current = e.offsetY
+      })
+      domHoverHookedRef.current = true
+    }
 
     // 绘制交互: tool 非 cursor 时接管 (永久挂载, handler 内查 ref, 实例重建后不丢)
     const zr = chart.getZr()
