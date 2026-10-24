@@ -406,8 +406,8 @@ const RY_CHANNEL = '#FACC15'                 // 牛熊通道三线 (黄)
 const RY_MID_BULL = '#FF5252'                // 中轨多头色 (红)
 const RY_MID_BEAR = '#26A69A'                // 中轨空头色 (青绿)
 const RY_MID_FLAT = 'rgba(156,163,175,0.5)'  // 中轨零值色 (灰 t50, Pine color.new(gray,50))
-const RY_K_BULL = 'rgba(199,28,49,0.25)'     // K 通道多头线 (红系, Pine t75)
-const RY_K_BEAR = 'rgba(117,189,66,0.25)'    // K 通道空头线 (绿系, Pine t75)
+const RY_K_BULL = 'rgba(199,28,49,0.7)'      // K 通道多头线 (红系; 用户要求 2026-10-25: 填充带移除后 t75 太淡不可见, 提至 t30 视觉等价)
+const RY_K_BEAR = 'rgba(117,189,66,0.7)'     // K 通道空头线 (绿系; 同上, 偏离 Pine t75 为用户指定可见度)
 const RY_BAR_BULL = '#C71C31'                // K 线着色多头 (通道上方, 红)
 const RY_BAR_BEAR = '#75BD42'                // K 线着色空头 (通道下方, 绿)
 const RY_BAR_FLAT = '#AEAAAA'                // K 线着色通道内 (灰)
@@ -1762,7 +1762,9 @@ function buildOption(
     axisPointer: {
       link: [{ xAxisIndex: 'all' }],
       label: {
-        backgroundColor: CT().crosshairLabelBg,
+        // 无底色 (用户指定 2026-10-25): 深蓝底块 (#1E3A8A) 在悬停 K 线正下方形成“高亮块”观感, 取消之;
+        // 白字直接落在深色轴带上, 可读性不受影响 (策略页 StrategyNavChart 未动, 保持蓝底)
+        backgroundColor: 'transparent',
         fontFamily: 'JetBrains Mono, monospace',
         fontSize: 10,
       },
