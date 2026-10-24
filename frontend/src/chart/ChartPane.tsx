@@ -389,9 +389,10 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       const w = en - s
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         // 平移: 每次按键挪 1/10 可见窗口 (TV 同量级), 边界夹住不越界
+        // 方向语义与 TV/拖拽一致: ← 视野向左 (看更早, start 减小); → 视野向右 (看更晚)
         e.preventDefault()
         const step = Math.max(w * 0.1, 0.5)
-        const ns = Math.max(0, Math.min(100 - w, e.key === 'ArrowLeft' ? s + step : s - step))
+        const ns = Math.max(0, Math.min(100 - w, e.key === 'ArrowLeft' ? s - step : s + step))
         // dataZoomIndex: 0 只动 X — 不带 index 会打飞全部 Y 窗口 (K 线出视野)
         chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: ns, end: ns + w })
         return

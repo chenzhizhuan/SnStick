@@ -125,6 +125,21 @@ it('切股后鼠标未离开图表, 竖虚线重新命中即恢复「至今/周�
   expect(host.textContent).not.toContain('至今')
 })
 
+it('鼠标移出图表后信息栏回落到最新 K 线 (TV 行为), 不残留悬停 bar', async () => {
+  await act(async () => root.render(
+    <EChartsCandlestick data={rows(10)} symbol="600000" height={400} visibleBars="all" />,
+  ))
+  const surface = host.firstElementChild as HTMLElement
+  await act(async () => { surface.dispatchEvent(new MouseEvent('mouseenter')) })
+  await hoverCandle(5)
+  expect(host.textContent).toContain(DAYS[5])   // 悬停中: 显示悬停 bar
+
+  // 移出图表区: 信息栏回落到最新一根 (残留 DAYS[5] 即为 Bug)
+  await act(async () => { surface.dispatchEvent(new MouseEvent('mouseleave')) })
+  expect(host.textContent).not.toContain(DAYS[5])
+  expect(host.textContent).toContain(DAYS[DAYS.length - 1])
+})
+
 it('拖到 X 最左边界 (start ≤ 0.5) 触发 onLoadMoreLeft 回调', async () => {
   const onLoadMoreLeft = vi.fn()
   await act(async () => root.render(

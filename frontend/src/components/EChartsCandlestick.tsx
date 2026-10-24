@@ -2042,7 +2042,9 @@ export function EChartsCandlestick({
 
   // ===== 信息栏 HTML 内容 (基于 infoIdxRef.current) =====
   const getInfoBarHTML = useCallback(() => {
-    let idx = infoIdxRef.current
+    // TV 行为: 鼠标移出图表后信息栏回落到最新 K 线; hover 残留索引仅在悬停中生效。
+    // (handlePointerLeave 只清 hoverActiveRef, 若无条件用 infoIdxRef 会残留旧悬停 bar)
+    let idx = hoverActiveRef.current ? infoIdxRef.current : data.length - 1
     let d = idx >= 0 && idx < data.length ? data[idx] : null
     // fallback: 如果当前 idx 无数据，取最后一根 K 线
     if (!d && data.length > 0) {
