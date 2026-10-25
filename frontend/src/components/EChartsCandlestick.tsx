@@ -402,6 +402,10 @@ function buildFundOverlaySeries(data: OHLC[]): Record<string, any> {
 
 // ── 融易主图 (R5) 渲染色 (2026-10-25 用户指定: 红绿改用平台原有色板) ──────
 const RY_CHANNEL = '#FACC15'                 // 牛熊通道三线 (黄)
+// 十字线 (第 32 轮调优): 主题 crosshair alpha 0.35 → 1px 虚线在深底上有效亮度
+// 仅 ~0.09, 水平线肉眼难辨 (第 27 轮补的联动水平线形同虚设); 提亮到 0.6
+// (亮度 ~0.16, 仍低于网格/文字元素)。仅图表模块, 不动全局 theme.crosshair。
+const RY_CROSSHAIR = 'rgba(148,163,184,0.6)'
 // ↓ 融易多空色系: 2026-10-24 按 A 股红涨绿跌反转语义; 2026-10-25 用户指定
 //   色值从 Pine 原值 (#FF5252/#26A69A/#C71C31/#75BD42 系) 换为平台色板
 //   (#C74040 红 / #2D9B65 绿), 主副图红绿全局统一
@@ -1822,7 +1826,7 @@ function buildOption(
       // 本组件 tooltip 为"隐形设计"(空 formatter, 仅借 tooltip 系统驱动十字光标), richText 无观感差异。
       renderMode: 'richText',
       trigger: 'axis',
-      axisPointer: { type: 'cross', crossStyle: { color: CT().crosshair } },
+      axisPointer: { type: 'cross', crossStyle: { color: RY_CROSSHAIR } },
       backgroundColor: 'transparent',
       borderWidth: 0,
       textStyle: { fontSize: 0 },

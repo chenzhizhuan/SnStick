@@ -331,3 +331,87 @@ it('无 fvg_list 时不渲染 FVG series', async () => {
   const names = (option?.series ?? []).map((s: any) => s.name)
   expect(names).not.toContain('FVG')
 })
+
+// ── 第 32 轮 superpowers 纪律调优 (TDD): 十字线可见性 + 第 31 轮改动补测 ──
+
+/** option.tooltip.axisPointer.crossStyle.color 的 alpha 值 (0~1) */
+function crosshairAlpha(): number | null {
+  const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+  const color = option?.tooltip?.axisPointer?.crossStyle?.color as string | undefined
+  if (!color) return null
+  const m = /rgba?\([^)]*,\s*([\d.]+)\s*\)\s*$/.exec(color)
+  return m ? Number(m[1]) : null
+}
+
+it('十字线可见性: crossStyle alpha ≥ 0.5 (水平线 1px 虚线在深底上须可辨)', async () => {
+  // 回归背景: 第 27 轮补联动水平线后, 主题 alpha 0.35 → canvas 有效亮度 ~0.09,
+  // 视觉模型两次读漏 (用户视角即"没有水平线")。提亮阈值 0.5 (0.35*255=89 亦不满足
+  // e2e T5 的 alpha>100 断言, 双重动机)。
+  await act(async () => root.render(
+    <EChartsCandlestick data={rows(10)} symbol="600000" height={400} visibleBars="all" />,
+  ))
+  const alpha = crosshairAlpha()
+  expect(alpha).not.toBeNull()
+  expect(alpha as number).toBeGreaterThanOrEqual(0.5)
+})
+
+it('Y 轴缩放池: 主图轴范围=数据±50%, Y dataZoom 默认窗口 23.5~76.5 (filterMode none)', async () => {
+  await act(async () => root.render(
+    <EChartsCandlestick data={rows(10)} symbol="600000" height={400} visibleBars="all" showMA={false} />,
+  ))
+  const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+  // 轴范围池化: min/max 为函数 (ECharts yAxis 函数式), 数据 {100,110} → 池 95~115
+  const y0 = option?.yAxis?.[0]
+  expect(typeof y0?.min).toBe('function')
+  expect(y0.min({ min: 100, max: 110 })).toBeCloseTo(95)
+  expect(y0.max({ min: 100, max: 110 })).toBeCloseTo(115)
+  // 默认窗口只框数据±3% = 池的 23.5%~76.5% → 缩小方向 (拉宽窗口) 可用
+  const yZoom = (option?.dataZoom ?? []).find((z: any) => z.yAxisIndex != null)
+  expect(yZoom).toBeTruthy()
+  expect(yZoom.start).toBeCloseTo(23.5, 1)
+  expect(yZoom.end).toBeCloseTo(76.5, 1)
+  // 窗口外数据不滤除 (防窗口收窄反馈收缩池)
+  expect(yZoom.filterMode).toBe('none')
+})
+
+it('主图信息栏文案「牛熊:」(第 31 轮 ②, 不残留旧「牛:」前缀)', async () => {
+  const data: OHLC[] = rows(20).map((r, i) => ({
+    ...r,
+    ry_upper: 11, ry_mid: 10, ry_lower: 9, ry_ema_mid: 10,
+    k_trend: 1, k_up: 10, k2_trend: 1, k2_up: 10, k3_trend: 1, k3_up: 10,
+    ...(i === 19 ? {} : {}),
+  }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600519.SH" height={400} visibleBars="all"
+      activeIndicators={['ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3']} showMA={false} />,
+  ))
+  const text = host.textContent ?? ''
+  expect(text).toContain('牛熊:')
+  expect(text).not.toMatch(/牛:\d/)
+})
+
+it('RSI+ 值显示精简: 仅 RSI+ 数值 (+低位超卖), 无高位/S/B 提示 (第 31 轮 ③)', async () => {
+  const subValText = () => {
+    const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+    const g = (option?.graphic ?? []).find((x: any) => x?.id === 'sub-val-rsi_plus')
+    return String(g?.style?.text ?? '')
+  }
+  // fund_bg_color=2 (超买高位) → 仅 RSI+ 数值
+  const dataHigh: OHLC[] = rows(20).map(r => ({ ...r, rsi_plus: 0.25, fund_bg_color: 2 }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={dataHigh} symbol="600519.SH" height={400} visibleBars="all"
+      activeIndicators={['rsi_plus']} showMA={false} />,
+  ))
+  const t1 = subValText()
+  expect(t1).toContain('RSI+:0.25')
+  expect(t1).not.toContain('高位')
+  expect(t1).not.toMatch(/[SB]:/)
+
+  // fund_bg_color=1 (超卖低位) → 低位:超卖 保留
+  const dataLow: OHLC[] = rows(20).map(r => ({ ...r, rsi_plus: -0.3, fund_bg_color: 1 }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={dataLow} symbol="600519.SH" height={400} visibleBars="all"
+      activeIndicators={['rsi_plus']} showMA={false} />,
+  ))
+  expect(subValText()).toContain('低位:超卖')
+})

@@ -222,24 +222,26 @@ async function main() {
       const w = cv.width, h = cv.height
       const img = ctx.getImageData(0, 0, w, h)
       const d = img.data
-      // 垂直线: 逐列统计 (十字色 + alpha; 阈值 12% 高度 — 虚线 4/4 采样后约 50%)
-      for (let x = 0; x < w; x++) {
-        let c = 0
-        for (let y = 0; y < h; y += 2) {
-          const i = (y * w + x) * 4
-          if (d[i + 3] > 100 && d[i] > 140 && d[i] < 215 && d[i + 1] > 140 && d[i + 1] < 215 && d[i + 2] > 150) c++
-        }
-        if (c > h * 0.12) vertical++
+    // 垂直线: 逐列统计 (十字色 + alpha; 阈值 12% 高度 — 虚线 4/4 采样后约 50%)
+    // alpha 阈值 60: crosshair rgba(...,0.6) 图层 alpha=153; 原阈值 100 曾低于
+    // 旧 0.35 主题的 alpha 89 → 断言永远匹配不到十字线 (第 32 轮修正的假防线)
+    for (let x = 0; x < w; x++) {
+      let c = 0
+      for (let y = 0; y < h; y += 2) {
+        const i = (y * w + x) * 4
+        if (d[i + 3] > 60 && d[i] > 140 && d[i] < 215 && d[i + 1] > 140 && d[i + 1] < 215 && d[i + 2] > 150) c++
       }
-      // 水平线: 逐行 (阈值 12% 宽度 — 线只跨 grid 宽非全宽, 虚线采样)
-      for (let y = 0; y < h; y++) {
-        let c = 0
-        for (let x = 0; x < w; x += 2) {
-          const i = (y * w + x) * 4
-          if (d[i + 3] > 100 && d[i] > 140 && d[i] < 215 && d[i + 1] > 140 && d[i + 1] < 215 && d[i + 2] > 150) c++
-        }
-        if (c > w * 0.12) horizontal++
+      if (c > h * 0.12) vertical++
+    }
+    // 水平线: 逐行 (阈值 12% 宽度 — 线只跨 grid 宽非全宽, 虚线采样)
+    for (let y = 0; y < h; y++) {
+      let c = 0
+      for (let x = 0; x < w; x += 2) {
+        const i = (y * w + x) * 4
+        if (d[i + 3] > 60 && d[i] > 140 && d[i] < 215 && d[i + 1] > 140 && d[i + 1] < 215 && d[i + 2] > 150) c++
       }
+      if (c > w * 0.12) horizontal++
+    }
       for (let i = 0; i < d.length; i += 4) {
         if (d[i + 3] > 100 && Math.abs(d[i] - 30) <= 20 && Math.abs(d[i + 1] - 58) <= 20 && Math.abs(d[i + 2] - 138) <= 25) blue++
       }
