@@ -24,20 +24,17 @@ const chart = vi.hoisted(() => ({
   containPixel: () => false,
   convertFromPixel: () => [0, 0],
   getWidth: () => 900,
-  // Y 轴缩放 (第 33 轮 pad 方案) 依赖 getModel 取轴 extent / grid rect
+  // Y 轴缩放 (第 33 轮 pad 方案) 的 getModel 仅用于 grid rect 定位 (刻度带/图区命中);
+  // 轴范围由组件状态 (yPadRef) 自洽推算, 不读 ECharts 内部 extent
   getModel: () => ({
     getComponent: (type: string) => {
       if (type === 'grid') return { coordinateSystem: { getRect: () => chart.__gridRect } }
-      return {
-        coordinateSystem: { getAxis: () => ({ scale: { getExtent: () => chart.__yExtent } }) },
-        axis: { scale: { getExtent: () => chart.__yExtent } },
-      }
+      return {}
     },
   }),
   __zoom: { start: 0, end: 100 },
   __yZoom: { start: 0, end: 100 },
   __gridRect: { x: 46, y: 8, width: 780, height: 400 },
-  __yExtent: [9, 11] as [number, number],
 }))
 
 vi.mock('echarts', () => ({ init: () => chart }))
@@ -399,30 +396,36 @@ it('Y 轴滚轮缩放: 刻度带下滚无限缩小 (pad 扩展无上限) / 上�
     <EChartsCandlestick data={rows(10)} symbol="600000" height={400} visibleBars="all" showMA={false} />,
   ))
   const y0 = () => (chart.setOption.mock.calls.at(-1)?.[0] as any)?.yAxis?.[0]
+  // 轴范围双态读取: 函数式 (pad 空, buildOption/归零后) 调用 min/max 函数;
+  // 数值式 (pad 段 setOption 覆盖) 直读数字 — 两种形态的轴语义等价
+  const rangeOf = () => {
+    const y = y0()
+    const ev = { min: 9, max: 11 }
+    return typeof y.min === 'function'
+      ? { lo: y.min(ev) as number, hi: y.max(ev) as number }
+      : { lo: y.min as number, hi: y.max as number }
+  }
   const wheel = async (delta: number) => {
     await act(async () => chart.zrHandlers.mousewheel?.({
       offsetX: 840, offsetY: 200, wheelDelta: delta, preventDefault: vi.fn(),
     }))
   }
   // 初始贴身 (rows(10): H=11 L=9)
-  expect(y0().min({ min: 9, max: 11 })).toBe(9)
-  expect(y0().max({ min: 9, max: 11 })).toBe(11)
+  expect(rangeOf()).toEqual({ lo: 9, hi: 11 })
   // 下滚 ×3 (缩小): pad 段轴范围以鼠标锚扩展, 无上限
   await wheel(-1); await wheel(-1); await wheel(-1)
-  const minOut = y0().min({ min: 9, max: 11 })
-  const maxOut = y0().max({ min: 9, max: 11 })
+  const minOut = rangeOf().lo
+  const maxOut = rangeOf().hi
   expect(minOut).toBeLessThan(9)
   expect(maxOut).toBeGreaterThan(11)
-  // 模拟真实 ECharts 的动态 getExtent (轴 extent 随 pad 更新) 后继续缩小: pad 累积无上限
-  chart.__yExtent = [minOut, maxOut]
+  // 继续缩小: pad 基于组件状态自洽累积, 无上限 (不依赖 ECharts 内部 extent)
   await wheel(-1)
-  expect(y0().min({ min: 9, max: 11 })).toBeLessThan(minOut)
-  expect(y0().max({ min: 9, max: 11 })).toBeGreaterThan(maxOut)
-  // 同锚上滚 ×4 (放大): 先消 pad → 回贴身 (exp(0.15)^4 × exp(-0.15)^4 = 1 精确对称)
-  chart.__yExtent = [y0().min({ min: 9, max: 11 }), y0().max({ min: 9, max: 11 })]
-  await wheel(1); await wheel(1); await wheel(1); await wheel(1)
-  expect(y0().min({ min: 9, max: 11 })).toBeCloseTo(9, 6)
-  expect(y0().max({ min: 9, max: 11 })).toBeCloseTo(11, 6)
+  expect(rangeOf().lo).toBeLessThan(minOut)
+  expect(rangeOf().hi).toBeGreaterThan(maxOut)
+  // 同锚上滚放大: clamp 到贴身后 pad 归零 → 恢复函数式 (X 平移自适应回归)
+  await wheel(1)
+  expect(rangeOf().lo).toBeCloseTo(9, 6)
+  expect(rangeOf().hi).toBeCloseTo(11, 6)
   // 贴身后继续上滚 → 窗口段: dataZoom 窗口收窄 (filter 模式, 轴=窗口内数据)
   const dzBefore = chart.dispatchAction.mock.calls.filter((c: any[]) => c[0]?.dataZoomIndex === 1).length
   await wheel(1)
