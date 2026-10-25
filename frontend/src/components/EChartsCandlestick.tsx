@@ -427,14 +427,14 @@ const FVG_MAIN_COMBINED = 'rgba(135,135,135,0.49)' // 合并区间主盒 (t×1.1
 const FVG_POS = 'rgba(199,64,64,0.40)'            // 量能子盒上半 (多头缺口, 平台红)
 const FVG_NEG = 'rgba(45,155,101,0.40)'           // 量能子盒下半 (空头缺口, 平台绿)
 
-// ── Y 轴双向缩放池 (TV 同款, 用户要求 2026-10-25): 轴范围 = 数据范围上下各扩 50% ──
-// 默认窗口只框数据 ±3% (池的 23.5%~76.5%) → 缩小(拉宽窗口)可见数据外空白, 放大不变;
-// 此前轴范围 = 数据范围, 默认窗口 [0,100] 已满 → 缩小方向永远无响应 ("只能单向放大")。
-const Y_POOL_PAD = 0.5
-const Y_POOL_SPAN = 1 + Y_POOL_PAD * 2
-const Y_GAP = 0.03
-const Y_DEFAULT_START = ((Y_POOL_PAD - Y_GAP) / Y_POOL_SPAN) * 100   // 23.5
-const Y_DEFAULT_END = ((Y_POOL_PAD + 1 + Y_GAP) / Y_POOL_SPAN) * 100 // 76.5
+// ── Y 轴双向缩放 (第 33 轮重构: pad 方案, 替代第 31 轮池化) ──
+// 用户需求纠偏: ① 默认大小必须与池化前完全一致 (轴=窗口数据贴身, 不预放大);
+// ② 缩小方向"无限小" (池化方案上限只有 2×); ③ 放大保持可用。
+// 机制: 默认 yZoom 窗口 [0,100] + 无 pad → 轴=窗口数据范围 (filter 模式下 min/max
+// 函数收到 X 窗口内数据范围); 刻度带下滚 → yPadRef 记录轴 padding (以鼠标锚扩展,
+// 无上限) → K 线无限变小; 上滚先消 pad 再收 dataZoom 窗口 (filter 让轴跟随窗口数据)。
+// 池化方案废弃原因: ① 默认窗口预收窄到 94% (观感=预放大); ② filterMode:'none' 使
+// min/max 函数收到全历史范围 (4h 图 Y 轴顶到全历史高点 1367, 窗口数据被压 ~86%)。
 
 /** FVG 活跃区间渲染 (Pine 一比一): 主灰盒从起点延伸到末根 + 左 1/3 量能子盒
  *  (上半 bull 色/high_vol 宽, 下半 bear 色/low_vol 宽, mirror 口径均从左端起)。 */
@@ -1122,6 +1122,7 @@ function buildOption(
   showRyDivergence: boolean,
   xLabelMetrics: { current: { axisWidth: number; visibleCount: number; containerWidth: number } },
   symbol: string | undefined,
+  yPadMap: Map<number, { lo: number; hi: number }>,
 ): EChartsOption {
   // 融易主图五层独立开关 (对齐 Pine OPEN_*): 任一层开 = 指标加载 (K 线着色/
   // 菱形/背离跟随, Pine 无独立开关); 主图 fund 背景不叠加 (Pine 主图 GLOBAL_SHOW_*=false)
@@ -1232,18 +1233,21 @@ function buildOption(
   const priceLineValues = (priceLines ?? [])
     .map(line => line.value)
     .filter(value => Number.isFinite(value) && value > 0)
-  // Y 轴缩放池 (用户要求 2026-10-25 双向缩放): 轴范围 = 数据范围上下各扩 50% (池 = 2×数据),
-  // 默认窗口只框数据±3% (见 Y_DEFAULT_*); 此前轴范围=数据范围、默认窗口 [0,100] 已满,
-  // 缩小方向永远无响应 ("只能单向放大")。priceLines 并入池前数据范围。
+  // Y 轴双向缩放 (第 33 轮 pad 方案, 见常量区注释): 默认轴范围 = 窗口数据贴身
+  // (min/max 函数直返 ECharts 传入的窗口数据范围, 不再加 pad);
+  // 刻度带下滚扩大轴范围 (yPadRef 记录 padding, 无上限 = 无限小), 上滚反向收缩,
+  // pad 归零后继续放大走 dataZoom 窗口收窄。priceLines 并入数据范围。
   const axisMin = ({ min, max }: { min: number; max: number }) => {
+    const pad = yPadMap.get(0)
     const lo = priceLineValues.length > 0 ? Math.min(min, ...priceLineValues) : min
     const hi = priceLineValues.length > 0 ? Math.max(max, ...priceLineValues) : max
-    return lo - (hi - lo) * Y_POOL_PAD
+    return pad ? lo - (hi - lo) * pad.lo : lo
   }
   const axisMax = ({ min, max }: { min: number; max: number }) => {
+    const pad = yPadMap.get(0)
     const lo = priceLineValues.length > 0 ? Math.min(min, ...priceLineValues) : min
     const hi = priceLineValues.length > 0 ? Math.max(max, ...priceLineValues) : max
-    return hi + (hi - lo) * Y_POOL_PAD
+    return pad ? hi + (hi - lo) * pad.hi : hi
   }
 
   // ===== grid 0: K线主图 =====
@@ -1799,11 +1803,11 @@ function buildOption(
     yZooms.push({
       type: 'inside',
       yAxisIndex: [g],
-      start: Y_DEFAULT_START,
-      end: Y_DEFAULT_END,
-      // filterMode none: 不滤数据纯轴窗口裁剪 — 显式 min/max 池下 'filter' 会把
-      // 窗口外数据滤掉再反馈进 min/max 函数 (池随缩放收缩的循环)
-      filterMode: 'none',
+      start: 0,
+      end: 100,
+      // filterMode 默认 'filter': x 轴 filter 后数据 = X 窗口内 → min/max 函数收到
+      // 窗口数据范围 (贴身默认); 放大第二段 (窗口收窄) 也依赖 filter 让轴跟随窗口数据。
+      // (第 31 轮曾设 'none' 配合池化 — 该方案已废, 'none' 会让函数收到全历史范围)
       zoomOnMouseWheel: false,
       moveOnMouseMove: false,
       moveOnMouseWheel: false,
@@ -1945,8 +1949,15 @@ export function EChartsCandlestick({
   const prevDataRef = useRef<OHLC[]>([])
   // Y 轴(价格/指标)手动缩放窗口 per grid (TV 同款, 主图 0 + 副图 1..N):
   // 刻度区滚轮/拖拽缩放、图区内上下拖拽平移后记录, setOption 重建时恢复;
-  // 重置按钮 / 双击 / 换股后清空 → 回落默认窗口 Y_DEFAULT_* (数据±3%, 双向缩放池内)。
+  // 重置按钮 / 双击 / 换股后清空 → 回落默认全窗口 [0,100] (数据贴身)。
   const yZoomByGridRef = useRef<Map<number, { start: number; end: number }>>(new Map())
+  // Y 轴 pad (第 33 轮): 缩小方向轴 padding per grid (单位 = 数据范围 Δ 的倍数),
+  // {lo:0,hi:0} 缺省 = 贴身; 主图 grid 0 由 axisMin/Max 函数读取, 无上限 = 无限小;
+  // 重置/双击清空。换股保留 (TV 同款: 换标的保持缩放状态)。
+  const yPadRef = useRef<Map<number, { lo: number; hi: number }>>(new Map())
+  // windowPriceRange (effect 闭包) 读取的 priceLines 最新值
+  const priceLinesRef = useRef(priceLines)
+  priceLinesRef.current = priceLines
   // dataZoom 监听只在图表创建时注册一次, 直接调用会一直执行「创建那次渲染」的 updateCompactPresentation:
   // 它的 data/dateIndexMap/markers 停在旧标的, 会把上一只的买卖标记 merge 回新标的图上。
   // 与 dataRef/getInfoBarHTMLRef 同法, 经 ref 取最新一次渲染的函数。
@@ -1954,13 +1965,14 @@ export function EChartsCandlestick({
   // 竖虚线(crosshair)是否可见: 控制信息栏「至今」字段的显隐。鼠标移出图表区即 false。
   const hoverActiveRef = useRef(false)
 
-  // Y 轴价格缩放: 重置按钮 (TV 同款「A」) → 全部 grid 恢复默认窗口 (数据±3%, 池内百分比)
+  // Y 轴价格缩放: 重置按钮 (TV 同款「A」) → 全部 grid 恢复默认 (全窗口 + 无 pad = 贴身)
   const resetYPrice = useCallback(() => {
     const chart = chartRef.current
     if (!chart) return
+    yPadRef.current.clear()
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
-      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: Y_DEFAULT_START, end: Y_DEFAULT_END })
+      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
     }
     yZoomByGridRef.current.clear()
   }, [])
@@ -1977,11 +1989,12 @@ export function EChartsCandlestick({
     const z = defaultZoomRef.current
     userZoomRef.current = { start: z.start, end: z.end }
     yZoomByGridRef.current.clear()
+    yPadRef.current.clear()
     ;(chart as any).__snSuppressXZoom = ((chart as any).__snSuppressXZoom ?? 0) + 1
     chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: z.start, end: z.end })
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
-      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: Y_DEFAULT_START, end: Y_DEFAULT_END })
+      chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
     }
     window.setTimeout(() => {
       const c = chart as any
@@ -2321,8 +2334,72 @@ export function EChartsCandlestick({
       }
       return -1
     }
-    /** 把 grid g 的 Y 窗口以锚点比例(anchorRatio: 0=底 1=顶)缩放 factor 倍 (factor>1 = 收窄 = 放大)。 */
+    /** 主图窗口内数据范围 (含 priceLines) — pad 缩放的基准。 */
+    const windowPriceRange = () => {
+      const opt = chart.getOption() as any
+      const xz = opt?.dataZoom?.[0]
+      const n = dataRef.current.length
+      if (!n) return null
+      const i0 = Math.max(0, Math.floor(((xz?.start ?? 0) / 100) * (n - 1)))
+      const i1 = Math.min(n - 1, Math.ceil(((xz?.end ?? 100) / 100) * (n - 1)))
+      let lo = Infinity
+      let hi = -Infinity
+      for (let i = i0; i <= i1; i++) {
+        const d = dataRef.current[i]
+        if (d.high != null) { const v = Number(d.high); if (v > hi) hi = v }
+        if (d.low != null) { const v = Number(d.low); if (v < lo) lo = v }
+      }
+      for (const line of (priceLinesRef.current ?? [])) {
+        if (!Number.isFinite(line.value) || line.value <= 0) continue
+        if (line.value > hi) hi = line.value
+        if (line.value < lo) lo = line.value
+      }
+      if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null
+      return { lo, hi }
+    }
+    /** 把 grid g 的 Y 窗口以锚点比例(anchorRatio: 0=底 1=顶)缩放 factor 倍 (factor>1 = 收窄 = 放大)。
+     *  第 33 轮两段式: 主图缩小 = pad 扩展 (无上限); 放大先消 pad 再收 dataZoom 窗口; 副图纯窗口段。 */
     const scaleYWindow = (g: number, anchorRatio: number, factor: number) => {
+      if (g === 0) {
+        const comp = (chart as any).getModel().getComponent('yAxis', 0)
+        const axis = comp?.coordinateSystem ? ((comp.coordinateSystem.getAxis?.()) ?? (comp as any).axis) : null
+        const ext = axis?.scale?.getExtent?.() as [number, number] | undefined
+        const dRange = windowPriceRange()
+        if (ext && dRange && ext[1] > ext[0]) {
+          const [A0, A1] = ext
+          const { lo: dLo, hi: dHi } = dRange
+          const dSpan = dHi - dLo
+          if (dSpan > 0) {
+            const P = A0 + anchorRatio * (A1 - A0)
+            if (factor < 1) {
+              // 缩小: 轴范围以鼠标锚扩展 (无上限 = 无限小)
+              const f = 1 / factor
+              const nA0 = P - (P - A0) * f
+              const nA1 = P + (A1 - P) * f
+              yPadRef.current.set(0, {
+                lo: Math.max(0, (dLo - nA0) / dSpan),
+                hi: Math.max(0, (nA1 - dHi) / dSpan),
+              })
+              // pad 段窗口必须回全轴 [0,100] (filter 交互), 触发轴重算
+              yZoomByGridRef.current.delete(0)
+              chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
+              return
+            }
+            const pad = yPadRef.current.get(0)
+            if (pad && (pad.lo > 0 || pad.hi > 0)) {
+              // 放大第一段: 消 pad (clamp 到贴身)
+              const f = 1 / factor
+              const nA0 = Math.max(dLo, P - (P - A0) * f)
+              const nA1 = Math.min(dHi, P + (A1 - P) * f)
+              yPadRef.current.set(0, { lo: (dLo - nA0) / dSpan, hi: (nA1 - dHi) / dSpan })
+              chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
+              return
+            }
+            // pad 已贴身 → 落到窗口段
+          }
+        }
+      }
+      // 窗口段 (副图全部 / 主图贴身后放大): dataZoom 收窄 (filter 让轴=窗口内数据)
       const opt = chart.getOption() as any
       const yz = opt?.dataZoom?.[1 + g]
       if (!yz) return
@@ -2406,7 +2483,7 @@ export function EChartsCandlestick({
       const xz = opt?.dataZoom?.[0]
       const yz = yZoomByGridRef.current.get(g)
       drag = {
-        mode: 'pan', grid: g, hasY: !!yz,
+        mode: 'pan', grid: g, hasY: !!yz || (g === 0 && !!yPadRef.current.get(0)),
         x0: ev.offsetX, y0: ev.offsetY, gw: r.width, gh: r.height,
         s0X: xz?.start ?? 0, e0X: xz?.end ?? 100,
         s0Y: yz ? yz.start : 0, e0Y: yz ? yz.end : 100,
@@ -2440,11 +2517,30 @@ export function EChartsCandlestick({
         chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: sN, end: sN + w })
       }
       if (dy !== 0 && drag.hasY) {
-        const w = drag.e0Y - drag.s0Y
-        const d = (dy / drag.gh) * w
-        const sN = Math.max(0, Math.min(100 - w, drag.s0Y + d))
-        yZoomByGridRef.current.set(drag.grid, { start: sN, end: sN + w })
-        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + drag.grid, start: sN, end: sN + w })
+        // pad 段 (第 33 轮): 主图缩小后垂直拖 = 轴范围整体平移 (保持宽, clamp 到贴身外)
+        const pad0 = drag.grid === 0 ? yPadRef.current.get(0) : null
+        if (pad0 && (pad0.lo > 0 || pad0.hi > 0)) {
+          const comp = (chart as any).getModel().getComponent('yAxis', 0)
+          const axis = comp?.coordinateSystem ? ((comp.coordinateSystem.getAxis?.()) ?? (comp as any).axis) : null
+          const ext = axis?.scale?.getExtent?.() as [number, number] | undefined
+          const dRange = windowPriceRange()
+          if (ext && dRange && dRange.hi > dRange.lo) {
+            const dSpan = dRange.hi - dRange.lo
+            const total = ext[1] - ext[0]
+            const shift = (dy / drag.gh) * total
+            yPadRef.current.set(0, {
+              lo: Math.max(0, pad0.lo + shift / dSpan),
+              hi: Math.max(0, pad0.hi - shift / dSpan),
+            })
+            chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + drag.grid, start: 0, end: 100 })
+          }
+        } else {
+          const w = drag.e0Y - drag.s0Y
+          const d = (dy / drag.gh) * w
+          const sN = Math.max(0, Math.min(100 - w, drag.s0Y + d))
+          yZoomByGridRef.current.set(drag.grid, { start: sN, end: sN + w })
+          chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + drag.grid, start: sN, end: sN + w })
+        }
       }
     }
     const handleZrDragEnd = () => { drag = null }
@@ -2610,6 +2706,7 @@ export function EChartsCandlestick({
       showRyDivergence,
       xLabelMetricsRef,
       _symbol,
+      yPadRef.current,
     )
 
     chart.setOption(option, true)
@@ -2646,14 +2743,15 @@ export function EChartsCandlestick({
     chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: xWin.start, end: xWin.end })
     // 恢复 Y 轴手动缩放窗口 (主图+全部副图; 切周期/指标等重建后保持; 新标的已随
     // _symbol 重置清空)。setOption 不会重置 dataZoom 的窗口状态, 未缩放的 grid 也需
-    // 显式归位默认窗口 (Y_DEFAULT_*), 否则换股后旧标的的价格窗口会残留到新标的上。
+    // 显式归位全窗口 [0,100], 否则换股后旧标的的价格窗口会残留到新标的上。
+    // (主图 pad 保留 — TV 同款: 换标的保持用户缩放状态)
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
       const yZoom = yZoomByGridRef.current.get(g)
       chart.dispatchAction({
         type: 'dataZoom', dataZoomIndex: 1 + g,
-        start: yZoom ? yZoom.start : Y_DEFAULT_START,
-        end: yZoom ? yZoom.end : Y_DEFAULT_END,
+        start: yZoom ? yZoom.start : 0,
+        end: yZoom ? yZoom.end : 100,
       })
     }
 

@@ -6,17 +6,38 @@ import { EChartsCandlestick, type OHLC } from './EChartsCandlestick'
 
 const chart = vi.hoisted(() => ({
   handlers: {} as Record<string, (event?: any) => void>,
+  zrHandlers: {} as Record<string, (event?: any) => void>,
   setOption: vi.fn(),
   on: vi.fn(),
   off: vi.fn(),
   dispatchAction: vi.fn(),
   resize: vi.fn(),
   dispose: vi.fn(),
-  getZr: () => ({ on: vi.fn(), off: vi.fn() }),
-  getOption: () => ({ dataZoom: [{ start: chart.__zoom.start, end: chart.__zoom.end }] }),
+  getZr: () => ({
+    on: (name: string, cb: (event?: any) => void) => { chart.zrHandlers[name] = cb },
+    off: vi.fn(),
+  }),
+  getOption: () => ({ dataZoom: [
+    { start: chart.__zoom.start, end: chart.__zoom.end },
+    { start: chart.__yZoom.start, end: chart.__yZoom.end },
+  ] }),
   containPixel: () => false,
   convertFromPixel: () => [0, 0],
+  getWidth: () => 900,
+  // Y 轴缩放 (第 33 轮 pad 方案) 依赖 getModel 取轴 extent / grid rect
+  getModel: () => ({
+    getComponent: (type: string) => {
+      if (type === 'grid') return { coordinateSystem: { getRect: () => chart.__gridRect } }
+      return {
+        coordinateSystem: { getAxis: () => ({ scale: { getExtent: () => chart.__yExtent } }) },
+        axis: { scale: { getExtent: () => chart.__yExtent } },
+      }
+    },
+  }),
   __zoom: { start: 0, end: 100 },
+  __yZoom: { start: 0, end: 100 },
+  __gridRect: { x: 46, y: 8, width: 780, height: 400 },
+  __yExtent: [9, 11] as [number, number],
 }))
 
 vi.mock('echarts', () => ({ init: () => chart }))
@@ -43,8 +64,11 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   chart.handlers = {}
+  chart.zrHandlers = {}
   chart.setOption.mockClear()
+  chart.dispatchAction.mockClear()
   chart.__zoom = { start: 0, end: 100 }
+  chart.__yZoom = { start: 0, end: 100 }
   chart.on.mockImplementation((name: string, callback: (event?: any) => void) => {
     chart.handlers[name] = callback
   })
@@ -355,23 +379,58 @@ it('十字线可见性: crossStyle alpha ≥ 0.5 (水平线 1px 虚线在深底�
   expect(alpha as number).toBeGreaterThanOrEqual(0.5)
 })
 
-it('Y 轴缩放池: 主图轴范围=数据±50%, Y dataZoom 默认窗口 23.5~76.5 (filterMode none)', async () => {
+it('Y 轴默认贴身: 轴范围=窗口数据范围 (第 33 轮重构, 废除池化预放大)', async () => {
   await act(async () => root.render(
     <EChartsCandlestick data={rows(10)} symbol="600000" height={400} visibleBars="all" showMA={false} />,
   ))
   const option = chart.setOption.mock.calls.at(-1)?.[0] as any
-  // 轴范围池化: min/max 为函数 (ECharts yAxis 函数式), 数据 {100,110} → 池 95~115
   const y0 = option?.yAxis?.[0]
   expect(typeof y0?.min).toBe('function')
-  expect(y0.min({ min: 100, max: 110 })).toBeCloseTo(95)
-  expect(y0.max({ min: 100, max: 110 })).toBeCloseTo(115)
-  // 默认窗口只框数据±3% = 池的 23.5%~76.5% → 缩小方向 (拉宽窗口) 可用
+  // 窗口数据 {100,110} → 贴身 100/110 (池化方案下是 95/115 = 默认预放大 6%)
+  expect(y0.min({ min: 100, max: 110 })).toBe(100)
+  expect(y0.max({ min: 100, max: 110 })).toBe(110)
   const yZoom = (option?.dataZoom ?? []).find((z: any) => z.yAxisIndex != null)
-  expect(yZoom).toBeTruthy()
-  expect(yZoom.start).toBeCloseTo(23.5, 1)
-  expect(yZoom.end).toBeCloseTo(76.5, 1)
-  // 窗口外数据不滤除 (防窗口收窄反馈收缩池)
-  expect(yZoom.filterMode).toBe('none')
+  expect(yZoom.start).toBe(0)
+  expect(yZoom.end).toBe(100)
+})
+
+it('Y 轴滚轮缩放: 刻度带下滚无限缩小 (pad 扩展无上限) / 上滚放大先消 pad 再收窗口 / 同锚往返回贴身', async () => {
+  await act(async () => root.render(
+    <EChartsCandlestick data={rows(10)} symbol="600000" height={400} visibleBars="all" showMA={false} />,
+  ))
+  const y0 = () => (chart.setOption.mock.calls.at(-1)?.[0] as any)?.yAxis?.[0]
+  const wheel = async (delta: number) => {
+    await act(async () => chart.zrHandlers.mousewheel?.({
+      offsetX: 840, offsetY: 200, wheelDelta: delta, preventDefault: vi.fn(),
+    }))
+  }
+  // 初始贴身 (rows(10): H=11 L=9)
+  expect(y0().min({ min: 9, max: 11 })).toBe(9)
+  expect(y0().max({ min: 9, max: 11 })).toBe(11)
+  // 下滚 ×3 (缩小): pad 段轴范围以鼠标锚扩展, 无上限
+  await wheel(-1); await wheel(-1); await wheel(-1)
+  const minOut = y0().min({ min: 9, max: 11 })
+  const maxOut = y0().max({ min: 9, max: 11 })
+  expect(minOut).toBeLessThan(9)
+  expect(maxOut).toBeGreaterThan(11)
+  // 模拟真实 ECharts 的动态 getExtent (轴 extent 随 pad 更新) 后继续缩小: pad 累积无上限
+  chart.__yExtent = [minOut, maxOut]
+  await wheel(-1)
+  expect(y0().min({ min: 9, max: 11 })).toBeLessThan(minOut)
+  expect(y0().max({ min: 9, max: 11 })).toBeGreaterThan(maxOut)
+  // 同锚上滚 ×4 (放大): 先消 pad → 回贴身 (exp(0.15)^4 × exp(-0.15)^4 = 1 精确对称)
+  chart.__yExtent = [y0().min({ min: 9, max: 11 }), y0().max({ min: 9, max: 11 })]
+  await wheel(1); await wheel(1); await wheel(1); await wheel(1)
+  expect(y0().min({ min: 9, max: 11 })).toBeCloseTo(9, 6)
+  expect(y0().max({ min: 9, max: 11 })).toBeCloseTo(11, 6)
+  // 贴身后继续上滚 → 窗口段: dataZoom 窗口收窄 (filter 模式, 轴=窗口内数据)
+  const dzBefore = chart.dispatchAction.mock.calls.filter((c: any[]) => c[0]?.dataZoomIndex === 1).length
+  await wheel(1)
+  const dzCalls = chart.dispatchAction.mock.calls.filter((c: any[]) => c[0]?.dataZoomIndex === 1)
+  const last = dzCalls.at(-1)?.[0] as any
+  expect(dzCalls.length).toBeGreaterThan(dzBefore)
+  expect(last.start).toBeGreaterThan(0)
+  expect(last.end).toBeLessThan(100)
 })
 
 it('主图信息栏文案「牛熊:」(第 31 轮 ②, 不残留旧「牛:」前缀)', async () => {
