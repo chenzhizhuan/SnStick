@@ -436,6 +436,37 @@ it('Y 轴滚轮缩放: 刻度带下滚无限缩小 (pad 扩展无上限) / 上�
   expect(last.end).toBeLessThan(100)
 })
 
+it('换股保留 Y 轴 pad (TV 同款: 换标的保持缩放状态; 换股只清 Y dataZoom 窗口)', async () => {
+  // 换股流程: _symbol effect 清 yZoomByGridRef (旧窗口对新标的无意义), yPadRef 保留;
+  // 重建后函数式轴 (axisMinFn) 读 pad → 新标的轴 = 新窗口数据 ± pad, 而非回贴身。
+  const render = async (symbol: string) => {
+    await act(async () => root.render(
+      <EChartsCandlestick data={rows(10)} symbol={symbol} height={400} visibleBars="all" showMA={false} />,
+    ))
+  }
+  const wheel = async (delta: number) => {
+    await act(async () => chart.zrHandlers.mousewheel?.({
+      offsetX: 840, offsetY: 200, wheelDelta: delta, preventDefault: vi.fn(),
+    }))
+  }
+  const lastAxis = () => (chart.setOption.mock.calls.at(-1)?.[0] as any)?.yAxis?.[0]
+  const ev = { min: 9, max: 11 }
+  await render('600519.SH')
+  await wheel(-1)
+  // pad 已激活: 数值式 setOption 后 (或函数式读 pad), 轴范围扩展
+  const padAxis = lastAxis()
+  const padLo = typeof padAxis.min === 'function' ? padAxis.min(ev) : (padAxis.min as number)
+  const padHi = typeof padAxis.max === 'function' ? padAxis.max(ev) : (padAxis.max as number)
+  expect(padLo).toBeLessThan(9)
+  expect(padHi).toBeGreaterThan(11)
+  // 换股: 重建后轴函数仍读到同一 pad (pad 保留)
+  await render('000783.SZ')
+  const y = lastAxis()
+  expect(typeof y.min).toBe('function')
+  expect(y.min(ev)).toBeCloseTo(padLo, 6)
+  expect(y.max(ev)).toBeCloseTo(padHi, 6)
+})
+
 it('主图信息栏文案「牛熊:」(第 31 轮 ②, 不残留旧「牛:」前缀)', async () => {
   const data: OHLC[] = rows(20).map((r, i) => ({
     ...r,
