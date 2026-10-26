@@ -8,8 +8,8 @@
  * 参照日期: 2026-09-30 为周三, 2026-10-03 为周六。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chartIntradayRefetchInterval, chartMinuteRangeRefetchInterval, mergeLiveIntoIntraday, notRawAdjustKey } from './kline'
-import type { IntradayPlusBar, KlineDailyLatestResponse, KlineIntradayResponse } from './api'
+import { chartIntradayRefetchInterval, chartMinuteRangeRefetchInterval, mergeLatestIntoRawKlineRow, mergeLiveIntoIntraday } from './kline'
+import type { IntradayPlusBar, KlineDailyLatestResponse, KlineDailyResponse, KlineIntradayResponse, KlineRow } from './api'
 
 const MS = 15_000
 const HEARTBEAT = 300_000
@@ -272,31 +272,86 @@ describe('mergeLiveIntoIntraday 分钟末根实时叠加', () => {
   })
 })
 
-describe('notRawAdjustKey — qfq 实时合并排除 raw/split 残留缓存', () => {
-  it('三套 chart key 的 adjust 段位: raw/split=false / qfq/缺省=true', () => {
-    // ['chart','kline-daily',symbol,days,adjust] → idx 4
-    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500, 'raw'], 4)).toBe(false)
-    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500, 'split'], 4)).toBe(false)
-    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500, 'qfq'], 4)).toBe(true)
-    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500], 4)).toBe(true)
-    // ['chart','kline-daily-4h',symbol,adjust] → idx 3
-    expect(notRawAdjustKey(['chart', 'kline-daily-4h', '600519.SH', 'raw'], 3)).toBe(false)
-    expect(notRawAdjustKey(['chart', 'kline-daily-4h', '600519.SH', 'split'], 3)).toBe(false)
-    expect(notRawAdjustKey(['chart', 'kline-daily-4h', '600519.SH', 'qfq'], 3)).toBe(true)
-    // ['chart','intraday',symbol,period,adjust] → idx 4
-    expect(notRawAdjustKey(['chart', 'intraday', '600519.SH', '60m', 'raw'], 4)).toBe(false)
-    expect(notRawAdjustKey(['chart', 'intraday', '600519.SH', '60m', 'split'], 4)).toBe(false)
-    expect(notRawAdjustKey(['chart', 'intraday', '600519.SH', '60m', 'qfq'], 4)).toBe(true)
+describe('mergeLatestIntoRawKlineRow — raw 末根实时合并 (仅 OHLCV/量额/is_live, 指标保留)', () => {
+  /** 构造 raw 缓存行 (指标字段为 raw 序列口径的值)。 */
+  const rawRow = (over: Record<string, unknown> = {}): KlineRow => ({
+    date: '2026-10-15', open: 1300, high: 1310, low: 1295, close: 1305,
+    volume: 1000, amount: 130500000,
+    macd_plus_dif: 1.23, ry_upper: 1400, fund_bg_color: 1, is_live: true,
+    ...over,
+  })
+  /** 构造 raw 缓存响应。 */
+  const resp = (rows: KlineRow[], symbol = '600519.SH') =>
+    ({ symbol, name: '贵州茅台', rows, source: 'live' }) as KlineDailyResponse
+  /** 构造 daily/latest 实时行 (qfq 口径: 今日价格与 raw 同价, 指标字段是 qfq 序列算的 → 不得覆盖)。 */
+  const latest = (over: Record<string, unknown> = {}, symbol = '600519.SH') =>
+    ({ symbol, row: { date: '2026-10-15', open: 1302, high: 1318, low: 1300, close: 1312, volume: 1500, amount: 150000000, macd_plus_dif: 9.99, ry_upper: 999, fund_bg_color: 2, is_live: true, ...over }, source: 'live' }) as KlineDailyLatestResponse
+
+  it('同日末根: OHLCV/量额覆盖 + is_live 透传, 指标字段保留 raw 缓存原值', () => {
+    const cur = resp([rawRow({ date: '2026-10-14' }), rawRow()])
+    const out = mergeLatestIntoRawKlineRow(cur, latest())
+    expect(out).not.toBe(cur)
+    const last = out!.rows.at(-1)!
+    expect(last.open).toBe(1302)
+    expect(last.high).toBe(1318)
+    expect(last.low).toBe(1300)
+    expect(last.close).toBe(1312)
+    expect(last.volume).toBe(1500)
+    expect(last.amount).toBe(150000000)
+    expect(last.is_live).toBe(true)
+    // qfq 口径指标字段不得污染 raw 缓存 (第 10 轮设计约束)
+    expect(last.macd_plus_dif).toBe(1.23)
+    expect(last.ry_upper).toBe(1400)
+    expect(last.fund_bg_color).toBe(1)
+    // 前一行不动
+    expect(out!.rows[0].close).toBe(1305)
+    expect(out!.rows[0].macd_plus_dif).toBe(1.23)
   })
 
-  it('extra 键 (adjust 在第 5 段) 与 undefined 段位安全', () => {
-    // extra 键 ['chart','kline-daily-extra',symbol,start,end,adjust] — adjust 在 idx 5;
-    // daily SSE 合并的 findAll(['chart','kline-daily',symbol]) 不命中 extra 键 (第二段不同),
-    // 此处锁死段位语义防未来结构调整错位
-    expect(notRawAdjustKey(['chart', 'kline-daily-extra', '600519.SH', '2026-01-01', '2026-06-01', 'raw'], 5)).toBe(false)
-    expect(notRawAdjustKey(['chart', 'kline-daily-extra', '600519.SH', '2026-01-01', '2026-06-01', 'split'], 5)).toBe(false)
-    expect(notRawAdjustKey(['chart', 'kline-daily-extra', '600519.SH', '2026-01-01', '2026-06-01', 'qfq'], 5)).toBe(true)
-    // 段位未定义 (旧缓存/结构变化) → 非 raw, fail-open 不丢合并
-    expect(notRawAdjustKey(['chart', 'kline-daily', '600519.SH', 500, undefined], 4)).toBe(true)
+  it('latest 行 volume/amount 为 null → 保留缓存原值 (空值不覆盖)', () => {
+    const cur = resp([rawRow()])
+    const out = mergeLatestIntoRawKlineRow(cur, latest({ volume: null, amount: null }))
+    const last = out!.rows.at(-1)!
+    expect(last.volume).toBe(1000)
+    expect(last.amount).toBe(130500000)
+  })
+
+  it('新交易日: 追加仅含 OHLCV/量额/is_live 的行 (指标字段不带 qfq 值)', () => {
+    const cur = resp([rawRow({ date: '2026-10-14' })])
+    const out = mergeLatestIntoRawKlineRow(cur, latest())
+    expect(out!.rows.length).toBe(2)
+    const appended = out!.rows.at(-1)!
+    expect(appended.date).toBe('2026-10-15')
+    expect(appended.close).toBe(1312)
+    expect(appended.is_live).toBe(true)
+    expect(appended.macd_plus_dif).toBeUndefined()
+    expect(appended.ry_upper).toBeUndefined()
+    expect(out!.rows[0].macd_plus_dif).toBe(1.23)
+  })
+
+  it('空 rows: 追加单行 (OHLCV only)', () => {
+    const out = mergeLatestIntoRawKlineRow(resp([]), latest())
+    expect(out!.rows.length).toBe(1)
+    expect(out!.rows[0].close).toBe(1312)
+    expect(out!.rows[0].macd_plus_dif).toBeUndefined()
+  })
+
+  it('实时行日期更早 (盘前回退上一交易日) → 原样返回', () => {
+    const cur = resp([rawRow({ date: '2026-10-15' })])
+    expect(mergeLatestIntoRawKlineRow(cur, latest({ date: '2026-10-14' }))).toBe(cur)
+  })
+
+  it('latest.row 缺失 / symbol 不匹配 / undefined → 原样返回', () => {
+    const cur = resp([rawRow()])
+    expect(mergeLatestIntoRawKlineRow(cur, { symbol: '600519.SH', row: null } as unknown as KlineDailyLatestResponse)).toBe(cur)
+    expect(mergeLatestIntoRawKlineRow(cur, latest({}, '000001.SZ'))).toBe(cur)
+    expect(mergeLatestIntoRawKlineRow(undefined, latest())).toBeUndefined()
+  })
+
+  it('不可变: 合并不修改输入响应', () => {
+    const cur = resp([rawRow()])
+    mergeLatestIntoRawKlineRow(cur, latest())
+    expect(cur.rows.at(-1)!.close).toBe(1305)
+    expect(cur.rows.at(-1)!.volume).toBe(1000)
   })
 })

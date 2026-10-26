@@ -17,9 +17,11 @@
  * - 日K/4h: 不进轮询 (staleTime Infinity), 由全局 SSE quotes_updated 推送 +
  *          klineDailyLatest 单行增量合并 (见 useQuoteStream 的 chart 窗格注册表),
  *          末根实时价自动覆盖 (4h 用 160 档 latest, 合并进 4h 专用缓存)。
- * - raw 模式 (不复权): SSE 合并不注册 — daily/latest 单行是 qfq 口径
- *          (今日 OHLC 两口径同价, 但附着的指标字段是 qfq 序列算的), 合进 raw
- *          缓存会污染指标; 与 agg 周期同方案 (静止到下次重拉, 见 Chart.tsx)。
+ * - raw 模式 (不复权): SSE 合并按价格字段参与 (第 38 轮) — daily/latest 单行
+ *          今日 OHLC 两口径同价, raw 键走 mergeLatestIntoRawKlineRow 仅合并
+ *          价格/量额/is_live, 指标字段保留 raw 缓存原值 (不污染指标);
+ *          split (送转复权) 仍不注册; agg 周期 (2d/4d/1w/1M) 两口径均静止
+ *          到下次重拉 (聚合桶实时合并未实现, 见 Chart.tsx)。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'

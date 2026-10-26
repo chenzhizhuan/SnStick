@@ -141,18 +141,19 @@ export function Chart() {
   // agg 周期 (2d/4d/1w/1M) 暂不注册: kline-daily-agg 缓存的实时合并需要
   // 聚合语义 (当周/当月桶吸收日线实时行), 未实现前注册只会空拉 (合并目标
   // 键匹配不到); agg 末根已由后端聚合含实时数据, 静止到下次重拉不影响正确性。
-  // raw/split 模式 (不复权/送转复权) 同样不注册: daily/latest 单行是
-  // qfq 口径指标, 合进非 qfq 缓存会污染末根指标; 分钟窗格保留 15s
-  // 轮询 (轮询带 adjust 参数)。
+  // raw/split 模式 (第 38 轮起分派): raw 恢复注册 — daily/latest 单行今日价格
+  // 与 raw 同价, raw 键走 mergeLatestIntoRawKlineRow 仅合并价格字段 (指标留
+  // raw 缓存原值, 不污染); split (送转复权) 仍不注册: 今日 OHLC 语义与 qfq
+  // 不同, split 口径 latest 合并未实现; 分钟窗格另有 15s 轮询 (轮询带 adjust)。
   useEffect(() => {
-    const raw = workspace.adjust !== 'qfq'
+    const split = workspace.adjust === 'split'
     const dailyPanes = workspace.panes.filter(p => p.period === '1d')
     const panes4h = workspace.panes.filter(p => p.period === '4h')
     const panesMinute = workspace.panes.filter(p => p.period === '15m' || p.period === '60m')
     setChartLiveSymbols(
-      raw ? [] : dailyPanes.map(p => p.symbol),
-      raw ? [] : panes4h.map(p => p.symbol),
-      raw ? [] : panesMinute.map(p => p.symbol),
+      split ? [] : dailyPanes.map(p => p.symbol),
+      split ? [] : panes4h.map(p => p.symbol),
+      split ? [] : panesMinute.map(p => p.symbol),
     )
     return () => clearChartLiveSymbols()
   }, [workspace.panes, workspace.adjust])

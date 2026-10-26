@@ -7,7 +7,7 @@
  * placeholderData 内置"仅同 symbol 占位"守卫: 改日期范围/扩展字段时旧数据可暂显(不闪),
  * 切股时不透传上一只股票的数据(不误显示)。
  */
-import { api, type IntradayPlusBar, type KlineDailyLatestResponse, type KlineDailyResponse, type KlineIntradayResponse } from '@/lib/api'
+import { api, type IntradayPlusBar, type KlineDailyLatestResponse, type KlineDailyResponse, type KlineIntradayResponse, type KlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
 /** 分时 tab 多日分时默认周期 (StockPanel 预取与弹窗存储回退共用, 避免魔数两处漂移) */
@@ -36,17 +36,39 @@ export function klineDailyLatestQueryOptions(symbol: string, plusLookback?: numb
   }
 }
 
-/** qfq 实时合并排除 raw/split 残留缓存: 按 query key 中 adjust 段位过滤。
- *  adjust 段位索引按 key 工厂结构固定:
- *  - ['chart','kline-daily',symbol,days,adjust]        → 4
- *  - ['chart','kline-daily-4h',symbol,adjust]           → 3
- *  - ['chart','intraday',symbol,period,adjust]          → 4
- *  daily/latest 单行是 qfq 口径指标, 合进 raw/split 缓存会污染末根 —
- *  非 qfq 窗格本身不注册 SSE (Chart.tsx), 此过滤针对「切回 qfq 后 gc 窗口内
- *  残留 raw/split 缓存」(split=送转复权, TV 开 ADJ 口径)。 */
-export function notRawAdjustKey(key: readonly unknown[], adjustIdx: number): boolean {
-  const seg = key[adjustIdx]
-  return seg !== 'raw' && seg !== 'split'
+/** raw 末根实时合并 — daily/latest 单行今日 OHLC 两口径同价 (前复权锚定今日),
+ *  但附着的指标字段是 qfq 序列算的 → 只取价格字段 (open/high/low/close/volume/
+ *  amount/is_live) 合并, 指标字段保留 raw 缓存原值 (不污染 raw 指标序列, 第 10 轮
+ *  设计约束)。日期语义与 mergeLatestKlineRow 一致: 同日覆盖末根 / 更晚追加 /
+ *  更早原样返回。volume/amount 为 null 的实时行不覆盖缓存原值 (指数等无额场景)。 */
+export function mergeLatestIntoRawKlineRow(
+  current: KlineDailyResponse | undefined,
+  latest: KlineDailyLatestResponse,
+): KlineDailyResponse | undefined {
+  if (!current || !latest.row || current.symbol !== latest.symbol) return current
+
+  const live = latest.row
+  const latestDate = String(live.date).slice(0, 10)
+  const patch: KlineRow = {
+    date: latestDate,
+    open: live.open,
+    high: live.high,
+    low: live.low,
+    close: live.close,
+    is_live: live.is_live === true,
+  }
+  if (live.volume != null) patch.volume = live.volume
+  if (live.amount != null) patch.amount = live.amount
+
+  const last = current.rows.at(-1)
+  if (!last) return { ...current, rows: [patch] }
+
+  const lastDate = String(last.date).slice(0, 10)
+  if (latestDate < lastDate) return current
+  if (latestDate === lastDate) {
+    return { ...current, rows: [...current.rows.slice(0, -1), { ...last, ...patch }] }
+  }
+  return { ...current, rows: [...current.rows, patch] }
 }
 
 export function mergeLatestKlineRow(
