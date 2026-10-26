@@ -558,6 +558,67 @@ it('换股清副图 pad (绝对范围随股无意义) + 重建后 setOption 恢�
   expect(after?.max).toBeNull()
 })
 
+it('刻度带按住拖拽缩放复用滚轮状态机 (第 34 轮): 副图向下拖 = pad 扩展 (双向), 主图同走 pad', async () => {
+  // 用户复测: 「只修复了鼠标滚轮? 上下拖动, 还不能满足」 — 拖拽缩放旧实现是纯
+  // dataZoom 窗口计算, 满窗口向下拖 clamp no-op; 应增量复用 scaleYWindow (pad 段)。
+  chart.__gridRects = [
+    { x: 46, y: 8, width: 780, height: 200 },
+    { x: 46, y: 220, width: 780, height: 180 },
+  ]
+  chart.__yAxisExtents = [[9, 11], [0, 1]]
+  const data: OHLC[] = rows(10).map((r, i) => i === 0 ? r : ({
+    ...r, macd_plus_dif: 1, macd_plus_dea: 1, macd_plus_hist: i % 2 ? 0.5 : -0.5,
+  }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600519.SH" height={400} visibleBars="all"
+      activeIndicators={['macd_plus']} showMA={false} />,
+  ))
+  const subAxis = () => (chart.setOption.mock.calls.at(-1)?.[0] as any)?.yAxis?.[1]
+  // 副图刻度带 mousedown (offsetX 840 = 右带, offsetY 300 = grid 1) + 向下拖 80px (缩小)
+  await act(async () => chart.zrHandlers.mousedown?.({ offsetX: 840, offsetY: 300 }))
+  await act(async () => chart.zrHandlers.mousemove?.({ offsetX: 840, offsetY: 380 }))
+  await act(async () => chart.zrHandlers.mouseup?.({}))
+  const y1 = subAxis()
+  expect(y1).toBeTruthy()
+  expect(y1.min).toBeLessThan(0)      // pad 扩展 (拖拽缩小生效)
+  expect(y1.max).toBeGreaterThan(1)
+  // 再向上拖 (放大): 收 pad, 8 倍拖距必归零 → min:null 恢复自动定界
+  await act(async () => chart.zrHandlers.mousedown?.({ offsetX: 840, offsetY: 300 }))
+  for (let i = 1; i <= 4; i++) {
+    await act(async () => chart.zrHandlers.mousemove?.({ offsetX: 840, offsetY: 300 - i * 60 }))
+  }
+  await act(async () => chart.zrHandlers.mouseup?.({}))
+  expect(subAxis().min).toBeNull()
+})
+
+it('pad 段图区内上下拖拽平移 (第 34 轮): 副图绝对范围跟手平移; 主图方向跟手 (旧实现反向)', async () => {
+  chart.__gridRects = [
+    { x: 46, y: 8, width: 780, height: 200 },
+    { x: 46, y: 220, width: 780, height: 180 },
+  ]
+  chart.__yAxisExtents = [[9, 11], [0, 1]]
+  const data: OHLC[] = rows(10).map((r, i) => i === 0 ? r : ({
+    ...r, macd_plus_dif: 1, macd_plus_dea: 1, macd_plus_hist: i % 2 ? 0.5 : -0.5,
+  }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600519.SH" height={400} visibleBars="all"
+      activeIndicators={['macd_plus']} showMA={false} />,
+  ))
+  // 副图缩小激活 pad
+  await act(async () => chart.zrHandlers.mousewheel?.({
+    offsetX: 840, offsetY: 300, wheelDelta: -1, preventDefault: vi.fn(),
+  }))
+  const y1 = () => (chart.setOption.mock.calls.at(-1)?.[0] as any)?.yAxis?.[1]
+  const before = { min: y1().min as number, max: y1().max as number }
+  // 图区内下拖 (dy>0): 内容跟手下移 → 轴范围上移 → min/max 增大
+  await act(async () => chart.zrHandlers.mousedown?.({ offsetX: 400, offsetY: 300 }))
+  await act(async () => chart.zrHandlers.mousemove?.({ offsetX: 400, offsetY: 350 }))
+  await act(async () => chart.zrHandlers.mouseup?.({}))
+  const after = { min: y1().min as number, max: y1().max as number }
+  expect(after.min).toBeGreaterThan(before.min)   // 跟手: 下拖范围上移
+  expect(after.max).toBeGreaterThan(before.max)
+})
+
 it('主图信息栏文案「牛熊:」(第 31 轮 ②, 不残留旧「牛:」前缀)', async () => {
   const data: OHLC[] = rows(20).map((r, i) => ({
     ...r,
@@ -574,7 +635,9 @@ it('主图信息栏文案「牛熊:」(第 31 轮 ②, 不残留旧「牛:」前
   expect(text).not.toMatch(/牛:\d/)
 })
 
-it('RSI+ 值显示精简: 仅 RSI+ 数值 (+低位超卖), 无高位/S/B 提示 (第 31 轮 ③)', async () => {
+it('RSI+ 值显示精简: 仅 RSI+ 数值, 高位/低位/S/B 提示全部去除 (第 31 轮 ③ + 第 34 轮复测)', async () => {
+  // 第 34 轮用户复测: 「检索低位: 关键词, 明显还在」— 第 31 轮只去了高位与 S/B,
+  // 低位:超卖残留; 本轮状态提示全部去除, 值显示只剩 RSI+ 数值。
   const subValText = () => {
     const option = chart.setOption.mock.calls.at(-1)?.[0] as any
     const g = (option?.graphic ?? []).find((x: any) => x?.id === 'sub-val-rsi_plus')
@@ -591,11 +654,14 @@ it('RSI+ 值显示精简: 仅 RSI+ 数值 (+低位超卖), 无高位/S/B 提示 
   expect(t1).not.toContain('高位')
   expect(t1).not.toMatch(/[SB]:/)
 
-  // fund_bg_color=1 (超卖低位) → 低位:超卖 保留
+  // fund_bg_color=1 (超卖低位) → 低位:超卖 同样去除 (第 34 轮)
   const dataLow: OHLC[] = rows(20).map(r => ({ ...r, rsi_plus: -0.3, fund_bg_color: 1 }))
   await act(async () => root.render(
     <EChartsCandlestick data={dataLow} symbol="600519.SH" height={400} visibleBars="all"
       activeIndicators={['rsi_plus']} showMA={false} />,
   ))
-  expect(subValText()).toContain('低位:超卖')
+  const t2 = subValText()
+  expect(t2).toContain('RSI+:-0.30')
+  expect(t2).not.toContain('低位')
+  expect(t2).not.toContain('超卖')
 })

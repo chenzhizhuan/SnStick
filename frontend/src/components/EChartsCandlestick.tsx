@@ -815,13 +815,11 @@ export const SUB_CHARTS: SubChartDef[] = [
       const v = d.rsi_plus
       // 信息栏同步正负分色 (与 MACD+ 能量柱信息栏同款深红绿)
       const c = v != null && v >= 0 ? '#C74040' : '#2D9B65'
-      const items: { label: string; color: string; value: string }[] = [
+      // 2026-10-26 用户复测指定: 高位/低位/S/B 状态提示全部去除 (第 31 轮只去了
+      // 高位与 S/B, 低位:超卖残留 — 用户「检索低位: 明显还在」), 只留 RSI+ 数值
+      return [
         { label: 'RSI+', color: c, value: v != null ? v.toFixed(2) : '—' },
       ]
-      // 2026-10-25 用户指定: 高位标识与 S/B 交叉提示从值显示去除, 只留 RSI+ 数值
-      // (低位/超卖标识保留; 图内 S/B 字母与背景条为图元渲染, 不属值显示)
-      if (d.fund_bg_color === 1) items.push({ label: '低位', color: '#C74040', value: '超卖' })
-      return items
     },
   },
   {
@@ -2598,19 +2596,22 @@ export function EChartsCandlestick({
     // pan: 水平分量只动 X 窗口, 垂直分量只动 Y 窗口 (仅该 grid Y 已手动缩放时响应) —
     // 互不干扰, 垂直拖不会把可见数据带推跑, K 线不再“拖一拖消失再显示”
     type Drag =
-      | { mode: 'scale'; grid: number; y0: number; ry: number; h: number; s0: number; e0: number }
+      | { mode: 'scale'; grid: number; anchor: number; lastY: number; h: number }
       | { mode: 'pan'; grid: number; hasY: boolean; x0: number; y0: number; gw: number; gh: number; s0X: number; e0X: number; s0Y: number; e0Y: number }
     let drag: Drag | null = null
     const handleZrMouseDown = (ev: { offsetX: number; offsetY: number }) => {
       const bandGrid = locateYBand(ev.offsetX, ev.offsetY)
       if (bandGrid >= 0) {
-        // 刻度带: 缩放模式 — 按下点记录窗口与锚, 上下拖动按比例缩放 (拖满 grid 高 = 2 倍)
-        const opt = chart.getOption() as any
-        const yz = opt?.dataZoom?.[1 + bandGrid]
-        if (!yz) return
+        // 刻度带: 缩放模式 — 锚定按下点, 上下拖动按比例缩放 (拖满 grid 高 = 2 倍)。
+        // 第 34 轮: 改增量复用滚轮状态机 scaleYWindow (旧实现纯 dataZoom 窗口计算,
+        // 满窗口向下拖 clamp no-op — 用户「上下拖动还不能满足」)
         const r = gridRectAt(bandGrid)
         if (!r) return
-        drag = { mode: 'scale', grid: bandGrid, y0: ev.offsetY, ry: r.y, h: r.height, s0: yz.start ?? 0, e0: yz.end ?? 100 }
+        drag = {
+          mode: 'scale', grid: bandGrid,
+          anchor: Math.max(0, Math.min(1, 1 - (ev.offsetY - r.y) / r.height)),
+          lastY: ev.offsetY, h: r.height,
+        }
         return
       }
       // 图区内: 平移模式 — X 始终可拖; Y 仅在该 grid 已手动缩放时可拖 (自动定界不转手动)
@@ -2623,7 +2624,9 @@ export function EChartsCandlestick({
       const xz = opt?.dataZoom?.[0]
       const yz = yZoomByGridRef.current.get(g)
       drag = {
-        mode: 'pan', grid: g, hasY: !!yz || (g === 0 && !!yPadRef.current.get(0)),
+        mode: 'pan', grid: g,
+        // hasY: 主图窗口/pad, 副图窗口/pad 任一在 — pad 段也可拖平移 (第 34 轮补副图)
+        hasY: !!yz || (g === 0 && !!yPadRef.current.get(0)) || (g > 0 && !!subYPadRef.current.get(g)),
         x0: ev.offsetX, y0: ev.offsetY, gw: r.width, gh: r.height,
         s0X: xz?.start ?? 0, e0X: xz?.end ?? 100,
         s0Y: yz ? yz.start : 0, e0Y: yz ? yz.end : 100,
@@ -2632,19 +2635,13 @@ export function EChartsCandlestick({
     const handleZrMouseMove = (ev: { offsetX: number; offsetY: number }) => {
       if (!drag) return
       if (drag.mode === 'scale') {
-        const dy = ev.offsetY - drag.y0
-        if (dy === 0) return
-        const w0 = drag.e0 - drag.s0
-        const factor = Math.pow(2, -dy / drag.h) // 上拖(负) → factor>1 → 窗口收窄 = 放大
-        // 窗宽夹在 [0.5, 100] (同 scaleYWindow: 全窗口继续放大需夹住, 否则负 start 无效)
-        const w = Math.max(Math.min(w0 / factor, 100), 0.5)
-        const c = drag.s0 + (1 - (drag.y0 - drag.ry) / drag.h) * w0
-        let sN = c - (c - drag.s0) / factor
-        let eN = sN + w
-        if (sN < 0) { sN = 0; eN = w }
-        if (eN > 100) { eN = 100; sN = Math.max(0, 100 - w) }
-        yZoomByGridRef.current.set(drag.grid, { start: sN, end: eN })
-        chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + drag.grid, start: sN, end: eN })
+        const ddy = ev.offsetY - drag.lastY
+        if (ddy === 0) return
+        drag.lastY = ev.offsetY
+        // 拖满 grid 高 = 2 倍 (上拖放大); 增量式调用滚轮同款状态机 —
+        // pad 段 (主图比例/副图绝对) 与窗口段自动路由, 主副图均双向
+        const factor = Math.exp(-ddy * Math.LN2 / drag.h)
+        scaleYWindow(drag.grid, drag.anchor, factor)
         return
       }
       // pan: 水平分量 → X 平移 (内容跟随手指: 左拖看更晚数据, 窗口右移); 垂直分量 → Y 平移
@@ -2657,29 +2654,42 @@ export function EChartsCandlestick({
         chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: sN, end: sN + w })
       }
       if (dy !== 0 && drag.hasY) {
-        // pad 段 (第 33 轮): 主图缩小后垂直拖 = 轴范围整体平移 (保持宽, clamp 到贴身外)
-        const pad0 = drag.grid === 0 ? yPadRef.current.get(0) : null
-        if (pad0 && (pad0.lo > 0 || pad0.hi > 0)) {
-          const dRange = windowPriceRange()
-          if (dRange && dRange.hi > dRange.lo) {
-            const dSpan = dRange.hi - dRange.lo
-            // 轴范围由状态推算, 整体平移 (保持宽, clamp 到贴身外)
-            const A0 = dRange.lo - dSpan * pad0.lo
-            const A1 = dRange.hi + dSpan * pad0.hi
-            const total = A1 - A0
-            const shift = (dy / drag.gh) * total
-            const nLo = Math.max(0, pad0.lo + shift / dSpan)
-            const nHi = Math.max(0, pad0.hi - shift / dSpan)
-            if (nLo <= 0 && nHi <= 0) yPadRef.current.delete(0)
-            else yPadRef.current.set(0, { lo: nLo, hi: nHi })
-            applyYAxisRange()
-          }
+        const subPad = drag.grid > 0 ? subYPadRef.current.get(drag.grid) : null
+        if (subPad) {
+          // 副图 pad 段 (第 34 轮): 绝对范围整体平移 (保持宽); 跟手 = 下拖内容下移
+          // → 轴范围上移 (min/max 数值增大)
+          const total = subPad.max - subPad.min
+          const shift = (dy / drag.gh) * total
+          subYPadRef.current.set(drag.grid, {
+            ...subPad, min: subPad.min + shift, max: subPad.max + shift,
+          })
+          applySubYAxisRange(drag.grid)
         } else {
-          const w = drag.e0Y - drag.s0Y
-          const d = (dy / drag.gh) * w
-          const sN = Math.max(0, Math.min(100 - w, drag.s0Y + d))
-          yZoomByGridRef.current.set(drag.grid, { start: sN, end: sN + w })
-          chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + drag.grid, start: sN, end: sN + w })
+          // 主图 pad 段 (第 33 轮): 轴范围整体平移 (保持宽, clamp 到贴身外)。
+          // 第 34 轮修正方向: 跟手 = 下拖(dy>0)内容下移 → 轴范围上移 (数值增大) →
+          // pad.lo 减 / pad.hi 增 — 旧实现符号相反 (内容反向漂移, 与窗口段跟手不一致)
+          const pad0 = drag.grid === 0 ? yPadRef.current.get(0) : null
+          if (pad0 && (pad0.lo > 0 || pad0.hi > 0)) {
+            const dRange = windowPriceRange()
+            if (dRange && dRange.hi > dRange.lo) {
+              const dSpan = dRange.hi - dRange.lo
+              const A0 = dRange.lo - dSpan * pad0.lo
+              const A1 = dRange.hi + dSpan * pad0.hi
+              const total = A1 - A0
+              const shift = (dy / drag.gh) * total
+              const nLo = Math.max(0, pad0.lo - shift / dSpan)
+              const nHi = Math.max(0, pad0.hi + shift / dSpan)
+              if (nLo <= 0 && nHi <= 0) yPadRef.current.delete(0)
+              else yPadRef.current.set(0, { lo: nLo, hi: nHi })
+              applyYAxisRange()
+            }
+          } else {
+            const w = drag.e0Y - drag.s0Y
+            const d = (dy / drag.gh) * w
+            const sN = Math.max(0, Math.min(100 - w, drag.s0Y + d))
+            yZoomByGridRef.current.set(drag.grid, { start: sN, end: sN + w })
+            chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + drag.grid, start: sN, end: sN + w })
+          }
         }
       }
     }
