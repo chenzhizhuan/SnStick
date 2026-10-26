@@ -31,8 +31,13 @@ export interface PaneSyncHandle {
   symbol: string
   period: string
   getChart: () => ECharts | null
-  /** 当前数据的时间标签数组 (升序, 供二分定位) */
-  getDates: () => string[]
+   /** 当前数据的时间标签数组 (升序, 供二分定位) */
+   getDates: () => string[]
+   /** 当前 X 可见窗口的数据下标范围 [i0, i1] (dataZoom[0]); 未就绪返回 null。
+    *  联动 clamp 用 (第 36 轮): 悬停时间超出本窗可见窗口时贴边显示而非丢弃 —
+    *  60m(30日)+4h(120日) 组合下, 右窗左侧大半区域悬停旧日期会落在对端窗口外,
+    *  旧行为 getSyncPoint 像素出界返回 null → 整条联动静默丢失 (用户感知"联动坏了")。 */
+   getVisibleRange: () => [number, number] | null
   /** 联动定位点 [px, py]: px 为 idx 像素, py 优先取源窗鼠标 y (跨窗格水平线
    *  同像素对齐, TV 同款; 不合法时回退扫描主图 grid 合法像素) */
   getSyncPoint: (idx: number, preferY?: number) => [number, number] | null
@@ -124,6 +129,16 @@ export function ChartSyncProvider({
           }
           const idx = nearestIndex(dates, date)
           if (idx < 0) continue
+          // clamp 贴边 (第 36 轮, TV 同款): 悬停时间落在目标窗可见窗口之外时,
+          // 把下标钳进窗口 — 十字贴在窗口边缘而非整条联动丢弃。
+          // 旧行为: getSyncPoint 对窗口外 idx 算出的像素出界 → null → continue,
+          // 横2 (60m 窗口30日 + 4h 窗口120日) 下右窗左侧 ~75% 区域全部失联。
+          // clamp 后 axesInfo.value 同步用钳制值 (axisTrigger 直用 value 画线,
+          // 若仍传窗口外原值, 垂直线画在 grid 外不可见, x/y 贴边也无意义)。
+          const range = h.getVisibleRange()
+          const idxClamped = range
+            ? Math.min(Math.max(idx, range[0]), range[1])
+            : idx
           // x/y + axesInfo 双保险, 缺一不可:
           // - x/y 必须是落在 grid 内的合法像素: axisTrigger 对非法点 (x/y 未传) 直接
           //   shouldHide, 传入的 axesInfo 会被整体忽略, 十字不画;
@@ -131,7 +146,7 @@ export function ChartSyncProvider({
           //   由 pane 端 getSyncPoint 扫描出主图内的合法 y
           // - axesInfo.value 直传数据下标保证数据对齐: 即使像素有亚像素误差,
           //   axisTrigger 也直接用 value, 不走 pointToData 换算 (跨股/跨周期天然对齐)
-          const point = h.getSyncPoint(idx, yPx)
+          const point = h.getSyncPoint(idxClamped, yPx)
           if (!point) continue
           // y 轴指针 (水平线): 用对端自身像素换算主图 y 轴值, 与 x axesInfo 并传 —
           // 否则 axisTrigger 只画垂直线 (用户指定: 联动十字要完整, 水平线跟随鼠标 y,
@@ -141,7 +156,7 @@ export function ChartSyncProvider({
             const v = chart.convertFromPixel({ gridIndex: 0 }, [point[0], point[1]])[1]
             if (Number.isFinite(v)) yVal = v
           } catch { /* grid 未就绪时保持 null, 只联动垂直线 */ }
-          const axesInfo: any[] = [{ axisDim: 'x', axisIndex: 0, value: idx }]
+          const axesInfo: any[] = [{ axisDim: 'x', axisIndex: 0, value: idxClamped }]
           if (yVal != null) axesInfo.push({ axisDim: 'y', axisIndex: 0, value: yVal })
           applyTo(
             id,

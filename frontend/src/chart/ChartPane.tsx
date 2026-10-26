@@ -223,6 +223,25 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
     return null
   }, [])
 
+  /** 联动 clamp (第 36 轮) 用: 当前 X 可见窗口的数据下标范围。读 dataZoom[0]
+   *  百分比换算 (与 dataZoom 监听器同一套换算); chart 未就绪/无数据返回 null。 */
+  const getVisibleRange = useCallback((): [number, number] | null => {
+    const chart = chartRef.current
+    const ds = datesRef.current
+    if (!chart || ds.length === 0) return null
+    try {
+      const opt = chart.getOption() as any
+      const z = opt?.dataZoom?.[0]
+      if (!z) return null
+      const i0 = Math.max(0, Math.floor((ds.length * z.start) / 100))
+      const i1 = Math.min(ds.length - 1, Math.ceil((ds.length * z.end) / 100) - 1)
+      if (i1 < i0) return null
+      return [i0, i1]
+    } catch {
+      return null
+    }
+  }, [])
+
   /** 联动定位点: x 为 idx 像素, y 优先取源窗鼠标 y (跨窗格水平线同像素对齐,
    *  左右分屏窗格等高同页面位置, 直接可用); 不合法时回退从上往下扫描主图
    *  grid 内的第一个合法像素。axisTrigger 要求 x/y 落在 grid 内才处理 axesInfo;
@@ -450,6 +469,7 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       period: pane.period,
       getChart: () => chartRef.current,
       getDates: () => datesRef.current,
+      getVisibleRange,
       getSyncPoint,
       refreshDrawings,
     })
@@ -465,6 +485,7 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       period: pane.period,
       getChart: () => chartRef.current,
       getDates: () => datesRef.current,
+      getVisibleRange,
       getSyncPoint,
       refreshDrawings,
     })
