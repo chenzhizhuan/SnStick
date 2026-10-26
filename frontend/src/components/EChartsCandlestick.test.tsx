@@ -25,11 +25,19 @@ const chart = vi.hoisted(() => ({
   containPixel: () => false,
   convertFromPixel: () => [0, 0],
   getWidth: () => 900,
-  // Y 轴缩放的 getModel: grid rect 定位 (刻度带/图区命中) + 副图轴 extent (第 34 轮
-  // 副图 pad 首次进入时读自动定界范围); 主图轴范围由组件状态自洽推算不读 extent
+  // Y 轴缩放的 getModel: grid 组件 rect 定位 (刻度带/图区命中) + Y 轴 extent (副图
+  // pad 首次进入读自动定界基准; 走 grid.coordinateSystem.getAxis('y') — 与真实
+  // ECharts 同路径, 第 34 轮线上缩小无效教训: getAxis 必须带 dim 参数)
   getModel: () => ({
     getComponent: (type: string, idx: number) => {
-      if (type === 'grid') return { coordinateSystem: { getRect: () => (chart.__gridRects ?? [chart.__gridRect])[idx ?? 0] ?? chart.__gridRect } }
+      if (type === 'grid') return {
+        coordinateSystem: {
+          getRect: () => (chart.__gridRects ?? [chart.__gridRect])[idx ?? 0] ?? chart.__gridRect,
+          getAxis: (dim: string) => dim === 'y'
+            ? { scale: { getExtent: () => chart.__yAxisExtents?.[idx ?? 0] ?? [9, 11] } }
+            : undefined,
+        },
+      }
       if (type === 'yAxis') return {
         coordinateSystem: { getAxis: () => ({ scale: { getExtent: () => chart.__yAxisExtents?.[idx ?? 0] ?? [9, 11] } }) },
       }
