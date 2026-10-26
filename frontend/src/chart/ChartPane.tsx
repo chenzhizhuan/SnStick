@@ -302,6 +302,7 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
 
   // ── 联动 + 绘制: chartReady 时统一挂监听 (实例重建后自动重挂) ──
   const zoomRafRef = useRef(0)
+  const lastMouseXRef = useRef(0)
   const lastMouseYRef = useRef(0)
   const domHoverHookedRef = useRef(false)
   const handleChartReady = useCallback((chart: ECharts | null) => {
@@ -358,6 +359,8 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       let foundIdx = -1
       let yVal: number | null = null
       if (axesInfo) {
+        // 全条目扫描, 不可 break — axesInfo 键序 x 在 y 前, 旧实现命中 x 即 break
+        // → yVal 永远取不到 → 对端水平线消失 (第 37 轮线上实锤)
         for (const info of Object.values(axesInfo)) {
           const v = (info as any)?.value
           if (v == null) continue
@@ -368,11 +371,30 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
             yVal = v
             continue
           }
-          const idx = typeof v === 'number' ? v : ds.indexOf(v)
-          if (idx >= 0 && idx < ds.length) { foundIdx = idx; break }
+          if (foundIdx < 0) {
+            const idx = typeof v === 'number' ? v : ds.indexOf(v)
+            if (idx >= 0 && idx < ds.length) { foundIdx = idx }
+          }
         }
       }
       if (foundIdx < 0) return
+      // yVal 兜底: axesInfo 无主图 y 条目时 (触发路径差异), 用鼠标像素反推主图价格 —
+      // 落在副图/图外则保持 null (对端回退像素/扫描, 只垂直线)
+      if (yVal == null && lastMouseXRef.current > 0 && lastMouseYRef.current > 0) {
+        try {
+          const cv = chart.getDom()?.querySelector('canvas')
+          if (cv) {
+            const rect = cv.getBoundingClientRect()
+            const xLocal = lastMouseXRef.current - rect.left
+            const yLocal = lastMouseYRef.current - rect.top
+            if (chart.containPixel({ gridIndex: 0 }, [xLocal, yLocal])) {
+              const coord = chart.convertFromPixel({ gridIndex: 0 }, [xLocal, yLocal]) as number[] | null
+              const price = Array.isArray(coord) ? coord[1] : coord
+              if (Number.isFinite(price)) yVal = price as number
+            }
+          }
+        } catch { /* 主图未就绪 → null */ }
+      }
       syncApi.broadcastCrosshair(pane.id, ds[foundIdx], lastMouseYRef.current, yVal)
     })
 
@@ -382,12 +404,13 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       syncApi.broadcastCrosshair(pane.id, null)
     })
 
-    // 记录本窗鼠标 y (clientY 视口坐标, 与监听挂载点无关最可靠): 十字广播时
-    // 随 date 一起传给对端; 对端用自己的 canvas rect.top 换算成自身 canvas 内
-    // 坐标画水平线 — 左右分屏窗格同页面高度, 水平线同视觉位置 (TV 同款)
+    // 记录本窗鼠标位置 (clientX/Y 视口坐标, 与监听挂载点无关最可靠): 十字广播时
+    // y 随 date 一起传给对端 (跨标的同像素对齐); x/y 也用于 axesInfo 无 y 条目时
+    // 反推主图悬停价格 (第 37 轮价格对齐兜底)
     const dom = chart.getDom()
     if (dom && !domHoverHookedRef.current) {
       dom.addEventListener('mousemove', (e: MouseEvent) => {
+        lastMouseXRef.current = e.clientX
         lastMouseYRef.current = e.clientY
       })
       domHoverHookedRef.current = true
