@@ -57,4 +57,13 @@ describe('normalizeWorkspace', () => {
     expect(ws.panes.map(p => p.period)).toEqual(['60m', '4h'])
     expect(ws.panes.every(p => RY_MAIN_KEYS.every(k => p.activeIndicators.includes(k)) && p.activeIndicators.includes('macd_plus') && p.activeIndicators.includes('rsi_plus'))).toBe(true)
   })
+
+  it('默认复权 = raw 不复权 (第 34 轮对齐 TV: TV ADJ 默认关显示原始价); 显式口径保留, 非法回落 raw', () => {
+    expect(normalizeWorkspace(null).adjust).toBe('raw')
+    // 用户显式选择过的口径持久化保留 (qfq/split)
+    expect(normalizeWorkspace({ v: 1, panes: [], adjust: 'qfq' }).adjust).toBe('qfq')
+    expect(normalizeWorkspace({ v: 1, panes: [], adjust: 'split' }).adjust).toBe('split')
+    // 非法值回落默认 raw
+    expect(normalizeWorkspace({ v: 1, panes: [], adjust: 'oops' }).adjust).toBe('raw')
+  })
 })

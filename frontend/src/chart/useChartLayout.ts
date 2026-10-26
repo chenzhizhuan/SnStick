@@ -63,7 +63,7 @@ export interface PaneConfig {
 export type SplitTemplate = '1' | '2h' | '2v' | '4' | '1+3'
 
 /** 复权方式 — 全工作台统一 (数据流层注入所有窗格查询):
- *  qfq=前复权(默认) / raw=不复权 (TV 对拍口径, 2026-10-23 实证 TV 布局显示 raw 序列;
+ *  qfq=前复权 / raw=不复权(默认, 第 34 轮对齐 TV — TV ADJ 默认关显示原始价;
  *  后端 OHLC 换回原始价 + 私有指标在 raw 序列上重算, warmup 同口径)。 */
 export type AdjustMode = 'qfq' | 'raw' | 'split'
 
@@ -88,7 +88,7 @@ export interface ChartWorkspace {
   drawTool: DrawTool
   /** 双窗模板 (横2/竖2) 的分隔比例: 首窗占比 0.2-0.8, 默认 0.5; 切模板时重置 */
   splitRatio: number
-  /** 复权方式 (qfq 前复权默认 / raw 不复权 = TV 关 ADJ / split 送转复权 = TV 开 ADJ) — 工作台级显示口径开关 */
+  /** 复权方式 (raw 不复权默认 = TV 关 ADJ / qfq 前复权 / split 送转复权 = TV 开 ADJ) — 工作台级显示口径开关 */
   adjust: AdjustMode
 }
 
@@ -129,7 +129,9 @@ export function defaultWorkspace(): ChartWorkspace {
     sync: { crosshair: true, zoom: true, symbol: true, drawings: true, reset: true },
     drawTool: 'cursor',
     splitRatio: 0.5,
-    adjust: 'qfq',
+    // 默认 raw (不复权) — 对齐 TV (第 34 轮 2026-10-26 实测: TV ADJ 按钮默认关,
+    // 显示原始价; 用户指定与 TV 复刻/指标校验需同口径)
+    adjust: 'raw',
   }
 }
 
@@ -215,8 +217,9 @@ export function normalizeWorkspace(raw: unknown): ChartWorkspace {
     sync: { crosshair: s.crosshair !== false, zoom: s.zoom !== false, symbol: s.symbol !== false, drawings: s.drawings !== false, reset: s.reset !== false },
     drawTool,
     splitRatio,
-    // 旧持久化无 adjust → qfq (默认); 非法值回落 qfq
-    adjust: obj?.adjust === 'raw' ? 'raw' : obj?.adjust === 'split' ? 'split' : 'qfq',
+    // 旧持久化无 adjust → raw (默认, 第 34 轮对齐 TV); 非法值回落 raw。
+    // 注: 旧版默认 qfq 的已有持久化会保留用户当时口径 (写入过 'qfq') — 尊重用户选择。
+    adjust: obj?.adjust === 'qfq' ? 'qfq' : obj?.adjust === 'split' ? 'split' : 'raw',
   }
 }
 

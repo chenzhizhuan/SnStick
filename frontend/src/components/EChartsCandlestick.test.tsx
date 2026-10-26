@@ -20,21 +20,30 @@ const chart = vi.hoisted(() => ({
   getOption: () => ({ dataZoom: [
     { start: chart.__zoom.start, end: chart.__zoom.end },
     { start: chart.__yZoom.start, end: chart.__yZoom.end },
+    { start: chart.__yZoom2.start, end: chart.__yZoom2.end },
   ] }),
   containPixel: () => false,
   convertFromPixel: () => [0, 0],
   getWidth: () => 900,
-  // Y 轴缩放 (第 33 轮 pad 方案) 的 getModel 仅用于 grid rect 定位 (刻度带/图区命中);
-  // 轴范围由组件状态 (yPadRef) 自洽推算, 不读 ECharts 内部 extent
+  // Y 轴缩放的 getModel: grid rect 定位 (刻度带/图区命中) + 副图轴 extent (第 34 轮
+  // 副图 pad 首次进入时读自动定界范围); 主图轴范围由组件状态自洽推算不读 extent
   getModel: () => ({
-    getComponent: (type: string) => {
-      if (type === 'grid') return { coordinateSystem: { getRect: () => chart.__gridRect } }
+    getComponent: (type: string, idx: number) => {
+      if (type === 'grid') return { coordinateSystem: { getRect: () => (chart.__gridRects ?? [chart.__gridRect])[idx ?? 0] ?? chart.__gridRect } }
+      if (type === 'yAxis') return {
+        coordinateSystem: { getAxis: () => ({ scale: { getExtent: () => chart.__yAxisExtents?.[idx ?? 0] ?? [9, 11] } }) },
+      }
       return {}
     },
   }),
   __zoom: { start: 0, end: 100 },
   __yZoom: { start: 0, end: 100 },
+  __yZoom2: { start: 0, end: 100 },
   __gridRect: { x: 46, y: 8, width: 780, height: 400 },
+  // 双 grid 布局 (副图测试用): grid 0/1 各自 rect; 未设 → 全部回落 __gridRect
+  __gridRects: undefined as { x: number; y: number; width: number; height: number }[] | undefined,
+  // 各 grid Y 轴自动定界 extent (副图 pad 基准); 未设 → [9, 11]
+  __yAxisExtents: undefined as [number, number][] | undefined,
 }))
 
 vi.mock('echarts', () => ({ init: () => chart }))
@@ -66,6 +75,9 @@ beforeEach(() => {
   chart.dispatchAction.mockClear()
   chart.__zoom = { start: 0, end: 100 }
   chart.__yZoom = { start: 0, end: 100 }
+  chart.__yZoom2 = { start: 0, end: 100 }
+  chart.__gridRects = undefined
+  chart.__yAxisExtents = undefined
   chart.on.mockImplementation((name: string, callback: (event?: any) => void) => {
     chart.handlers[name] = callback
   })
@@ -465,6 +477,77 @@ it('换股保留 Y 轴 pad (TV 同款: 换标的保持缩放状态; 换股只清
   expect(typeof y.min).toBe('function')
   expect(y.min(ev)).toBeCloseTo(padLo, 6)
   expect(y.max(ev)).toBeCloseTo(padHi, 6)
+})
+
+it('副图 Y 轴双向缩放 (第 34 轮): 满窗口缩小 = pad 扩展无上限; 放大先消 pad 再落窗口段', async () => {
+  // 用户复测实锤: 副图 (MACD+/RSI+) 刻度带滚轮只能放大 (窗口段满窗口缩小 no-op)。
+  // 修复: 副图 pad (绝对范围, TV 同款 — X 平移时手动范围保持), 数值式 setOption 写入。
+  chart.__gridRects = [
+    { x: 46, y: 8, width: 780, height: 200 },
+    { x: 46, y: 220, width: 780, height: 180 },
+  ]
+  chart.__yAxisExtents = [[9, 11], [0, 1]]
+  const data: OHLC[] = rows(10).map((r, i) => i === 0 ? r : ({
+    ...r, macd_plus_dif: 1, macd_plus_dea: 1, macd_plus_hist: i % 2 ? 0.5 : -0.5,
+  }))
+  await act(async () => root.render(
+    <EChartsCandlestick data={data} symbol="600519.SH" height={400} visibleBars="all"
+      activeIndicators={['macd_plus']} showMA={false} />,
+  ))
+  const wheel = async (delta: number) => {
+    await act(async () => chart.zrHandlers.mousewheel?.({
+      offsetX: 840, offsetY: 300, wheelDelta: delta, preventDefault: vi.fn(),
+    }))
+  }
+  const subAxis = () => (chart.setOption.mock.calls.at(-1)?.[0] as any)?.yAxis?.[1]
+  // 满窗口缩小: 副图 grid 1 → pad 扩展 (mock 轴 extent [0,1] = 自动定界基准)
+  await wheel(-1)
+  let y1 = subAxis()
+  expect(y1).toBeTruthy()
+  expect(y1.min).toBeLessThan(0)
+  expect(y1.max).toBeGreaterThan(1)
+  const padMin = y1.min as number, padMax = y1.max as number
+  // 继续缩小: pad 自洽累积无上限 (不依赖 ECharts extent)
+  await wheel(-1)
+  y1 = subAxis()
+  expect(y1.min).toBeLessThan(padMin)
+  expect(y1.max).toBeGreaterThan(padMax)
+  // 放大: 收 pad clamp 到 base [0,1]; 归零 → min:null 恢复自动定界 + 落窗口段收窄
+  const dz2Before = chart.dispatchAction.mock.calls.filter((c: any[]) => c[0]?.dataZoomIndex === 2).length
+  for (let i = 0; i < 8; i++) await wheel(1)
+  y1 = subAxis()
+  expect(y1.min).toBeNull()
+  expect(y1.max).toBeNull()
+  const dz2Calls = chart.dispatchAction.mock.calls.filter((c: any[]) => c[0]?.dataZoomIndex === 2)
+  expect(dz2Calls.length).toBeGreaterThan(dz2Before)
+})
+
+it('换股清副图 pad (绝对范围随股无意义) + 重建后 setOption 恢复自动定界', async () => {
+  chart.__gridRects = [
+    { x: 46, y: 8, width: 780, height: 200 },
+    { x: 46, y: 220, width: 780, height: 180 },
+  ]
+  chart.__yAxisExtents = [[9, 11], [0, 1]]
+  const mkData = () => rows(10).map((r, i) => i === 0 ? r : ({
+    ...r, macd_plus_dif: 1, macd_plus_dea: 1, macd_plus_hist: i % 2 ? 0.5 : -0.5,
+  }))
+  const render = async (symbol: string) => {
+    await act(async () => root.render(
+      <EChartsCandlestick data={mkData()} symbol={symbol} height={400} visibleBars="all"
+        activeIndicators={['macd_plus']} showMA={false} />,
+    ))
+  }
+  await render('600519.SH')
+  await act(async () => chart.zrHandlers.mousewheel?.({
+    offsetX: 840, offsetY: 300, wheelDelta: -1, preventDefault: vi.fn(),
+  }))
+  const y1 = (chart.setOption.mock.calls.at(-1)?.[0] as any)?.yAxis?.[1]
+  expect(y1?.min).toBeLessThan(0)   // pad 激活
+  // 换股: subYPadRef 清 (指标值域随股变), 重建后 setOption 尾部幂等恢复 min:null
+  await render('000783.SZ')
+  const after = (chart.setOption.mock.calls.at(-1)?.[0] as any)?.yAxis?.[1]
+  expect(after?.min).toBeNull()
+  expect(after?.max).toBeNull()
 })
 
 it('主图信息栏文案「牛熊:」(第 31 轮 ②, 不残留旧「牛:」前缀)', async () => {

@@ -1945,6 +1945,14 @@ export function EChartsCandlestick({
   // {lo:0,hi:0} 缺省 = 贴身; 主图 grid 0 由 axisMin/Max 函数读取, 无上限 = 无限小;
   // 重置/双击清空。换股保留 (TV 同款: 换标的保持缩放状态)。
   const yPadRef = useRef<Map<number, { lo: number; hi: number }>>(new Map())
+  // 副图 Y 轴 pad (第 34 轮): 绝对显示范围 {min,max} + 归零基准 {baseMin,baseMax}
+  // (= 进入 pad 段时的自动定界范围)。副图满窗口下窗口段无缩小空间 → pad 扩展
+  // (无上限, TV 同款双向); TV 同语义: X 平移时手动范围保持 (不随数据重定界);
+  // 换股/重置清空 (指标值域随股变, 绝对范围无意义)。主图不走此表 (比例 pad)。
+  const subYPadRef = useRef<Map<number, { min: number; max: number; baseMin: number; baseMax: number }>>(new Map())
+  // 副图 pad 曾被写过 (含已清除): setOption effect 重建后的轴状态对齐仅在该标记后
+  // 执行 — 未用过副图缩放的会话不追加多余 setOption (last-call 断言友好)。
+  const subYPadTouchedRef = useRef(false)
   // windowPriceRange (effect 闭包) 读取的 priceLines 最新值
   const priceLinesRef = useRef(priceLines)
   priceLinesRef.current = priceLines
@@ -2006,10 +2014,15 @@ export function EChartsCandlestick({
     const chart = chartRef.current
     if (!chart) return
     yPadRef.current.clear()
+    subYPadRef.current.clear()
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
       chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
     }
+    // 副图 Y 轴恢复自动定界 (min/max 置 null; patch[0] 空对象不动主图)
+    const patch: Record<string, unknown>[] = [{}]
+    for (let g = 1; g + 1 < dzs.length; g++) patch.push({ min: null, max: null })
+    if (patch.length > 1) chart.setOption({ yAxis: patch }, { lazyUpdate: true })
     yZoomByGridRef.current.clear()
     applyYAxisRange()
   }, [applyYAxisRange])
@@ -2027,12 +2040,17 @@ export function EChartsCandlestick({
     userZoomRef.current = { start: z.start, end: z.end }
     yZoomByGridRef.current.clear()
     yPadRef.current.clear()
+    subYPadRef.current.clear()
     ;(chart as any).__snSuppressXZoom = ((chart as any).__snSuppressXZoom ?? 0) + 1
     chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: z.start, end: z.end })
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
       chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 1 + g, start: 0, end: 100 })
     }
+    // 副图 Y 轴恢复自动定界 (双击重置同步清副图 pad)
+    const subPatch: Record<string, unknown>[] = [{}]
+    for (let g = 1; g + 1 < dzs.length; g++) subPatch.push({ min: null, max: null })
+    if (subPatch.length > 1) chart.setOption({ yAxis: subPatch }, { lazyUpdate: true })
     applyYAxisRange()
     window.setTimeout(() => {
       const c = chart as any
@@ -2235,6 +2253,9 @@ export function EChartsCandlestick({
     }
     // Y 轴缩放窗口 (主图+副图) 随标的全部重置 — 新股价格范围不同, 旧窗口无意义
     yZoomByGridRef.current.clear()
+    // 副图 pad 同步清 (指标值域随股变, 绝对范围无意义; 重建后 setOption effect 尾部
+    // 幂等恢复 min:null)。主图 pad 保留 (TV 同款: 换标的保持缩放状态)。
+    subYPadRef.current.clear()
     // 新数据无悬停上下文, 隐藏「至今」; 下次鼠标移动时由 updateAxisPointer 重新置位
     hoverActiveRef.current = false
   }, [_symbol, data.length])
@@ -2352,6 +2373,32 @@ export function EChartsCandlestick({
       const comp = (chart as any).getModel().getComponent('grid', g)
       return comp?.coordinateSystem?.getRect()
     }
+    /** 副图 g 的 Y 轴当前显示范围 (自动定界时的 extent) — 首次进入 pad 段的基准。
+     *  只读不依赖其触发更新 (第 33 轮教训: dispatch 同值短路), pad 更新走数值式 setOption。 */
+    const gridYAxisExtent = (g: number): [number, number] | null => {
+      const comp = (chart as any).getModel().getComponent('yAxis', g)
+      const axis = comp?.coordinateSystem?.getAxis?.() ?? (comp as any)?.axis
+      const ext = axis?.scale?.getExtent?.() as [number, number] | undefined
+      return ext && Number.isFinite(ext[0]) && Number.isFinite(ext[1]) && ext[1] > ext[0]
+        ? [ext[0], ext[1]]
+        : null
+    }
+    /** 副图 Y 轴 setOption patch: 数组按 index 合并 (前置空对象不动其他轴, 主图函数式 min/max 不受影响)。 */
+    const yAxisPatch = (g: number, range: { min: number | null; max: number | null } | null) => {
+      const patch: Record<string, unknown>[] = []
+      for (let i = 0; i <= g; i++) patch.push(i === g ? (range ?? {}) : {})
+      chart.setOption({ yAxis: patch }, { lazyUpdate: true })
+    }
+    /** 把副图 g 的 pad (绝对范围) 写入 Y 轴 (数值式 setOption 必触发重算)。 */
+    const applySubYAxisRange = (g: number) => {
+      const pad = subYPadRef.current.get(g)
+      if (!pad) return
+      yAxisPatch(g, { min: pad.min, max: pad.max })
+    }
+    /** 副图 g 的 Y 轴恢复自动定界 (min/max 置 null — merge 模式清除数值覆盖)。 */
+    const clearSubYAxisRange = (g: number) => {
+      yAxisPatch(g, { min: null, max: null })
+    }
     /** 鼠标在哪个 grid 的右侧刻度带; -1 = 不在 (含左右两带中的左带: 价格轴在右, 左带不算)。 */
     const locateYBand = (px: number, py: number): number => {
       if (px < 0 || px >= chart.getWidth()) return -1
@@ -2397,7 +2444,9 @@ export function EChartsCandlestick({
     }
     /** 把 grid g 的 Y 窗口以锚点比例(anchorRatio: 0=底 1=顶)缩放 factor 倍 (factor>1 = 放大)。
      *  第 33 轮两段式 (主图): 缩小 = pad 扩展无上限 (数值式 setOption 必触发重算);
-     *  放大先消 pad (归零恢复函数式), 贴身后落到窗口段 (Y dataZoom 收窄, pre-R31 语义); 副图纯窗口段。 */
+     *  放大先消 pad (归零恢复函数式), 贴身后落到窗口段 (Y dataZoom 收窄, pre-R31 语义)。
+     *  第 34 轮 (副图): 满窗口缩小 = 绝对值 pad 扩展 (无上限, 数值式); 放大先收 pad
+     *  (clamp 到基准, 归零恢复 min:null 自动定界) 后落窗口段 — 主副图均双向。 */
     const scaleYWindow = (g: number, anchorRatio: number, factor: number) => {
       if (g === 0) {
         const dRange = windowPriceRange()
@@ -2440,8 +2489,49 @@ export function EChartsCandlestick({
           }
           // 贴身 + 放大 → 落到下方窗口段 (Y dataZoom 收窄 + filter, pre-R31 放大语义)
         }
+      } else {
+        // ── 副图 (第 34 轮): 满窗口下窗口段无缩小空间 → 绝对值 pad 扩展/收敛 ──
+        const pad = subYPadRef.current.get(g)
+        if (factor < 1) {
+          // 缩小: 当前显示范围 (pad 有 → pad 值; 无 → 轴自动定界 extent) 以鼠标锚扩展
+          let A0: number | null = null
+          let A1: number | null = null
+          if (pad) { A0 = pad.min; A1 = pad.max }
+          else {
+            const ext = gridYAxisExtent(g)
+            if (ext) { A0 = ext[0]; A1 = ext[1] }
+          }
+          if (A0 != null && A1 != null && A1 > A0) {
+            const f = 1 / factor
+            const P = A0 + anchorRatio * (A1 - A0)
+            subYPadTouchedRef.current = true
+            subYPadRef.current.set(g, {
+              min: P - (P - A0) * f,
+              max: P + (A1 - P) * f,
+              baseMin: pad ? pad.baseMin : A0,
+              baseMax: pad ? pad.baseMax : A1,
+            })
+            applySubYAxisRange(g)
+            return
+          }
+        } else if (pad) {
+          // 放大: 收 pad (clamp 到基准); 归零 → min:null 恢复自动定界, 落窗口段继续收窄
+          const f = 1 / factor
+          const P = pad.min + anchorRatio * (pad.max - pad.min)
+          const nA0 = Math.max(pad.baseMin, P - (P - pad.min) * f)
+          const nA1 = Math.min(pad.baseMax, P + (pad.max - P) * f)
+          if (nA0 <= pad.baseMin && nA1 >= pad.baseMax) {
+            subYPadRef.current.delete(g)
+            clearSubYAxisRange(g)
+            // fall through 窗口段
+          } else {
+            subYPadRef.current.set(g, { min: nA0, max: nA1, baseMin: pad.baseMin, baseMax: pad.baseMax })
+            applySubYAxisRange(g)
+            return
+          }
+        }
       }
-      // 窗口段 (副图全部 / 主图贴身后放大): dataZoom 收窄 (filter 让轴=窗口内数据)
+      // 窗口段 (副图贴身后放大 / 主图贴身后放大): dataZoom 收窄 (filter 让轴=窗口内数据)
       const opt = chart.getOption() as any
       const yz = opt?.dataZoom?.[1 + g]
       if (!yz) return
@@ -2797,6 +2887,20 @@ export function EChartsCandlestick({
         start: yZoom ? yZoom.start : 0,
         end: yZoom ? yZoom.end : 100,
       })
+    }
+    // 副图 Y 轴 pad 幂等自愈 (第 34 轮): 重建后轴状态与 subYPadRef 对齐 — 有 pad 的
+    // grid 重写数值范围 (merge 残留的旧 min/max 被覆盖), 无 pad 的恢复自动定界
+    // (换股清 pad 后旧数值不残留)。仅副图 pad 曾被用过才执行 (多余 setOption 零调用);
+    // patch[0] 空对象不动主图函数式 min/max。
+    if (subYPadTouchedRef.current) {
+      const patch: Record<string, unknown>[] = [{}]
+      let hasSub = false
+      for (let g = 1; g + 1 < dzs.length; g++) {
+        const pad = subYPadRef.current.get(g)
+        hasSub = true
+        patch.push(pad ? { min: pad.min, max: pad.max } : { min: null, max: null })
+      }
+      if (hasSub) chart.setOption({ yAxis: patch }, { lazyUpdate: true })
     }
 
     // 初始信息栏
