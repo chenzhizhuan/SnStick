@@ -7,6 +7,7 @@ import {
   useChartSync,
   type ChartSyncApi,
   type PaneSyncHandle,
+  type SyncPoint,
 } from './ChartSyncContext'
 
 /** 单调递增的伪时间标签 (nearestIndex 只依赖字典序/toNum, 格式无关)。 */
@@ -56,7 +57,6 @@ function setup(panes: PaneSyncHandle[]): ChartSyncApi {
   const registered = new WeakMap<object, boolean>()
   const Harness = () => {
     const a = useChartSync()
-    // 注册幂等 (重复 register 覆盖同 id), 收敛到首个 api 实例
     if (a && !registered.get(a)) {
       registered.set(a, true)
       panes.forEach(p => a.register(p))
@@ -82,21 +82,17 @@ describe('ChartSyncContext 联动总线', () => {
     const dispatchB = vi.fn()
     const target = makePane({
       id: 'b',
-      getChart: () =>
-        ({
-          dispatchAction: dispatchB,
-          convertFromPixel: () => [0, 100],
-        }) as never,
+      getChart: () => ({ dispatchAction: dispatchB }) as never,
       getDates: () => dates,
       getVisibleRange: () => [117, 236],
       // 真实语义: 窗口外 idx 像素出界 → null (旧行为下联动被整体丢弃)
-      getSyncPoint: idx => (idx >= 117 && idx <= 236 ? [50, 50] : null),
+      getSyncPoint: idx => (idx >= 117 && idx <= 236 ? { x: 50, y: 50, yValue: 100 } : null),
     })
     const source = makePane({ id: 'a' })
     const api = setup([source, target])
 
     // dates[60] 在窗口 (117 起) 之外 → 旧行为: getSyncPoint(60)=null → 不 dispatch
-    act(() => { api.broadcastCrosshair('a', dates[60]) })
+    act(() => { api.broadcastCrosshair('a', dates[60], 400, 1330) })
     expect(dispatchB).toHaveBeenCalledTimes(1)
     const call = dispatchB.mock.calls[0][0] as { axesInfo: { value: number }[] }
     // 贴边: axesInfo.value = clamp(60 → 117), 目标窗十字画在窗口第一根
@@ -108,23 +104,90 @@ describe('ChartSyncContext 联动总线', () => {
     const dispatchB = vi.fn()
     const target = makePane({
       id: 'b',
-      getChart: () =>
-        ({
-          dispatchAction: dispatchB,
-          convertFromPixel: () => [0, 100],
-        }) as never,
+      getChart: () => ({ dispatchAction: dispatchB }) as never,
       getDates: () => dates,
       getVisibleRange: () => [0, 99], // 目标窗缩放到老区间, 只看前 100 根
-      getSyncPoint: idx => (idx >= 0 && idx <= 99 ? [50, 50] : null),
+      getSyncPoint: idx => (idx >= 0 && idx <= 99 ? { x: 50, y: 50, yValue: 100 } : null),
     })
     const source = makePane({ id: 'a' })
     const api = setup([source, target])
 
     // 'd99999999' 超出目标数据 (nearestIndex 钳到 236) → 再被窗口钳到 99
-    act(() => { api.broadcastCrosshair('a', 'd99999999') })
+    act(() => { api.broadcastCrosshair('a', 'd99999999', 400, 1330) })
     expect(dispatchB).toHaveBeenCalledTimes(1)
     const call = dispatchB.mock.calls[0][0] as { axesInfo: { value: number }[] }
     expect(call.axesInfo[0].value).toBe(99)
+  })
+
+  it('同标的按价格对齐 (第 37 轮): 源窗悬停价格 → 对端 y axesInfo 直用该价格', () => {
+    const dates = fakeDates(237)
+    const dispatchB = vi.fn()
+    const getSyncPoint = vi.fn((_idx: number, _preferY?: number, priceY?: number): SyncPoint => ({
+      x: 88, y: 66, yValue: priceY ?? null,
+    }))
+    const target = makePane({
+      id: 'b',
+      symbol: '600519.SH', // 同标的
+      getChart: () => ({ dispatchAction: dispatchB }) as never,
+      getDates: () => dates,
+      getSyncPoint: getSyncPoint as PaneSyncHandle['getSyncPoint'],
+    })
+    const source = makePane({ id: 'a', symbol: '600519.SH' })
+    const api = setup([source, target])
+
+    act(() => { api.broadcastCrosshair('a', dates[150], 400, 1330.5) })
+    // 同标的: preferY 不传 (像素对齐让位), priceY = 源窗悬停价格
+    expect(getSyncPoint).toHaveBeenCalledWith(150, undefined, 1330.5)
+    const call = dispatchB.mock.calls[0][0] as {
+      x: number; y: number
+      axesInfo: { axisDim: string; value: number }[]
+    }
+    expect(call.x).toBe(88)
+    expect(call.y).toBe(66)
+    expect(call.axesInfo[1]).toEqual({ axisDim: 'y', axisIndex: 0, value: 1330.5 })
+  })
+
+  it('同标的价格出界 (对端缩放到别的区间): yValue null → 只联动垂直线', () => {
+    const dates = fakeDates(237)
+    const dispatchB = vi.fn()
+    const target = makePane({
+      id: 'b',
+      symbol: '600519.SH',
+      getChart: () => ({ dispatchAction: dispatchB }) as never,
+      getDates: () => dates,
+      // 价格模式回退扫描 → yValue null
+      getSyncPoint: () => ({ x: 88, y: 8, yValue: null }),
+    })
+    const source = makePane({ id: 'a', symbol: '600519.SH' })
+    const api = setup([source, target])
+
+    act(() => { api.broadcastCrosshair('a', dates[150], 400, 1330.5) })
+    const call = dispatchB.mock.calls[0][0] as { axesInfo: { axisDim: string }[] }
+    expect(call.axesInfo).toHaveLength(1)
+    expect(call.axesInfo[0].axisDim).toBe('x')
+  })
+
+  it('跨标的保持同像素对齐 (回归锁): preferY 传递, yValue = 对端该像素价格', () => {
+    const dates = fakeDates(237)
+    const dispatchB = vi.fn()
+    const getSyncPoint = vi.fn((_idx: number, preferY?: number): SyncPoint => ({
+      x: 88, y: preferY ?? 0, yValue: 1280.25,
+    }))
+    const target = makePane({
+      id: 'b',
+      symbol: '000783.SZ', // 异股
+      getChart: () => ({ dispatchAction: dispatchB }) as never,
+      getDates: () => dates,
+      getSyncPoint: getSyncPoint as PaneSyncHandle['getSyncPoint'],
+    })
+    const source = makePane({ id: 'a', symbol: '600519.SH' })
+    const api = setup([source, target])
+
+    act(() => { api.broadcastCrosshair('a', dates[150], 400, 1330.5) })
+    // 跨标的: priceY 不传 (异股价格不可比), preferY = 源窗 clientY
+    expect(getSyncPoint).toHaveBeenCalledWith(150, 400, undefined)
+    const call = dispatchB.mock.calls[0][0] as { axesInfo: { axisDim: string; value: number }[] }
+    expect(call.axesInfo[1]).toEqual({ axisDim: 'y', axisIndex: 0, value: 1280.25 })
   })
 
   it('窗口内 idx 联动行为不变 (回归锁: value 原样直传)', () => {
@@ -132,19 +195,15 @@ describe('ChartSyncContext 联动总线', () => {
     const dispatchB = vi.fn()
     const target = makePane({
       id: 'b',
-      getChart: () =>
-        ({
-          dispatchAction: dispatchB,
-          convertFromPixel: () => [0, 100],
-        }) as never,
+      getChart: () => ({ dispatchAction: dispatchB }) as never,
       getDates: () => dates,
       getVisibleRange: () => [117, 236],
-      getSyncPoint: () => [50, 50],
+      getSyncPoint: () => ({ x: 50, y: 50, yValue: 100 }),
     })
     const source = makePane({ id: 'a' })
     const api = setup([source, target])
 
-    act(() => { api.broadcastCrosshair('a', dates[150]) })
+    act(() => { api.broadcastCrosshair('a', dates[150], 400, 1330) })
     expect(dispatchB).toHaveBeenCalledTimes(1)
     const call = dispatchB.mock.calls[0][0] as { axesInfo: { value: number }[] }
     expect(call.axesInfo[0].value).toBe(150)
@@ -155,19 +214,15 @@ describe('ChartSyncContext 联动总线', () => {
     const dispatchB = vi.fn()
     const target = makePane({
       id: 'b',
-      getChart: () =>
-        ({
-          dispatchAction: dispatchB,
-          convertFromPixel: () => [0, 100],
-        }) as never,
+      getChart: () => ({ dispatchAction: dispatchB }) as never,
       getDates: () => dates,
       getVisibleRange: () => null,
-      getSyncPoint: idx => (idx >= 117 && idx <= 236 ? [50, 50] : null),
+      getSyncPoint: idx => (idx >= 117 && idx <= 236 ? { x: 50, y: 50, yValue: 100 } : null),
     })
     const source = makePane({ id: 'a' })
     const api = setup([source, target])
 
-    act(() => { api.broadcastCrosshair('a', dates[60]) })
+    act(() => { api.broadcastCrosshair('a', dates[60], 400, 1330) })
     expect(dispatchB).not.toHaveBeenCalled()
   })
 })

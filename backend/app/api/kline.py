@@ -1051,6 +1051,8 @@ def _latest_live_candle(
 
     # 沿用完整日K接口原有的实时行投影, 避免增量接口形成第二套字段契约。
     # API 在非交易时段可能返回 open/high/low=0, 用 close 填充避免异常蜡烛。
+    # is_live 仅在实时窗口内标记 (第 37 轮): 收盘后行仍注入 (当日收盘价有效),
+    # 但不再标实时 — 与分钟周期注入口径对齐, 前端 ● 徽记收盘后一致消失。
     raw_open = q.get("open")
     raw_high = q.get("high")
     raw_low = q.get("low")
@@ -1064,7 +1066,9 @@ def _latest_live_candle(
         "volume": q.get("volume"),
         "amount": q.get("amount"),
         "change_pct": q.get("change_pct"),
-        "is_live": True,
+        # is_live 仅在实时窗口内标记 (第 37 轮): 收盘后行仍注入 (当日收盘价有效),
+        # 但不再标实时 — 与分钟周期注入口径对齐, 前端 ● 徽记收盘后一致消失。
+        "is_live": _live_quote_window_open(),
     }
     for key in ("ma5", "ma10", "ma20", "ma30", "ma60",
                 "macd_dif", "macd_dea", "macd_hist",
@@ -1099,6 +1103,22 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
 
 # A 股连续竞价两段时段 (墙钟): 09:30-11:30 / 13:00-15:00, 分钟桶对齐段内起点。
 _SESSIONS_MINUTES: tuple[tuple[int, int], ...] = ((9 * 60 + 30, 11 * 60 + 30), (13 * 60, 15 * 60))
+
+
+def _live_quote_window_open(now: datetime | None = None) -> bool:
+    """日级行实时标记窗口 (第 37 轮): 工作日 09:15–15:05 (含集合竞价与收盘定版缓冲)。
+
+    is_live 语义 = 「该行价格正在实时变动」。旧实现不判时段: 收盘后当日 enriched
+    快照仍在 → 4h/1d/2d/4d/1w/1M 全部标 is_live=true → 前端 ● 徽记收盘后残留,
+    而分钟周期 (intraday 注入判时段) 已回落 → 用户观察到「有些时间级别有小圈点
+    有些没有」。行本身收盘后仍注入 (当日完整收盘价有效), 只是不再标记实时。
+    节假日由 enriched_date == cn_today() 新鲜度判据兑底 (非交易日快照被上游拒绝)。
+    """
+    n = now or cn_now()
+    if n.weekday() >= 5:
+        return False
+    t = n.hour * 60 + n.minute
+    return 9 * 60 + 15 <= t < 15 * 60 + 5
 
 
 def _current_intraday_bucket_start(minutes: int, now: datetime | None = None) -> datetime | None:

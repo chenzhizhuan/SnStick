@@ -435,6 +435,28 @@ const FVG_NEG = 'rgba(45,155,101,0.40)'           // 量能子盒下半 (空头�
 // 无上限) → K 线无限变小; 上滚先消 pad 再收 dataZoom 窗口 (filter 让轴跟随窗口数据)。
 // 池化方案废弃原因: ① 默认窗口预收窄到 94% (观感=预放大); ② filterMode:'none' 使
 // min/max 函数收到全历史范围 (4h 图 Y 轴顶到全历史高点 1367, 窗口数据被压 ~86%)。
+//
+// ── 第 37 轮 (2026-10-26): 默认半高 — 用户「K线没必要拉高直接正常显示会更好,
+// 貌似调矮一半」: 贴身 fit 把价格序列拉伸到填满整个主图高度 (K 线细高瘦长, 顶底
+// 触边)。默认 pad 改为上下各 50% 数据范围 → 价格序列居中占一半高度; 放大语义
+// 不变 (上滚先把 0.5 的默认 pad 收到 0 贴身, 再落窗口段收窄); 重置/A/双击回半高。 */
+const Y_DEFAULT_PAD = 0.5
+
+/** 默认 pad 判定 (数值容差): 默认态 = 半高显示, 视作"未手动缩放" (拖拽平移不接管)。 */
+function isDefaultPad(p: { lo: number; hi: number } | undefined): boolean {
+  return !!p && Math.abs(p.lo - Y_DEFAULT_PAD) < 1e-9 && Math.abs(p.hi - Y_DEFAULT_PAD) < 1e-9
+}
+
+/** A 股盘中判定 (客户端钟控): 工作日 09:15–15:05 (含集合竞价与收盘定版缓冲)。
+ *  用于 ● 实时徽记显示门控 (第 37 轮): 服务端 is_live 按交易时段标记后, 页面
+ *  在盘中加载、留到收盘后的 stale 缓存 (日K源窗格无轮询) 由本门控兜底隐藏。
+ *  节假日不可知 (服务端 is_trading_hours 同为钟控), 边缘可接受。 */
+function isMarketOpenNow(now: Date = new Date()): boolean {
+  const d = now.getDay()
+  if (d === 0 || d === 6) return false
+  const t = now.getHours() * 60 + now.getMinutes()
+  return t >= 9 * 60 + 15 && t < 15 * 60 + 5
+}
 
 /** FVG 活跃区间渲染 (Pine 一比一): 主灰盒从起点延伸到末根 + 左 1/3 量能子盒
  *  (上半 bull 色/high_vol 宽, 下半 bear 色/low_vol 宽, mirror 口径均从左端起)。 */
@@ -1403,7 +1425,12 @@ function buildOption(
     // 2026-10-26 用户指定: 现价标签去掉标的代码段, 只显示价格 (窗格顶部已显示
     // 标的, 轴区再带代码冗余; TV 复刻的双段式就此简化)。● 徽记保留 (实时行
     // 提示, 非代码); 单色块 = 价格段色 (平台红=涨/平台绿=跌), 圆角四角。
-    const liveBadge = lastBar.is_live === true ? '●' : ''
+    // 第 37 轮: ● 仅交易时段内显示 — 用户问「为什么有些时间级别有个小圈点」;
+    // 收盘后分钟周期服务端已回落 is_live=false, 但日K源周期 (4h/1d/2d+/agg)
+    // 的日级行实时注入不判时段 → 收盘后 ● 残留 → 「有些级别有有些没有」。
+    // 服务端已改为按交易时段标记 (第 37 轮后端), 此处钟控兜底 stale 缓存
+    // (盘中加载的页面留到收盘后, 日K源窗格无轮询不会重新渲染)。
+    const liveBadge = lastBar.is_live === true && isMarketOpenNow() ? '●' : ''
     const liteBg = lastUp ? '#C74040' : '#2D9B65'
     markLineData.push({
       yAxis: lastBar.close,
@@ -1933,7 +1960,12 @@ export function EChartsCandlestick({
   // Y 轴 pad (第 33 轮): 缩小方向轴 padding per grid (单位 = 数据范围 Δ 的倍数),
   // {lo:0,hi:0} 缺省 = 贴身; 主图 grid 0 由 axisMin/Max 函数读取, 无上限 = 无限小;
   // 重置/双击清空。换股保留 (TV 同款: 换标的保持缩放状态)。
-  const yPadRef = useRef<Map<number, { lo: number; hi: number }>>(new Map())
+  // 初始即含 grid 0 默认 pad {0.5, 0.5} (第 37 轮半高默认): 贴身 fit 会把价格序列
+  // 拉伸到填满主图高度 (细高瘦长/顶底触边), 用户指定「调矮一半」。放大语义:
+  // 上滚先把默认 pad 收到 0 (贴身) 再落窗口段; 重置/A/双击回半高 (不再 clear)。
+  const yPadRef = useRef<Map<number, { lo: number; hi: number }>>(
+    new Map([[0, { lo: Y_DEFAULT_PAD, hi: Y_DEFAULT_PAD }]]),
+  )
   // 副图 Y 轴 pad (第 34 轮): 绝对显示范围 {min,max} + 归零基准 {baseMin,baseMax}
   // (= 进入 pad 段时的自动定界范围)。副图满窗口下窗口段无缩小空间 → pad 扩展
   // (无上限, TV 同款双向); TV 同语义: X 平移时手动范围保持 (不随数据重定界);
@@ -1946,7 +1978,8 @@ export function EChartsCandlestick({
   const priceLinesRef = useRef(priceLines)
   priceLinesRef.current = priceLines
   // 主图 Y 轴范围函数 (第 33 轮 pad 方案): 默认 = 窗口数据贴身 (ECharts filter 后 extent +
-  // priceLines 融合), pad≠0 时扩展。函数式在 buildOption 重建/重置后生效; 滚轮 pad 段以
+  // priceLines 融合), pad≠0 时扩展。第 37 轮起默认 pad = 0.5 (半高, 见 yPadRef 注释),
+  // 贴身 (pad 归零) 成力放大路径的中间态。函数式在 buildOption 重建后生效; 滚轮 pad 段以
   // 数值式 setOption 覆盖 (dispatch dataZoom 同值不触发轴重算 — 实测), pad 归零即恢复。
   const axisMinFn = useCallback(({ min, max }: { min: number; max: number }) => {
     const pad = yPadRef.current.get(0)
@@ -1998,11 +2031,13 @@ export function EChartsCandlestick({
   // 竖虚线(crosshair)是否可见: 控制信息栏「至今」字段的显隐。鼠标移出图表区即 false。
   const hoverActiveRef = useRef(false)
 
-  // Y 轴价格缩放: 重置按钮 (TV 同款「A」) → 全部 grid 恢复默认 (全窗口 + 无 pad = 贴身)
+  // Y 轴价格缩放: 重置按钮 (TV 同款「A」) → 全部 grid 恢复默认
+  // (全窗口 + 主图半高 pad / 副图自动定界; 第 37 轮默认不再是贴身)
   const resetYPrice = useCallback(() => {
     const chart = chartRef.current
     if (!chart) return
-    yPadRef.current.clear()
+    // 主图回默认半高 pad (非 clear — clear 是贴身, 为放大路径的中间态)
+    yPadRef.current.set(0, { lo: Y_DEFAULT_PAD, hi: Y_DEFAULT_PAD })
     subYPadRef.current.clear()
     const dzs = (chart.getOption() as any)?.dataZoom ?? []
     for (let g = 0; g + 1 < dzs.length; g++) {
@@ -2016,8 +2051,10 @@ export function EChartsCandlestick({
     applyYAxisRange()
   }, [applyYAxisRange])
 
-  // 双击重置 (TV 同款): X 回默认 120 根「最佳窗口」(不显示全部数据) + 全部 grid Y 回自动定界。
-  // 120 根窗口记入 userZoomRef (而非清空): range 档位 (如 all) 的 initialZoom 会在下次
+  // 双击重置 (TV 同款): X 回默认 80 根「最佳窗口」(不显示全部数据) + 全部 grid Y 回默认
+  // (主图半高 / 副图自动定界)。第 35 轮 60→120 后用户复测「初始化可视范围还是有点
+  // 大了」→ 第 37 轮调至 80 (60 与 120 之间, TV 同密度)。
+  // 80 根窗口记入 userZoomRef (而非清空): range 档位 (如 all) 的 initialZoom 会在下次
   // setOption 重建 (轮询/SSE 合并) 时把窗口冲回全部, 重置效果必须作为「用户缩放状态」保持。
   // __snSuppressXZoom 抑制计数: 程序窗口操作 — ChartPane 的 dataZoom 监听器豁免 (不清范围栏
   // 高亮不广播); 重置联动由 Chart 协调层按开关显式派发 resetSignal, 不依赖 X 事件广播,
@@ -2028,7 +2065,8 @@ export function EChartsCandlestick({
     const z = defaultZoomRef.current
     userZoomRef.current = { start: z.start, end: z.end }
     yZoomByGridRef.current.clear()
-    yPadRef.current.clear()
+    // 主图回默认半高 pad (第 37 轮, 非 clear)
+    yPadRef.current.set(0, { lo: Y_DEFAULT_PAD, hi: Y_DEFAULT_PAD })
     subYPadRef.current.clear()
     ;(chart as any).__snSuppressXZoom = ((chart as any).__snSuppressXZoom ?? 0) + 1
     chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, start: z.start, end: z.end })
@@ -2119,11 +2157,12 @@ export function EChartsCandlestick({
     return { start, end: 100 }
   }, [visibleBars, data.length])
 
-  // 双击重置的「最佳窗口」: 默认 120 根 (与图表默认视野同口径, 第 35 轮 60→120 —
-  // 用户指定初始化/重置时数据多一点, 高度拉伸矮一点), 不随外部 range (如 all = 全部数据)
+  // 双击重置的「最佳窗口」: 默认 80 根 (与图表默认视野同口径; 第 35 轮 60→120 过冲,
+  // 第 37 轮用户复测「初始化可视范围还是有点大了」→ 调至 80 = 60 与 120 之间、
+  // TV 同密度 ~8.75px/bar), 不随外部 range (如 all = 全部数据)
   // 走 — 多周期多窗下各窗都回到根数合理、K 线粗细可读的窗口 (TV reset 语义, 而非显示全部)。
   const defaultZoom = useMemo(() => ({
-    start: Math.max(0, 100 - (120 / Math.max(data.length, 1)) * 100),
+    start: Math.max(0, 100 - (80 / Math.max(data.length, 1)) * 100),
     end: 100,
   }), [data.length])
   const defaultZoomRef = useRef(defaultZoom)
@@ -2617,8 +2656,11 @@ export function EChartsCandlestick({
       const yz = yZoomByGridRef.current.get(g)
       drag = {
         mode: 'pan', grid: g,
-        // hasY: 主图窗口/pad, 副图窗口/pad 任一在 — pad 段也可拖平移 (第 34 轮补副图)
-        hasY: !!yz || (g === 0 && !!yPadRef.current.get(0)) || (g > 0 && !!subYPadRef.current.get(g)),
+        // hasY: 主图窗口/非默认 pad (默认半高 = 未手动缩放, 不接管), 副图窗口/pad
+        // 任一在 — pad 段也可拖平移 (第 34 轮补副图; 第 37 轮主图排除默认 pad)
+        hasY: !!yz
+          || (g === 0 && !!yPadRef.current.get(0) && !isDefaultPad(yPadRef.current.get(0)))
+          || (g > 0 && !!subYPadRef.current.get(g)),
         x0: ev.offsetX, y0: ev.offsetY, gw: r.width, gh: r.height,
         s0X: xz?.start ?? 0, e0X: xz?.end ?? 100,
         s0Y: yz ? yz.start : 0, e0Y: yz ? yz.end : 100,
@@ -2659,9 +2701,10 @@ export function EChartsCandlestick({
         } else {
           // 主图 pad 段 (第 33 轮): 轴范围整体平移 (保持宽, clamp 到贴身外)。
           // 第 34 轮修正方向: 跟手 = 下拖(dy>0)内容下移 → 轴范围上移 (数值增大) →
-          // pad.lo 减 / pad.hi 增 — 旧实现符号相反 (内容反向漂移, 与窗口段跟手不一致)
+          // pad.lo 减 / pad.hi 增 — 旧实现符号相反 (内容反向漂移, 与窗口段跟手不一致)。
+          // 第 37 轮: 默认半高 pad (0.5) 不算手动范围 — 走窗口段平移 (hasY 由 yz 驱动)
           const pad0 = drag.grid === 0 ? yPadRef.current.get(0) : null
-          if (pad0 && (pad0.lo > 0 || pad0.hi > 0)) {
+          if (pad0 && !isDefaultPad(pad0) && (pad0.lo > 0 || pad0.hi > 0)) {
             const dRange = windowPriceRange()
             if (dRange && dRange.hi > dRange.lo) {
               const dSpan = dRange.hi - dRange.lo

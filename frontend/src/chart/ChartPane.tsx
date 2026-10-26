@@ -20,7 +20,7 @@ import { EChartsCandlestick } from '@/components/EChartsCandlestick'
 import { ChartTopbar, type ChartTopbarPatch } from './ChartTopbar'
 import { useChartPaneData } from './useChartPaneData'
 import { rangeBars, zoomForBars } from './ranges'
-import { useChartSync } from './ChartSyncContext'
+import { useChartSync, type SyncPoint } from './ChartSyncContext'
 import { DEFAULT_DRAW_STYLE, loadDrawings, paneDrawingsStorageKey, saveDrawings, type DrawPoint, type DrawTool, type DrawingObject } from './drawings'
 import type { AdjustMode, PaneConfig } from './useChartLayout'
 
@@ -242,31 +242,60 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
     }
   }, [])
 
-  /** 联动定位点: x 为 idx 像素, y 优先取源窗鼠标 y (跨窗格水平线同像素对齐,
-   *  左右分屏窗格等高同页面位置, 直接可用); 不合法时回退从上往下扫描主图
-   *  grid 内的第一个合法像素。axisTrigger 要求 x/y 落在 grid 内才处理 axesInfo;
-   *  主副图间的间隙会使 getHeight()/2 之类取点失手, containPixel 稳定命中。 */
-  const getSyncPoint = useCallback((idx: number, preferY?: number): [number, number] | null => {
+  /** 联动定位点 (第 37 轮价格对齐): x 为 idx 像素; y 二选一 —
+   *  - priceY (同标的): 水平线画在相同价格 (源窗悬停价 → 本窗 y 轴值 → 像素);
+   *    价格超出本窗 Y 范围 (对端缩放到别的区间) → 回退扫描 (yValue=null, 只垂直线)。
+   *    旧行为 (同像素对齐): 两窗格 Y 标尺/窗口不同 (实测 60m 窗 122 点 vs 4h 窗
+   *    259 点), 同像素 = 价格错位 ~30-40 点 — 用户实测「大级别价格位置不准确」。
+   *  - preferY (跨标的): 源窗 clientY (视口坐标) 减本窗 canvas rect.top 得
+   *    canvas 内坐标 (左右分屏窗格等高同页面位置, 同一 clientY 即同视觉位置)。
+   *  不合法时回退从上往下扫描主图 grid 内的第一个合法像素 (yValue=null)。
+   *  axisTrigger 要求 x/y 落在 grid 内才处理 axesInfo; 主副图间的间隙会使
+   *  getHeight()/2 之类取点失手, containPixel 稳定命中。 */
+  const getSyncPoint = useCallback((
+    idx: number,
+    preferY?: number,
+    priceY?: number,
+  ): SyncPoint | null => {
     const chart = chartRef.current
     if (!chart) return null
     const px = chart.convertToPixel({ xAxisIndex: 0 }, idx)
     if (!Number.isFinite(px)) return null
     const h = chart.getHeight()
-    // preferY 为源窗 clientY (视口坐标): 减本窗 canvas rect.top 得 canvas 内坐标
-    // (左右分屏窗格同页面高度, 同一 clientY 即同视觉位置)
+    // 价格对齐 (同标的): 悬停价格 → 本窗主图 y 轴像素; 命中 grid 内即画水平线
+    if (priceY != null && Number.isFinite(priceY)) {
+      try {
+        const p = chart.convertToPixel({ gridIndex: 0 }, [0, priceY]) as number[] | number | null
+        const py = Array.isArray(p) ? p[1] : p
+        if (Number.isFinite(py) && chart.containPixel({ gridIndex: 0 }, [px, py as number])) {
+          return { x: px, y: py as number, yValue: priceY }
+        }
+      } catch { /* y 轴未就绪 → 回退扫描 (只垂直线) */ }
+      for (let y = 4; y < h; y += 4) {
+        if (chart.containPixel({ gridIndex: 0 }, [px, y])) return { x: px, y, yValue: null }
+      }
+      return null
+    }
+    // 同像素对齐 (跨标的): 水平线 value = 本窗该像素的 y 轴值
     if (preferY != null) {
       try {
         const cv = chart.getDom()?.querySelector('canvas')
         if (cv) {
           const yLocal = preferY - cv.getBoundingClientRect().top
           if (yLocal >= 4 && yLocal < h - 4 && chart.containPixel({ gridIndex: 0 }, [px, yLocal])) {
-            return [px, yLocal]
+            let yValue: number | null = null
+            try {
+              const v = chart.convertFromPixel({ gridIndex: 0 }, [px, yLocal]) as number[] | null
+              const vv = Array.isArray(v) ? v[1] : v
+              if (Number.isFinite(vv)) yValue = vv as number
+            } catch { /* y 轴未就绪 → 只垂直线 */ }
+            return { x: px, y: yLocal, yValue }
           }
         }
       } catch { /* canvas 未就绪时回退扫描 */ }
     }
     for (let y = 4; y < h; y += 4) {
-      if (chart.containPixel({ gridIndex: 0 }, [px, y])) return [px, y]
+      if (chart.containPixel({ gridIndex: 0 }, [px, y])) return { x: px, y, yValue: null }
     }
     return null
   }, [])
@@ -320,22 +349,31 @@ export function ChartPane({ pane, drawTool, syncDrawings, adjust, onChange, isAc
       }
     })
 
-    // 十字光标广播: hover 的 date + 鼠标 y (供对端水平线同像素对齐) → 总线 (轻量, 不节流)
+    // 十字光标广播: hover 的 date + 鼠标 y (跨标的同像素对齐用) + 悬停价格
+    // (主图 y 轴值, 同标的按价格对齐 — 第 37 轮) → 总线 (轻量, 不节流)
     chart.on('updateAxisPointer', (event: any) => {
       if (!syncApi || syncApi.isApplying(pane.id) || paneSyncRef.current !== 'follow') return
       const ds = datesRef.current
       const axesInfo = event?.axesInfo
       let foundIdx = -1
+      let yVal: number | null = null
       if (axesInfo) {
         for (const info of Object.values(axesInfo)) {
           const v = (info as any)?.value
           if (v == null) continue
+          // 主图 y 轴 (axisIndex 0) 值 = 悬停价格 — 同标的联动水平线按价格对齐;
+          // 副图 y (axisIndex 1+) 是 MACD/RSI 值, 不可当价格 (跳过 → 对端像素回退)
+          if ((info as any)?.axisDim === 'y' && (info as any)?.axisIndex === 0
+              && typeof v === 'number' && Number.isFinite(v)) {
+            yVal = v
+            continue
+          }
           const idx = typeof v === 'number' ? v : ds.indexOf(v)
           if (idx >= 0 && idx < ds.length) { foundIdx = idx; break }
         }
       }
       if (foundIdx < 0) return
-      syncApi.broadcastCrosshair(pane.id, ds[foundIdx], lastMouseYRef.current)
+      syncApi.broadcastCrosshair(pane.id, ds[foundIdx], lastMouseYRef.current, yVal)
     })
 
     // 鼠标离开本 pane → 广播清除各窗十字光标

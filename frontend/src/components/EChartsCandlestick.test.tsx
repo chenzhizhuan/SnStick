@@ -406,16 +406,17 @@ it('十字线可见性: crossStyle alpha ≥ 0.5 (水平线 1px 虚线在深底�
   expect(alpha as number).toBeGreaterThanOrEqual(0.5)
 })
 
-it('Y 轴默认贴身: 轴范围=窗口数据范围 (第 33 轮重构, 废除池化预放大)', async () => {
+it('Y 轴默认半高 (第 37 轮): 轴范围 = 窗口数据 ± 50% 数据范围, 价格序列居中占一半高度', async () => {
   await act(async () => root.render(
     <EChartsCandlestick data={rows(10)} symbol="600000" height={400} visibleBars="all" showMA={false} />,
   ))
   const option = chart.setOption.mock.calls.at(-1)?.[0] as any
   const y0 = option?.yAxis?.[0]
   expect(typeof y0?.min).toBe('function')
-  // 窗口数据 {100,110} → 贴身 100/110 (池化方案下是 95/115 = 默认预放大 6%)
-  expect(y0.min({ min: 100, max: 110 })).toBe(100)
-  expect(y0.max({ min: 100, max: 110 })).toBe(110)
+  // 窗口数据 {100,110} → 半高 95/115 (第 33 轮贴身 100/110 废除 — 用户「K线没必要拉高
+  // 直接正常显示会更好, 貌似调矮一半」: 贴身把价格序列拉伸到填满主图高度)
+  expect(y0.min({ min: 100, max: 110 })).toBe(95)
+  expect(y0.max({ min: 100, max: 110 })).toBe(115)
   const yZoom = (option?.dataZoom ?? []).find((z: any) => z.yAxisIndex != null)
   expect(yZoom.start).toBe(0)
   expect(yZoom.end).toBe(100)
@@ -440,8 +441,8 @@ it('Y 轴滚轮缩放: 刻度带下滚无限缩小 (pad 扩展无上限) / 上�
       offsetX: 840, offsetY: 200, wheelDelta: delta, preventDefault: vi.fn(),
     }))
   }
-  // 初始贴身 (rows(10): H=11 L=9)
-  expect(rangeOf()).toEqual({ lo: 9, hi: 11 })
+  // 初始半高 (rows(10): H=11 L=9, span 2 → pad 0.5 → 8/12)
+  expect(rangeOf()).toEqual({ lo: 8, hi: 12 })
   // 下滚 ×3 (缩小): pad 段轴范围以鼠标锚扩展, 无上限
   await wheel(-1); await wheel(-1); await wheel(-1)
   const minOut = rangeOf().lo
@@ -676,7 +677,7 @@ it('RSI+ 值显示精简: 仅 RSI+ 数值, 高位/低位/S/B 提示全部去除 
   expect(t2).not.toContain('超卖')
 })
 
-it('现价标签只显示价格 (2026-10-26 用户指定: 去掉标的代码段; ● 实时徽记保留)', async () => {
+it('现价标签只显示价格 + ● 徽记交易时段门控 (第 37 轮: 收盘后 stale is_live 兜底隐藏)', async () => {
   // 旧双段式 {c|600519}{p|1335.00} 对齐 TV; 用户反馈窗格顶部已有标的, 轴区
   // 带代码冗余 → 纯价格单色块。实时行 (is_live) 前缀 ● 徽记保留。
   const mkData = (isLive?: boolean) => rows(10).map((r, i) => (
@@ -692,11 +693,32 @@ it('现价标签只显示价格 (2026-10-26 用户指定: 去掉标的代码段;
   expect(label!.formatter).not.toContain('600519')
   // 涨跌配色: 末根 close(10) >= 前根(10) → 平台红
   expect(label!.bg).toBe('#C74040')
-  // 实时行: ● 徽记前缀 (非代码)
-  await act(async () => root.render(
-    <EChartsCandlestick data={mkData(true)} symbol="600519.SH" height={400} visibleBars="all" showMA={false} />,
-  ))
-  label = lastPriceLabel()
-  expect(label!.formatter).toBe('●10.00')
-  expect(label!.formatter).not.toContain('600519')
+  // 实时行 ● 徽记: 钟控门控 (第 37 轮) — 用 fake clock 固定在盘中 (周二 10:00)
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(new Date(2026, 9, 27, 10, 0)) // 2026-10-27 周二 10:00 盘中
+    await act(async () => root.render(
+      <EChartsCandlestick data={mkData(true)} symbol="600519.SH" height={400} visibleBars="all" showMA={false} />,
+    ))
+    label = lastPriceLabel()
+    expect(label!.formatter).toBe('●10.00')
+    expect(label!.formatter).not.toContain('600519')
+    // 收盘后 (15:30): 同样的 stale is_live 数据 → ● 隐藏 (服务端已不标, 此处兜底
+    // 盘中加载页面留到收盘后、日K源窗格无轮询不重渲染的缓存)
+    vi.setSystemTime(new Date(2026, 9, 27, 15, 30))
+    await act(async () => root.render(
+      <EChartsCandlestick data={mkData(true)} symbol="600519.SH" height={400} visibleBars="all" showMA={false} />,
+    ))
+    label = lastPriceLabel()
+    expect(label!.formatter).toBe('10.00')
+    // 周末: 同样隐藏
+    vi.setSystemTime(new Date(2026, 9, 31, 10, 0)) // 2026-10-31 周六
+    await act(async () => root.render(
+      <EChartsCandlestick data={mkData(true)} symbol="600519.SH" height={400} visibleBars="all" showMA={false} />,
+    ))
+    label = lastPriceLabel()
+    expect(label!.formatter).toBe('10.00')
+  } finally {
+    vi.useRealTimers()
+  }
 })

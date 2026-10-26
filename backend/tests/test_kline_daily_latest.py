@@ -75,6 +75,8 @@ def test_daily_latest_returns_only_current_memory_row(monkeypatch) -> None:
     from app.api import kline as kline_api
 
     monkeypatch.setattr(kline_api, "cn_today", lambda: date.today())
+    # is_live 门控 (第 37 轮): 钉在盘中 — 测试真实时钟下 (夜间/周末跑测) 不随机红
+    monkeypatch.setattr(kline_api, "_live_quote_window_open", lambda now=None: True)
     client, repo = _client(_live_frame(), date.today())
 
     response = client.get("/api/kline/daily/latest", params={"symbol": "600000.SH"})
@@ -248,10 +250,12 @@ def test_live_candle_uses_beijing_today_not_server_local(monkeypatch) -> None:
     from app.api import kline as kline_api
 
     monkeypatch.setattr(kline_api, "cn_today", lambda: BJ, raising=False)
+    monkeypatch.setattr(kline_api, "_live_quote_window_open", lambda now=None: True)
     row = kline_api._latest_live_candle(_request(_frame_on(BJ), BJ), "600000.SH", "stock")
     assert row is not None
     assert row["close"] == 10.6
     assert row["date"] == str(BJ)
+    assert row["is_live"] is True
 
 
 def test_live_candle_stale_vs_beijing_today(monkeypatch) -> None:
@@ -305,3 +309,42 @@ def test_get_daily_default_end_is_beijing_today(monkeypatch) -> None:
     assert captured, "应查询日K"
     _start, end = captured[0]
     assert end == BJ, f"窗口右端必须是北京日期 {BJ}, 实际 {end} (服务器本地 {date.today()})"
+
+
+# ── 第 37 轮: is_live 按交易时段标记 (收盘后 ● 徽记残留修复) ──
+
+
+def test_live_quote_window_open() -> None:
+    """日级行实时标记窗口: 工作日 09:15–15:05 (含集合竞价与收盘定版缓冲)。"""
+    from datetime import datetime
+
+    from app.api.kline import _live_quote_window_open
+
+    # 周二 (2026-10-27) 各时点
+    assert _live_quote_window_open(datetime(2026, 10, 27, 9, 14)) is False  # 盘前
+    assert _live_quote_window_open(datetime(2026, 10, 27, 9, 15)) is True   # 集合竞价起
+    assert _live_quote_window_open(datetime(2026, 10, 27, 10, 0)) is True   # 上午盘
+    assert _live_quote_window_open(datetime(2026, 10, 27, 12, 0)) is True   # 午休 (日K bar 未完成)
+    assert _live_quote_window_open(datetime(2026, 10, 27, 14, 59)) is True
+    assert _live_quote_window_open(datetime(2026, 10, 27, 15, 4)) is True   # 收盘定版缓冲
+    assert _live_quote_window_open(datetime(2026, 10, 27, 15, 5)) is False  # 缓冲结束
+    assert _live_quote_window_open(datetime(2026, 10, 27, 22, 0)) is False  # 夜间
+    # 周末 (2026-10-31 周六 / 2026-11-01 周日)
+    assert _live_quote_window_open(datetime(2026, 10, 31, 10, 0)) is False
+    assert _live_quote_window_open(datetime(2026, 11, 1, 10, 0)) is False
+
+
+def test_live_candle_after_close_still_injected_but_not_live(monkeypatch) -> None:
+    """收盘后: 当日行仍注入 (收盘价有效), 但 is_live=False (第 37 轮)。
+
+    旧行为: 收盘后当日 enriched 快照仍在 → is_live=True → 前端 ● 徽记残留
+    (分钟周期注入口径已判时段 → 「有些时间级别有小圈点」的根因)。
+    """
+    from app.api import kline as kline_api
+
+    monkeypatch.setattr(kline_api, "cn_today", lambda: BJ, raising=False)
+    monkeypatch.setattr(kline_api, "_live_quote_window_open", lambda now=None: False)
+    row = kline_api._latest_live_candle(_request(_frame_on(BJ), BJ), "600000.SH", "stock")
+    assert row is not None
+    assert row["close"] == 10.6
+    assert row["is_live"] is False
