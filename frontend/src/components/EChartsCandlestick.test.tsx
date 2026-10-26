@@ -107,6 +107,16 @@ function lastMarkPoint(): string {
   return JSON.stringify(k?.markPoint ?? null)
 }
 
+/** 最后一次 setOption 里现价标签 (markLine 末根收盘价项) 的 label */
+function lastPriceLabel(): { formatter: string; bg: string } | null {
+  const option = chart.setOption.mock.calls.at(-1)?.[0] as any
+  const k = option?.series?.find((s: any) => s.name === 'K')
+  const data = k?.markLine?.data as any[] | undefined
+  const item = (data ?? []).find((d: any) => d?.yAxis != null && d?.label?.show === true)
+  if (!item) return null
+  return { formatter: String(item.label.formatter ?? ''), bg: String(item.label.backgroundColor ?? '') }
+}
+
 /** 模拟竖虚线命中某根 K 线 (鼠标在数据区内移动时 echarts 派发的事件) */
 async function hoverCandle(index: number) {
   await act(async () => { chart.handlers.updateAxisPointer?.({ axesInfo: [{ value: index }] }) })
@@ -664,4 +674,29 @@ it('RSI+ 值显示精简: 仅 RSI+ 数值, 高位/低位/S/B 提示全部去除 
   expect(t2).toContain('RSI+:-0.30')
   expect(t2).not.toContain('低位')
   expect(t2).not.toContain('超卖')
+})
+
+it('现价标签只显示价格 (2026-10-26 用户指定: 去掉标的代码段; ● 实时徽记保留)', async () => {
+  // 旧双段式 {c|600519}{p|1335.00} 对齐 TV; 用户反馈窗格顶部已有标的, 轴区
+  // 带代码冗余 → 纯价格单色块。实时行 (is_live) 前缀 ● 徽记保留。
+  const mkData = (isLive?: boolean) => rows(10).map((r, i) => (
+    i === 61 ? { ...r, is_live: isLive } : r   // rows 恒 62 根; is_live 加末根
+  ))
+  await act(async () => root.render(
+    <EChartsCandlestick data={mkData()} symbol="600519.SH" height={400} visibleBars="all" showMA={false} />,
+  ))
+  let label = lastPriceLabel()
+  expect(label).not.toBeNull()
+  // rows(10) 末根 close=10 → "10.00"; 无代码段
+  expect(label!.formatter).toBe('10.00')
+  expect(label!.formatter).not.toContain('600519')
+  // 涨跌配色: 末根 close(10) >= 前根(10) → 平台红
+  expect(label!.bg).toBe('#C74040')
+  // 实时行: ● 徽记前缀 (非代码)
+  await act(async () => root.render(
+    <EChartsCandlestick data={mkData(true)} symbol="600519.SH" height={400} visibleBars="all" showMA={false} />,
+  ))
+  label = lastPriceLabel()
+  expect(label!.formatter).toBe('●10.00')
+  expect(label!.formatter).not.toContain('600519')
 })

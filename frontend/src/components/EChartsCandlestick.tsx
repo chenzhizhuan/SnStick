@@ -1119,7 +1119,6 @@ function buildOption(
   showRyDiamond: boolean,
   showRyDivergence: boolean,
   xLabelMetrics: { current: { axisWidth: number; visibleCount: number; containerWidth: number } },
-  symbol: string | undefined,
   axisMinFn: (v: { min: number; max: number }) => number,
   axisMaxFn: (v: { min: number; max: number }) => number,
 ): EChartsOption {
@@ -1204,10 +1203,10 @@ function buildOption(
   // ====== 布局计算 ======
   // TV/同花顺同款: 价格轴在右侧 (最新价标签贴右缘, 符合阅读直觉);
   // left 只留 x 轴末端留白, right 让出 Y 轴标签宽度。
-  const left = 46
-  // 右侧轴区 108px: 容纳双段式现价标签 (~98px + 边距) 完整显示不裁切
-  // (2026-10-25 修复: 原 60px 时标签被右侧裁掉 ~45px, "600519 13" 后不可见)
-  const right = 108
+   const left = 46
+   // 右侧轴区 108px: 现价标签完整显示不裁切 (2026-10-25 修复: 原 60px 时标签被右侧
+   // 裁掉 ~45px; 2026-10-26 标签简化为纯价格后更宽裕, 宽度保持不动 — 轴刻度布局稳定)
+   const right = 108
   const topPad = 8
   const candleBottomPad = 22
 
@@ -1401,32 +1400,24 @@ function buildOption(
     const lastUp = prevBar != null && Number.isFinite(prevBar.close)
       ? lastBar.close >= prevBar.close
       : true
+    // 2026-10-26 用户指定: 现价标签去掉标的代码段, 只显示价格 (窗格顶部已显示
+    // 标的, 轴区再带代码冗余; TV 复刻的双段式就此简化)。● 徽记保留 (实时行
+    // 提示, 非代码); 单色块 = 价格段色 (平台红=涨/平台绿=跌), 圆角四角。
     const liveBadge = lastBar.is_live === true ? '●' : ''
-    const codeText = `${liveBadge}${(symbol ?? '').split('.')[0]}`
-    const deepBg = lastUp ? '#953030' : '#22744C'   // 代码段 (深红=涨/深绿=跌, 平台色板暗阶)
-    const liteBg = lastUp ? '#C74040' : '#2D9B65'   // 价格段 (平台红=涨/平台绿=跌)
+    const liteBg = lastUp ? '#C74040' : '#2D9B65'
     markLineData.push({
       yAxis: lastBar.close,
       symbol: 'none',
       lineStyle: { color: lastUp ? THEME.bull : THEME.bear, type: 'dashed', width: 1, opacity: 0.5 },
       label: {
         show: true,
-        formatter: `{c|${codeText}}{p|${lastBar.close.toFixed(2)}}`,
+        formatter: `${liveBadge}${lastBar.close.toFixed(2)}`,
         position: 'end',
-        rich: {
-          c: {
-            color: '#FFFFFF', backgroundColor: deepBg,
-            padding: [3, 2, 3, 5], fontSize: 9,
-            fontFamily: 'JetBrains Mono, monospace',
-            borderRadius: [2, 0, 0, 2],
-          },
-          p: {
-            color: '#FFFFFF', backgroundColor: liteBg,
-            padding: [2, 5, 2, 2], fontSize: 10, fontWeight: 'bold',
-            fontFamily: 'JetBrains Mono, monospace',
-            borderRadius: [0, 2, 2, 0],
-          },
-        },
+        color: '#FFFFFF',
+        backgroundColor: liteBg,
+        padding: [2, 5, 2, 5], fontSize: 10, fontWeight: 'bold',
+        fontFamily: 'JetBrains Mono, monospace',
+        borderRadius: 2,
       },
     })
   }
@@ -2858,7 +2849,6 @@ export function EChartsCandlestick({
       showRyDiamond,
       showRyDivergence,
       xLabelMetricsRef,
-      _symbol,
       axisMinFn,
       axisMaxFn,
     )
