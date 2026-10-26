@@ -306,6 +306,8 @@ async function main() {
   record('T8 周期切换', t8ok, t8d)
 
   // ── T9 复权切换 (直接 DOM 查询; active 类 = bg-accent) ──
+  // 第 34 轮 (2026-10-26): 默认复权 qfq → raw 对齐 TV (TV ADJ 默认关)。
+  // 流程改为: 初始不复权 → 切前复权 → 复原不复权。
   const adjustState = () => scanIn(() => {
     const btns = Array.from(document.querySelectorAll('button')).filter(b => ['前复权', '不复权', '送转复权'].includes((b.textContent || '').trim()))
     const map = {}
@@ -314,21 +316,21 @@ async function main() {
   })
   let t9ok = false, t9d = ''
   const s0 = await adjustState()
-  if (s0['前复权'] !== undefined) {
-    await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').trim() === '不复权')
-      btn?.click()
-    })
-    await sleep(3500)
-    const s1 = await adjustState()
+  if (s0['不复权'] !== undefined) {
     await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').trim() === '前复权')
       btn?.click()
     })
     await sleep(3500)
+    const s1 = await adjustState()
+    await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').trim() === '不复权')
+      btn?.click()
+    })
+    await sleep(3500)
     const s2 = await adjustState()
-    t9ok = s0['前复权'] === true && s1['不复权'] === true && s1['前复权'] === false && s2['前复权'] === true
-    t9d = `初始前复权=${s0['前复权']}, 切后不复权=${s1['不复权']}, 复原=${s2['前复权']}`
+    t9ok = s0['不复权'] === true && s1['前复权'] === true && s1['不复权'] === false && s2['不复权'] === true
+    t9d = `初始不复权=${s0['不复权']}, 切后前复权=${s1['前复权']}, 复原=${s2['不复权']}`
   } else t9d = '未找到复权按钮'
   record('T9 复权切换', t9ok, t9d)
 
