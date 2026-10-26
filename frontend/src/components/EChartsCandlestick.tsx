@@ -2374,16 +2374,17 @@ export function EChartsCandlestick({
       return comp?.coordinateSystem?.getRect()
     }
     /** 副图 g 的 Y 轴当前显示范围 (自动定界时的 extent) — 首次进入 pad 段的基准。
-     *  路径: grid 组件的 Cartesian2D.getAxis('y') (必须带 dim 参数 — 无参返回 undefined,
+     *  路径: grid 组件 Grid.getAxis('y', g) — 第二参是该轴的全局 componentIndex
+     *  (SSR 实测: 副图轴挂在 axesMap['y'][g] 而非 [0], 无参调用只对 grid 0 有效 —
      *  第 34 轮线上缩小无效的根因); yAxis 组件路径留兜底。只读不依赖其触发更新
      *  (第 33 轮教训: dispatch 同值短路), pad 更新走数值式 setOption。 */
     const gridYAxisExtent = (g: number): [number, number] | null => {
       const model = (chart as any).getModel()
       const gridComp = model.getComponent('grid', g)
-      let axis = gridComp?.coordinateSystem?.getAxis?.('y')
+      let axis = gridComp?.coordinateSystem?.getAxis?.('y', g)
       if (!axis) {
         const yComp = model.getComponent('yAxis', g)
-        axis = yComp?.coordinateSystem?.getAxis?.('y')
+        axis = yComp?.coordinateSystem?.getAxis?.('y', g)
           ?? yComp?.coordinateSystem?.getAxis?.()
           ?? (yComp as any)?.axis
       }
