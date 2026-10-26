@@ -965,7 +965,7 @@ interface Props {
   externalDrawings?: DrawingObject[]
   /** 图区内按住拖拽平移 Y 窗口 (Y 已手动缩放时生效); 绘图模式下应传 false 让位给画线 */
   panEnabled?: boolean
-  /** 双击重置信号 (图表工作台): 值变化时执行 TV 同款重置 (60 根最佳窗口 + 全部 grid Y 归位) */
+  /** 双击重置信号 (图表工作台): 值变化时执行 TV 同款重置 (120 根最佳窗口 + 全部 grid Y 归位) */
   resetSignal?: number
   /** 双击重置请求回调 (图表工作台): 存在时双击只上报、由 resetSignal 统一驱动重置;
    *  缺省时保持本地双击自重置 (个股分析页等无协调层的调用方不受影响) */
@@ -2016,8 +2016,8 @@ export function EChartsCandlestick({
     applyYAxisRange()
   }, [applyYAxisRange])
 
-  // 双击重置 (TV 同款): X 回默认 60 根「最佳窗口」(不显示全部数据) + 全部 grid Y 回自动定界。
-  // 60 根窗口记入 userZoomRef (而非清空): range 档位 (如 all) 的 initialZoom 会在下次
+  // 双击重置 (TV 同款): X 回默认 120 根「最佳窗口」(不显示全部数据) + 全部 grid Y 回自动定界。
+  // 120 根窗口记入 userZoomRef (而非清空): range 档位 (如 all) 的 initialZoom 会在下次
   // setOption 重建 (轮询/SSE 合并) 时把窗口冲回全部, 重置效果必须作为「用户缩放状态」保持。
   // __snSuppressXZoom 抑制计数: 程序窗口操作 — ChartPane 的 dataZoom 监听器豁免 (不清范围栏
   // 高亮不广播); 重置联动由 Chart 协调层按开关显式派发 resetSignal, 不依赖 X 事件广播,
@@ -2119,10 +2119,11 @@ export function EChartsCandlestick({
     return { start, end: 100 }
   }, [visibleBars, data.length])
 
-  // 双击重置的「最佳窗口」: 默认 60 根 (与图表默认视野同口径), 不随外部 range (如 all = 全部数据)
+  // 双击重置的「最佳窗口」: 默认 120 根 (与图表默认视野同口径, 第 35 轮 60→120 —
+  // 用户指定初始化/重置时数据多一点, 高度拉伸矮一点), 不随外部 range (如 all = 全部数据)
   // 走 — 多周期多窗下各窗都回到根数合理、K 线粗细可读的窗口 (TV reset 语义, 而非显示全部)。
   const defaultZoom = useMemo(() => ({
-    start: Math.max(0, 100 - (60 / Math.max(data.length, 1)) * 100),
+    start: Math.max(0, 100 - (120 / Math.max(data.length, 1)) * 100),
     end: 100,
   }), [data.length])
   const defaultZoomRef = useRef(defaultZoom)

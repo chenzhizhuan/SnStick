@@ -49,11 +49,13 @@ function ytdTradingDays(now: Date): number {
 }
 
 /** 指定范围在该周期下的目标可见 bar 根数 (all = 全量, 由调用方用数据长度处理)。
- *  无效/缺失 key → 默认 60 根「最佳窗口」: 与双击重置同口径 — 首次加载不展示全量
- *  (几百上千根 K 线挤成针尖, 多周期多窗下粗细不可读), 用户要看全部点「全部」档。 */
+ *  无效/缺失 key → 默认 120 根「最佳窗口」: 与双击重置同口径 — 首次加载不展示全量
+ *  (几百上千根 K 线挤成针尖, 多周期多窗下粗细不可读), 用户要看全部点「全部」档。
+ *  第 35 轮 (2026-10-26): 60 → 120 根, 用户指定「初始化/重置时 K 线数据合理多一点,
+ *  高度拉伸矮一点」— 窗口翻倍后可见价格范围更宽 (K 线更扁平), bar 密度更合理。 */
 export function rangeBars(rangeKey: string | null | undefined, period: Period, now: Date = new Date()): number | 'all' {
   const def = RANGES.find(r => r.key === rangeKey)
-  if (!def) return 60
+  if (!def) return 120
   if (def.special === 'all') return 'all'
   const days = def.special === 'ytd' ? ytdTradingDays(now) : def.days ?? 1
   return Math.max(1, Math.round(days * BARS_PER_DAY[period]))

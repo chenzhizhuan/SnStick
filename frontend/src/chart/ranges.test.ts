@@ -30,11 +30,11 @@ describe('rangeBars', () => {
     expect(rangeBars('ytd', '1d', new Date(2026, 0, 1))).toBe(1)
   })
 
-  it('无效/缺失 key → 默认 60 根最佳窗口 (首次加载不全量, 与双击重置同口径)', () => {
-    expect(rangeBars('unknown', '1d')).toBe(60)
-    expect(rangeBars(null, '1d')).toBe(60)
-    expect(rangeBars(undefined, '1d')).toBe(60)
-    expect(rangeBars(null, '15m')).toBe(60)
+  it('无效/缺失 key → 默认 120 根最佳窗口 (第 35 轮 60→120; 首次加载不全量, 与双击重置同口径)', () => {
+    expect(rangeBars('unknown', '1d')).toBe(120)
+    expect(rangeBars(null, '1d')).toBe(120)
+    expect(rangeBars(undefined, '1d')).toBe(120)
+    expect(rangeBars(null, '15m')).toBe(120)
   })
 
   it('9 档定义完整且 key 唯一', () => {

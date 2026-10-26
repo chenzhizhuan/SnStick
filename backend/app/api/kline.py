@@ -1097,6 +1097,73 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
     return rows
 
 
+# A 股连续竞价两段时段 (墙钟): 09:30-11:30 / 13:00-15:00, 分钟桶对齐段内起点。
+_SESSIONS_MINUTES: tuple[tuple[int, int], ...] = ((9 * 60 + 30, 11 * 60 + 30), (13 * 60, 15 * 60))
+
+
+def _current_intraday_bucket_start(minutes: int, now: datetime | None = None) -> datetime | None:
+    """当前分钟桶的开始时刻 (A 股两段时段内按 minutes 对齐); 非连续竞价时段返回 None。
+
+    第 35 轮 (2026-10-26): intraday (15m/60m) 实时快照注入用 — 判断末根 bar
+    是否为当前进行中的桶。边界取半开区间 [s, e): 恰在 11:30/15:00 的整点
+    (上段刚结束) 不属于任何段 → None, 避免算出不存在的 11:30/15:00 起始桶。
+    """
+    now = now or cn_now()
+    now_min = now.hour * 60 + now.minute
+    for s, e in _SESSIONS_MINUTES:
+        if s <= now_min < e:
+            start = s + (now_min - s) // minutes * minutes
+            return now.replace(hour=start // 60, minute=start % 60, second=0, microsecond=0)
+    return None
+
+
+def _inject_intraday_live(
+    bars: list[dict],
+    minutes: int,
+    live_row: dict | None,
+    now: datetime | None = None,
+) -> list[dict]:
+    """把日线实时快照并入 intraday bars 的当前桶 (第 35 轮, TV 同款 ● 徽记语义)。
+
+    用户复测: 15分/1小时 周期现价标签无 ● 实时徽记 — 根因 get_intraday 不注入
+    实时行, 末根收盘停留在本地分钟K上次落盘轮 (≥60s 轮次)。日线源周期
+    (4h/1d/2d/4d/1w/1M) 经 _maybe_inject_live_candle 有 is_live, 口径不一致。
+
+    规则 (非连续竞价时段/无实时数据/实时价无效 → 原样返回):
+    - 末根 = 当前桶: close 并实时价, high/low 取极值, is_live=True;
+      open/volume/amount 不动 (桶内首笔已定; 日线累计量 ≠ 桶量)。
+    - 末根 ≠ 当前桶 (落盘滞后/盘初): 追加退化实时桶 O=H=L=C=实时价 (TV 盘初同款),
+      历史桶不标记。注入在 attach_intraday_plus 之前调用 → 指标覆盖实时行。
+    """
+    if not live_row:
+        return bars
+    price = live_row.get("close")
+    if not price or price <= 0:
+        return bars
+    cur_bucket = _current_intraday_bucket_start(minutes, now)
+    if cur_bucket is None:
+        return bars
+    cur_key = cur_bucket.strftime("%Y-%m-%d %H:%M")
+    if bars and str(bars[-1]["date"]) == cur_key:
+        b = bars[-1]
+        b["close"] = price
+        hi = b.get("high")
+        lo = b.get("low")
+        b["high"] = max(hi if hi is not None else price, price)
+        b["low"] = min(lo if lo is not None else price, price)
+        b["is_live"] = True
+    else:
+        # 末根不是当前桶 (落盘滞后/隔夜/盘初) → 追加今天的退化实时桶;
+        # 与末根是否同日无关 — 只要当前桶存在且末根不是它就追加。
+        bars.append({
+            "date": cur_key,
+            "open": price, "high": price, "low": price, "close": price,
+            "volume": None, "amount": None,
+            "is_live": True,
+        })
+    return bars
+
+
 @router.get("/daily/latest")
 def get_daily_latest(
     request: Request,
@@ -1630,6 +1697,12 @@ def get_intraday(
         bars = [b for b in all_bars if str(b["date"])[:10] >= cutoff]
     else:
         warmup_bars, bars = [], all_bars
+    # 实时快照注入当前桶 (第 35 轮): 15m/60m 现价标签 ● 徽记与日线源周期同口径 —
+    # 末根收盘并实时价 (本地分钟K ≥60s 轮次滞后), is_live 标记走前端 ● 徽记;
+    # 注入先于 attach, 指标 (MACD+/RSI+) 覆盖实时行。前端 15s 轮询 → 标签 ≤15s 步进。
+    live_row = _latest_live_candle(request, symbol, asset_type)
+    if live_row is not None:
+        bars = _inject_intraday_live(bars, minutes, live_row)
     attach_intraday_plus(bars, minutes, warmup_bars=warmup_bars)
 
     return _gzip_payload(
