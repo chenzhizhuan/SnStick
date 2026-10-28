@@ -871,7 +871,12 @@ export function Layout() {
       }}
     >
       {/* ===== v3.2 顶部品牌栏：Logo + 产品名 + 版本 | 状态徽标 + 主题 + 折叠 ===== */}
-      <header className="sn-topbar col-span-full z-20 flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
+      {/* z-50 (r49): header 为 grid item, z-index 非 auto 即自成层叠上下文 — 顶栏内弹出层
+          (UserMenu z-50) 的有效层级被钳制在 header 自身层级。原 z-20 低于内容区图表浮层
+          (EChartsCandlestick 「A」按钮 z-20, DOM 在后同分胜出), 顶栏弹出层被图表控件穿透。
+          升 z-50: 高于内容区常规层 (≤z-30), 低于强交互模态 (z-60~100) 与 Toast (z-9999),
+          移动端抽屉 (z-50, DOM 在后) 仍可覆盖顶栏 — 与全站分层纪律一致。 */}
+      <header className="sn-topbar col-span-full z-50 flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface px-4">
         {!isDesktop && (
           <button
             onClick={() => setDrawerOpen(true)}
