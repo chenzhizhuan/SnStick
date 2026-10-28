@@ -1,5 +1,5 @@
 /**
- * AI 助手面板 — 非模态, 从页面最右缘滑入(right: 0), 默认 720px 宽,
+ * AI 投研助手面板 — 非模态, 从页面最右缘滑入(right: 0), 默认 720px 宽,
  * 左缘拖拽可调宽并持久化到 localStorage。
  *
  * 非模态是核心体验决策: 用户边看行情边问, 页面主体不遮挡、不解锁滚动。
@@ -155,7 +155,7 @@ function DrawerPanel({
         'bg-surface/95 shadow-2xl backdrop-blur-xl',
       )}
       role="complementary"
-      aria-label="AI 助手"
+      aria-label="AI 投研助手"
     >
       <DrawerHeader status={status} sessions={sessions} activeId={activeId} sending={sending} />
       <MessageList messages={messages} sending={sending} status={status} suggests={suggests} />
@@ -195,7 +195,7 @@ function DrawerHeader({
   return (
     <div className="relative flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
       <Sparkles className="h-4 w-4 shrink-0 text-accent" />
-      <span className="shrink-0 text-sm font-semibold text-foreground">AI 助手</span>
+      <span className="shrink-0 text-sm font-semibold text-foreground">AI 投研助手</span>
       {status?.model && (
         <span
           className="min-w-0 truncate rounded-btn bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-muted"
@@ -376,7 +376,7 @@ function EmptyState({ status, suggests }: { status: AssistantStatus | null; sugg
           <Settings2 className="h-4 w-4" />
           AI 未配置
         </div>
-        <p className="mt-1.5 text-secondary">AI 助手需要先配置 AI 供应商和 API Key 才能对话。</p>
+        <p className="mt-1.5 text-secondary">AI 投研助手需要先配置 AI 供应商和 API Key 才能对话。</p>
         <button
           type="button"
           onClick={() => navigate('/settings?tab=ai')}
@@ -396,7 +396,7 @@ function EmptyState({ status, suggests }: { status: AssistantStatus | null; sugg
           当前供应商不支持工具调用
         </div>
         <p className="mt-1.5 text-secondary">
-          AI 助手依赖工具调用能力({status.provider} 不支持), 请在设置页切换为 OpenAI 兼容模型。
+          AI 投研助手依赖工具调用能力({status.provider} 不支持), 请在设置页切换为 OpenAI 兼容模型。
         </p>
         <button
           type="button"
@@ -466,7 +466,7 @@ function EmptyState({ status, suggests }: { status: AssistantStatus | null; sugg
         </div>
         <p className="mt-1 leading-relaxed text-secondary">
           扩展数据表、自定义策略与信号等扩展内容都能问答互动, 比如「我的扩展数据表里有什么」「看看最新一张的数据」。
-          AI 助手本身也是一个 custom 扩展模块。
+          AI 投研助手本身也是一个 custom 扩展模块。
         </p>
       </div>
     </div>

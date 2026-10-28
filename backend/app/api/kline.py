@@ -1960,7 +1960,7 @@ async def sync_minute(request: Request):
 
 
 async def trigger_minute_sync(repo, capset, *, override_days=None, extend_flag=None) -> dict:
-    """触发分钟K同步/向前扩展后台任务(HTTP 端点与 AI 助手共用同一条触发路径)。"""
+    """触发分钟K同步/向前扩展后台任务(HTTP 端点与 AI 投研助手共用同一条触发路径)。"""
     import asyncio
 
     from app.api.data import invalidate_storage_cache

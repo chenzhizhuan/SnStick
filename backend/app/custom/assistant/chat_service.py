@@ -1,4 +1,4 @@
-"""AI 助手对话编排 — 无状态、NDJSON 事件流、SSE 逐字流式 + 有界工具循环。
+"""AI 投研助手对话编排 — 无状态、NDJSON 事件流、SSE 逐字流式 + 有界工具循环。
 
 流式实现见 streaming.py(模块自建, 不改核心): 每轮对话以 stream=True +
 tools= 调用模型, 文本 delta 逐段推给前端; 模型请求工具时执行并回填,
@@ -164,7 +164,7 @@ async def chat_stream(
     if is_codex_cli_provider():
         yield _line(_error_event(
             "provider",
-            "当前 AI 供应商(Codex CLI)不支持工具调用, AI 助手需要 OpenAI 兼容模型。",
+            "当前 AI 供应商(Codex CLI)不支持工具调用, AI 投研助手需要 OpenAI 兼容模型。",
             _SETTINGS_HINT,
         ))
         yield _line({"type": "done"})

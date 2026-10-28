@@ -37,7 +37,7 @@ interface NavEntry {
 }
 
 // v4: 内置页清单直接派生自 navConfig.NAV_ITEMS (单一事实来源) — 非 pinned、
-// 非动作型条目即用户可自定义排序/隐藏的全部内置页; pinned 项 (AI 研究助手 +
+// 非动作型条目即用户可自定义排序/隐藏的全部内置页; pinned 项 (AI 投研助手 +
 // 3 个设置入口) 是导航骨架, 不在此出现。标签/权限点与侧栏同源, 不再手工维护
 // 双份清单 (v2.3 方案2: 菜单可见性按页面级权限点 stick:menu:<slug> 过滤);
 // nav_order 未保存时的完整默认顺序以 lib/navOrder 基准为准。

@@ -6,6 +6,7 @@ import { storage } from '@/lib/storage'
 import {
   EChartsCandlestick,
   OVERLAY_INDICATORS,
+  R5_PRIVATE_KEYS,
   SUB_CHARTS,
   type ChartMarker,
   type ChartPriceLine,
@@ -194,7 +195,10 @@ export function StockDailyKChart({
     <div className={className} style={{ minHeight: chartHeight }}>
       {showIndicatorControls && rows.length > 0 && (
         <div className="flex items-center gap-1.5 px-1 pb-0.5">
-          {SUB_CHARTS.map(ind => (
+          {/* r46e: R5 七种私有指标开关 (MACD+/RSI+/牛熊分界线/中轨/波段/趋势/战略)
+              是「专业图表」工作台的刚需入口 (ChartTopbar 渲染), 此处 (个股日K,
+              供自选股预览/回测弹窗复用) 不暴露 — 只保留通用公开指标。 */}
+          {SUB_CHARTS.filter(ind => !R5_PRIVATE_KEYS.includes(ind.key)).map(ind => (
             <ChartPill
               key={ind.key}
               active={activeIndicators.includes(ind.key)}
@@ -203,7 +207,7 @@ export function StockDailyKChart({
               onClick={() => toggleIndicator(ind.key)}
             />
           ))}
-          {OVERLAY_INDICATORS.map(ind => (
+          {OVERLAY_INDICATORS.filter(ind => !R5_PRIVATE_KEYS.includes(ind.key)).map(ind => (
             <ChartPill
               key={ind.key}
               active={activeIndicators.includes(ind.key)}

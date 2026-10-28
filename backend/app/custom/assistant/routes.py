@@ -1,4 +1,4 @@
-"""AI 助手 HTTP 端点 — 薄层: 参数校验 + 流式响应映射。
+"""AI 投研助手 HTTP 端点 — 薄层: 参数校验 + 流式响应映射。
 
 POST /api/custom/assistant/chat      NDJSON 事件流(协议见模块 __init__)
 GET  /api/custom/assistant/status     供应商配置状态(前端门控展示)

@@ -184,7 +184,7 @@ def current_ai_context_window() -> int:
 
 
 def current_ai_round_checkpoint() -> int:
-    """AI 助手工具轮次检查点 (0=不检查): secrets.json 优先, 否则 config 默认。"""
+    """AI 投研助手工具轮次检查点 (0=不检查): secrets.json 优先, 否则 config 默认。"""
     return secrets_store.get_ai_config_int("ai_round_checkpoint", settings.ai_round_checkpoint)
 
 

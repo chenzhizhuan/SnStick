@@ -1,5 +1,5 @@
 /**
- * AI 助手悬浮球 — 可拖动, 位置持久化(localStorage)。
+ * AI 投研助手悬浮球 — 可拖动, 位置持久化(localStorage)。
  *
  * 交互约定: 按住移动超过阈值(6px)进入拖拽, 拖拽期间直接改 DOM style
  * (60fps 手法, 与仓库 AiReportBubble 一致), 松手才提交 state + 持久化;
@@ -141,8 +141,8 @@ export function AssistantFloatingButton() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onLostPointerCapture={onPointerUp}
-      title="AI 助手 (⌘K / Ctrl+K · 可拖动)"
-      aria-label="AI 助手"
+      title="AI 投研助手 (⌘K / Ctrl+K · 可拖动)"
+      aria-label="AI 投研助手"
       style={{ left: pos.x, top: pos.y, width: SIZE, height: SIZE }}
       className={cn(
         // z-30 = 常驻入口层: 在页面内容之上, 但低于 z-40 遮罩与 z-50 弹窗 —

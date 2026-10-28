@@ -76,7 +76,7 @@ type CoreIndex = (typeof CORE_INDEXES)[number]
 
 // v4 IA 重构 (第 46 轮): 导航分组与条目配置外置 lib/navConfig (单一事实来源,
 // 结构由 navConfig.test 锁定); 本文件只负责渲染与合并 (分析菜单/扩展导航)。
-// pinned 项 (当前仅 AI 研究助手动作型入口) 不参与用户自定义排序/隐藏。
+// pinned 项 (当前仅 AI 投研助手动作型入口) 不参与用户自定义排序/隐藏。
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
 function ThemeToggle() {
   const theme = useTheme()
@@ -713,7 +713,7 @@ export function Layout() {
 
   // 权限过滤: 内置 nav 带 perm 的按 hasPerm 过滤; 单密码形态恒放行;
   // 探测中 (ready=false) hasPerm 保守 false → 仅渲染无门槛的「市场看板」+
-  // AI 助手入口 (无权限点), 防止登录后 auth-me 未返回瞬间闪现全部菜单
+  // AI 投研助手入口 (无权限点), 防止登录后 auth-me 未返回瞬间闪现全部菜单
   // (产品面泄露)。
   const filteredNav: NavItem[] = NAV_ITEMS.filter(n => !n.perm || hasPerm(n.perm))
   // 右上角用户菜单配置入口: 需 settings 读权限 (兜底在 account 中, 可移除)
@@ -726,7 +726,7 @@ export function Layout() {
     if (!mergedByTo.has(item.to)) mergedByTo.set(item.to, item)
   }
   const allNav: NavItem[] = [...mergedByTo.values()]
-  // v4: pinned 项 (AI 助手动作型入口, r46d 起设置入口已移除) 是导航骨架,
+  // v4: pinned 项 (AI 投研助手动作型入口, r46d 起设置入口已移除) 是导航骨架,
   // 不参与
   // 用户自定义排序/隐藏 — 排序与 hidden 过滤只作用于内容页条目。
   const pinnedNav = allNav.filter(n => n.pinned)
@@ -970,14 +970,14 @@ export function Layout() {
                   </div>
                 )}
             {items.map(({ to, label, icon: Icon, badge, action }) => {
-            // v4: 动作型条目 (AI 研究助手) — 点击派发全局事件由 assistant 扩展
+            // v4: 动作型条目 (AI 投研助手) — 点击派发全局事件由 assistant 扩展
             // 监听开抽屉, 不走路由; 与 NavLink 同款样式保持视觉一致。
             if (action === 'assistant') {
               return (
                 <button
                   key={to}
                   onClick={() => window.dispatchEvent(new CustomEvent(ASSISTANT_OPEN_EVENT))}
-                  title={railMode ? label : 'AI 研究助手 (Ctrl+K)'}
+                  title={railMode ? label : 'AI 投研助手 (Ctrl+K)'}
                   className={cn(
                     'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
                     railMode ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
