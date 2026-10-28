@@ -175,7 +175,7 @@ export function Indices() {
     <div className="h-full overflow-auto bg-base p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">指数</h1>
+          <h1 className="text-lg font-semibold text-foreground">指数分析</h1>
           <p className="mt-1 text-xs text-muted">
             指数使用独立 kline_index_* parquet，不进入股票策略链路。
           </p>
