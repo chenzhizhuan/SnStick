@@ -30,7 +30,6 @@ const AbnormalMoves = lazy(() => import('./pages/AbnormalMoves').then(m => ({ de
 const Financials = lazy(() => import('./pages/Financials').then(m => ({ default: m.Financials })))
 const Monitor = lazy(() => import('./pages/Monitor').then(m => ({ default: m.Monitor })))
 const Lots = lazy(() => import('./pages/Lots').then(m => ({ default: m.Lots })))
-const Paper = lazy(() => import('./pages/Paper').then(m => ({ default: m.Paper })))
 const ConceptAnalysis = lazy(() => import('./pages/ConceptAnalysis').then(m => ({ default: m.ConceptAnalysis })))
 const IndustryAnalysis = lazy(() => import('./pages/IndustryAnalysis').then(m => ({ default: m.IndustryAnalysis })))
 const StockAnalysis = lazy(() => import('./pages/StockAnalysis').then(m => ({ default: m.StockAnalysis })))
@@ -61,7 +60,6 @@ const CORE_ROUTE_PATHS = new Set([
   '/branding',
   '/settings',
   '/dev',
-  '/paper',
   '/settings/keys',
   '/settings/ai',
   '/settings/queries',
@@ -172,7 +170,6 @@ export const router = createBrowserRouter([
       { path: 'data', element: <RequirePerm perm="stick:data:read"><Data /></RequirePerm> },
       { path: 'monitor', element: <RequirePerm perm="stick:signals:read"><Monitor /></RequirePerm> },
       { path: 'lots', element: <RequirePerm perm="stick:signals:read"><Lots /></RequirePerm> },
-      { path: 'paper', element: <RequirePerm perm="stick:paper:read"><Paper /></RequirePerm> },
       { path: 'signals', element: <RequirePerm perm="stick:signals:read"><Signals /></RequirePerm> },
       { path: 'limit-ladder', element: <RequirePerm perm="stick:kline:read"><LimitUpLadder /></RequirePerm> },
       { path: 'indices', element: <RequirePerm perm="stick:kline:read"><Indices /></RequirePerm> },
