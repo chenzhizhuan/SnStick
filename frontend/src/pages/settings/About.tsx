@@ -3,12 +3,11 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { ScrollText, ExternalLink, CheckCircle2, Download, RefreshCw, Sparkles, Scale, Heart, Rocket, X } from 'lucide-react'
+import { ExternalLink, CheckCircle2, Download, RefreshCw, Sparkles, Rocket, X } from 'lucide-react'
 import { useVersion } from '@/lib/useSharedQueries'
 import { useUpdateCheck } from '@/lib/updateCheck'
 import { Modal } from '@/components/Modal'
-import { OssLicenseDialog, LicenseComplianceNotice } from '@/components/OssLicenseDialog'
-import { PROJECT_LICENSE_NAME, PROJECT_REPO_URL } from '@/data/ossLicenses'
+import { OssLicenseDialog } from '@/components/OssLicenseDialog'
 
 export function SettingsAboutPanel() {
   const { data: versionData } = useVersion()
