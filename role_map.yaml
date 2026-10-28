@@ -1,5 +1,9 @@
 # SnStick 用户角色 → 功能权限映射表 (v2.5 定稿)
 #
+# v4 变更 (2026-10-28 第 46 轮 IA 重构): 数据管理收紧为 admin 专属 —
+#   enterprise 移除 stick:data:read / stick:data:write / stick:menu:data;
+#   前端侧栏「账户与系统」组的数据管理入口与 /data 路由随权限点同步不可见。
+#
 # 用途: 服务端 agti 账号互通形态下, 将 AGTi 订阅角色 (sys_role.role_key)
 #       映射为 SnStick 功能权限点。请求进入时由 RequirePerm 依赖按
 #       request.state.identity.roles 判定, 无权限 → 403 NO_PERM。
@@ -19,12 +23,12 @@
 #               财务分析/个股分析 —— 预警基础设施、独家批算、AI 流式分析
 #   中价值工具: 自选/持仓提醒/信号库/看板 —— 个人数据资产
 #   通用信息:   指数 —— 公开数据展示
-#   资产治理(数据/设置): 仅 admin/enterprise (自己人)
+#   资产治理: 数据管理仅 admin (v4 收紧); 设置仍 admin/enterprise (自己人)
 #   收费梯度: 高级版 = 标准版 + 全部核心资产级 + 全部高价值工具;
 #             标准版 = 体验版 + 持仓提醒差异化; 体验版最小可用。
 #
-# 菜单数量梯度: admin 18+ / enterprise 18 / mentor 15 / agent 13 /
-#               premium 16 / standard 7 / common 5
+# 菜单数量梯度 (v4 实测): admin 19 / enterprise 18 / mentor 17 /
+#               agent 15 / premium 18 / standard 6 / common 4
 #
 # 权限点模块: watchlist 自选 / kline 日K / screener 选股 / strategy 策略
 #   signals 信号 / backtest 回测 / mining 因子挖掘 / factors 因子
@@ -48,7 +52,9 @@
 #     abnormal → enterprise/mentor/premium
 #   (菜单不可见 = API 不可调, 杜绝「菜单藏了但接口裸奔」)
 #
-# data:write 语义 (v2.4): 破坏性数据治理操作仅 admin/enterprise。
+# data:write 语义 (v2.4): 破坏性数据治理操作。v4 起仅 admin ——
+#   enterprise 的 stick:data:read/write 与 stick:menu:data 已移除, 数据管理
+#   (侧栏入口 + /data 路由) 为超级版专属。
 # settings:write 语义 (v2.5): 数据源凭证/AI凭证/数据源配置/调度/重算
 #   等治理操作仅 admin/enterprise; 个人偏好 (自选列/菜单顺序等) 保持登录可用。
 
@@ -67,8 +73,6 @@ roles:
       - "stick:analysis:write"
       - "stick:backtest:read"
       - "stick:backtest:run"
-      - "stick:data:read"
-      - "stick:data:write"
       - "stick:depth:read"
       - "stick:ext:read"
       - "stick:ext:write"
@@ -98,7 +102,6 @@ roles:
       - "stick:menu:backtest"
       - "stick:menu:chart"
       - "stick:menu:concept-analysis"
-      - "stick:menu:data"
       - "stick:menu:factors"
       - "stick:menu:financials"
       - "stick:menu:indices"

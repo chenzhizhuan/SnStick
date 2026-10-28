@@ -1,20 +1,25 @@
 /**
- * 侧栏默认排序基准 — 扩展域页面迁移 (custom/) 的老用户升级兼容。
+ * 侧栏默认排序基准 — v4 IA 重构 (2026-10-28 第 46 轮)。
  *
- * 迁移前这 19 个路径按此顺序构成内置侧栏 (Layout 核心导航数组)。
- * 页面迁往 custom/<ns>/extension.tsx 后, 无保存排序的环境 (新装或
- * 从未调整过菜单的用户) 若按「核心在前、扩展追加」拼接, 11 个页面会
- * 整体沉底, 老用户升级即感知错位。因此默认顺序统一按本基准排序,
- * 升级前后侧栏一致; 已保存过 nav_order 的用户按保存值展示, 不受影响。
+ * 顺序 = navConfig.NAV_ITEMS 非 pinned 条目的声明顺序 (顶部固定入口 /
+ * 五大研究组 / 底部数据管理); 需求来源: 用户导航重构需求单。
+ * navConfig.test 有跨文件一致性断言, 改任一侧都会被测试捕获。
+ *
+ * 历史: v3.2 基准为扩展域迁移兼容而生 (19 项); v4 补入 /chart 并按
+ * 新树重排。已保存过 nav_order 的用户按保存值展示, 不受影响;
+ * 未保存用户的新装/默认顺序按本基准。
  *
  * 未知路径 (声明式分析页、二开扩展) 排在已知路径之后, 保持相对顺序。
- * 修改本清单需同步回归 navOrder.test.ts。
+ * 修改本清单需同步回归 navOrder.test.ts + navConfig.test.ts。
  */
 export const DEFAULT_NAV_PATHS = [
-  '/', '/watchlist', '/screener', '/factors', '/backtest',
-  '/stock-analysis', '/limit-ladder', '/concept-analysis', '/industry-analysis', '/financials',
-  '/monitor', '/regime', '/abnormal', '/lots', '/paper', '/signals', '/review',
-  '/indices', '/data',
+  '/',
+  '/regime', '/indices', '/concept-analysis', '/industry-analysis', '/limit-ladder',
+  '/watchlist', '/chart', '/stock-analysis', '/financials',
+  '/factors', '/signals', '/screener', '/backtest', '/paper',
+  '/monitor', '/abnormal', '/lots',
+  '/review',
+  '/data',
 ] as const
 
 const INDEX = new Map<string, number>(DEFAULT_NAV_PATHS.map((p, i) => [p, i]))

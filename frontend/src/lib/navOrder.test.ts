@@ -8,26 +8,31 @@ import {
   seedHiddenForNewUser,
 } from './navOrder'
 
-// 迁移前 Layout 核心导航数组的原序 (2026-10 扩展域迁移快照)。
-// 这是老用户升级兼容的锚点数据: 改动任何一个位置都意味着某类未保存
-// 排序用户的侧栏顺序在升级时发生变化, 需要明确决策而不是顺手调整。
-describe('navOrder: 迁移前默认排序基准', () => {
-  it('覆盖迁移前全部 19 个内置路径且无重复', () => {
-    expect(DEFAULT_NAV_PATHS).toHaveLength(19)
-    expect(new Set(DEFAULT_NAV_PATHS).size).toBe(19)
+// v4 IA 重构 (2026-10-28 第 46 轮) 后的默认基准。
+// 順序 = navConfig.NAV_ITEMS 非 pinned 声明序 (单一事实来源, navConfig.test
+// 有跨文件一致性断言); 改动需明确决策 — 未保存排序用户的默认侧栏随之变化。
+describe('navOrder: v4 IA 重构后的默认排序基准', () => {
+  it('覆盖全部 20 个非固定内置路径且无重复 (v4 补入 /chart)', () => {
+    expect(DEFAULT_NAV_PATHS).toHaveLength(20)
+    expect(new Set(DEFAULT_NAV_PATHS).size).toBe(20)
   })
 
-  it('关键位置与迁移前核心导航数组一致', () => {
+  it('关键位置与新导航树一致', () => {
     expect(DEFAULT_NAV_PATHS[0]).toBe('/')
-    expect(DEFAULT_NAV_PATHS[5]).toBe('/stock-analysis')
-    expect(DEFAULT_NAV_PATHS[10]).toBe('/monitor')
-    expect(DEFAULT_NAV_PATHS[11]).toBe('/regime')
-    expect(DEFAULT_NAV_PATHS[16]).toBe('/review')
-    expect(DEFAULT_NAV_PATHS[18]).toBe('/data')
+    expect(DEFAULT_NAV_PATHS[1]).toBe('/regime')
+    expect(DEFAULT_NAV_PATHS[6]).toBe('/watchlist')
+    expect(DEFAULT_NAV_PATHS[7]).toBe('/chart')
+    expect(DEFAULT_NAV_PATHS[11]).toBe('/signals')
+    // 监控预警组: 监控中心 / 异动监控 / 持仓提醒 (v4 用户需求单顺序)
+    expect(DEFAULT_NAV_PATHS[15]).toBe('/monitor')
+    expect(DEFAULT_NAV_PATHS[16]).toBe('/abnormal')
+    expect(DEFAULT_NAV_PATHS[17]).toBe('/lots')
+    expect(DEFAULT_NAV_PATHS[18]).toBe('/review')
+    expect(DEFAULT_NAV_PATHS[19]).toBe('/data')
   })
 
   it('未知道径返回 Infinity, 排在已知路径之后', () => {
-    expect(defaultNavIndex('/data')).toBe(18)
+    expect(defaultNavIndex('/data')).toBe(19)
     expect(defaultNavIndex('/company/risk')).toBe(Number.POSITIVE_INFINITY)
     expect(defaultNavIndex('/analysis/custom1')).toBe(Number.POSITIVE_INFINITY)
   })

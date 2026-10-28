@@ -619,7 +619,7 @@ def status(request: Request) -> dict:
 def clear_data(request: Request, _: None = Depends(require_perm(P_DATA_WRITE))):
     """清除所有本地 Parquet 数据（保留 capabilities.json 和目录结构）。
 
-    v2.4: 挂 stick:data:write 门禁 — 破坏性数据治理操作仅 admin/enterprise;
+    v2.4: 挂 stick:data:write 门禁 — 破坏性数据治理操作仅 admin (v4 起数据治理收紧为超管专属);
     单密码模式 (桌面版) 自动放行, 行为不变。
     """
     import shutil

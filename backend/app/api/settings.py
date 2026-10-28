@@ -142,7 +142,7 @@ def switch_endpoint(req: SwitchEndpointIn, request: Request, _: None = Depends(r
 
     端点切换仅对付费档(starter+,走 api.tickflow.org)有意义;
     none/free 档运行在 free-api 服务器,无付费端点权限,禁止切换。
-    v2.4: 挂 stick:data:write — 数据源端点切换属数据治理仅 admin/enterprise。
+    v2.4: 挂 stick:data:write — 数据源端点切换属数据治理仅 admin (v4 起数据治理收紧为超管专属)。
     """
     # none/free 档没有付费端点权限,禁止切换
     if tf_client.current_mode() != "api_key":
