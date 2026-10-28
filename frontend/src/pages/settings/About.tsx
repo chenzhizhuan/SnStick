@@ -119,7 +119,7 @@ export function SettingsAboutPanel() {
                   ? `已是最新版本 (v${versionData?.version?.replace(/^v/, '') ?? '—'})`
                   : updateState === 'error'
                     ? '检查失败 (网络受限?), 可直接前往 Releases'
-                    : '对比 GitHub Releases 最新 Release, 提示新版本'}
+                    : '对比最新发布版本，若有更新则提示新版本'}
               </div>
             )}
           </div>
