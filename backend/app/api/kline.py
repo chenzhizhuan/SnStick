@@ -2127,7 +2127,7 @@ async def clear_minute(request: Request, _: None = Depends(require_perm(P_DATA_W
 
     删除 data/kline_minute/ 下所有分区 parquet, 刷新视图。
     需二次确认: body { "confirm": true }。
-    v2.4: 挂 stick:data:write — 破坏性数据治理仅 admin/enterprise。
+    v2.4: 挂 stick:data:write — 破坏性数据治理仅 admin (v4 起数据治理收紧为超管专属)。
     """
     import shutil
 
@@ -2168,7 +2168,7 @@ async def extend_history(request: Request, _: None = Depends(require_perm(P_DATA
 
     body: { "value": int, "unit": "day"|"month"|"year" }
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
-    v2.4: 挂 stick:data:write — 全市场重拉历史属数据治理仅 admin/enterprise。
+    v2.4: 挂 stick:data:write — 全市场重拉历史属数据治理仅 admin (v4 起数据治理收紧为超管专属)。
     """
     import asyncio
     import traceback as _tb
@@ -2251,7 +2251,7 @@ async def repair_daily(request: Request, _: None = Depends(require_perm(P_DATA_W
 
     body: { "start_date": "YYYY-MM-DD" }
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
-    v2.4: 挂 stick:data:write — 管道级重拉属数据治理仅 admin/enterprise。
+    v2.4: 挂 stick:data:write — 管道级重拉属数据治理仅 admin (v4 起数据治理收紧为超管专属)。
     """
     import asyncio
     import traceback as _tb
@@ -2340,7 +2340,7 @@ async def rebuild_enriched(request: Request, _: None = Depends(require_perm(P_DA
     """全量重算 enriched 表 — 不获取任何数据,仅基于已有 kline_daily + adj_factor 重算复权+指标。
 
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
-    v2.4: 挂 stick:data:write — 全量重算属数据治理仅 admin/enterprise。
+    v2.4: 挂 stick:data:write — 全量重算属数据治理仅 admin (v4 起数据治理收紧为超管专属)。
     """
     import asyncio
     try:

@@ -133,7 +133,7 @@ def get_index_minute(
 def sync_index_instruments(request: Request, _: None = Depends(require_perm(P_DATA_WRITE))):
     """同步 CN_Index 指数标的列表。
 
-    v2.5: 挂 stick:data:write — 数据写入属治理, 仅 admin/enterprise。
+    v2.5: 挂 stick:data:write — 数据写入属治理, 仅 admin (v4 起数据治理收紧为超管专属)。
     """
     repo = request.app.state.repo
     count = index_sync.sync_index_instruments(repo)
@@ -148,7 +148,7 @@ def sync_index_daily(
 ):
     """同步指数日K到独立 parquet。
 
-    v2.5: 挂 stick:data:write — 数据写入属治理, 仅 admin/enterprise。
+    v2.5: 挂 stick:data:write — 数据写入属治理, 仅 admin (v4 起数据治理收紧为超管专属)。
     """
     repo = request.app.state.repo
     capset = request.app.state.capabilities

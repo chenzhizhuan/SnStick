@@ -25,6 +25,7 @@ import { usePreferences } from '@/lib/useSharedQueries'
 import { usePerm } from '@/lib/useAuth'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
 import { compareByDefaultNav, defaultNavIndex } from '@/lib/navOrder'
+import { NAV_ITEMS } from '@/lib/navConfig'
 
 interface NavEntry {
   id: string
@@ -35,19 +36,20 @@ interface NavEntry {
   perm?: string
 }
 
-// 核心页清单; nav_order 未保存时的完整默认顺序以 lib/navOrder 基准为准
-// (含迁移到 custom/ 的扩展域页面, 保证老用户升级侧栏顺序无感)
-// v2.3 方案2: 菜单可见性按页面级权限点 stick:menu:<slug> 过滤 (与功能权限点正交)
-const BUILTIN_PAGES: NavEntry[] = [
-  { id: '/', label: '看板', type: 'builtin', visible: true },
-  { id: '/watchlist', label: '自选', type: 'builtin', visible: true },
-  { id: '/screener', label: '策略', type: 'builtin', visible: true },
-  { id: '/factors', label: '因子', type: 'builtin', visible: true },
-  { id: '/backtest', label: '回测', type: 'builtin', visible: true },
-  { id: '/regime', label: '市场环境', type: 'builtin', visible: true },
-  { id: '/indices', label: '指数', type: 'builtin', visible: true },
-  { id: '/data', label: '数据', type: 'builtin', visible: true },
-]
+// v4: 内置页清单直接派生自 navConfig.NAV_ITEMS (单一事实来源) — 非 pinned、
+// 非动作型条目即用户可自定义排序/隐藏的全部内置页; pinned 项 (AI 研究助手 +
+// 3 个设置入口) 是导航骨架, 不在此出现。标签/权限点与侧栏同源, 不再手工维护
+// 双份清单 (v2.3 方案2: 菜单可见性按页面级权限点 stick:menu:<slug> 过滤);
+// nav_order 未保存时的完整默认顺序以 lib/navOrder 基准为准。
+const BUILTIN_PAGES: NavEntry[] = NAV_ITEMS
+  .filter(n => !n.pinned && !n.action)
+  .map(n => ({
+    id: n.to,
+    label: n.label,
+    type: 'builtin' as const,
+    visible: true,
+    perm: n.perm,
+  }))
 
 // ── 架构归属标注 (docs/open-platform-plan.md §2 核心域/扩展域边界) ──
 // 核心 = 页面承载核心域能力 (数据底座/订阅锚点/策略回测/环境生产);
@@ -62,6 +64,7 @@ const ARCH_CLASS: Record<string, { kind: ArchKind; reason: string }> = {
   '/backtest':       { kind: 'core', reason: '回测引擎 — 矩阵回测与优化' },
   '/regime':         { kind: 'core', reason: '环境数据生产 — 回测/挖掘/归因共用的市场状态口径' },
   '/indices':        { kind: 'core', reason: '行情数据底座 — 指数日K/分时出口' },
+  '/chart':          { kind: 'core', reason: '专业图表 — 图表引擎 (K线/指标/回放)' },
   '/data':           { kind: 'core', reason: '数据底座 — 同步管道与数据源路由' },
   '/stock-analysis': { kind: 'ext', reason: '个股分析视图 — 消费核心数据, 可由扩展页面替换' },
   '/limit-ladder':   { kind: 'ext', reason: '连板梯队视图 — 消费核心数据, 可由扩展页面替换' },
@@ -222,7 +225,11 @@ export function SettingsMenuSettingsPanel() {
 
   // 扩展导航 (frontend/src/custom/*/extension.tsx 注册): id 取路由 path,
   // 与 Layout 侧边栏 nav_order / nav_hidden 按 to 匹配的口径一致。
-  const extensionEntries: NavEntry[] = getFrontendExtensionNavigation().map(item => ({
+  // v4: 内置清单已含与扩展同路径的官方页面 (paper 等) — 先出现者胜, 扩展条目
+  // 仅补内置没有的 (与 Layout 合并去重同语义), 避免同一菜单双行。
+  const extensionEntries: NavEntry[] = getFrontendExtensionNavigation()
+    .filter(item => !BUILTIN_PAGES.some(b => b.id === item.route.path))
+    .map(item => ({
     id: item.route.path,
     label: item.label,
     type: 'extension' as const,

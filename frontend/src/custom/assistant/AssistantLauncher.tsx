@@ -1,13 +1,16 @@
 /**
  * AI 助手宿主 — 挂载于 layout.navigation.extra 插槽(全站常驻渲染点),
- * 但不在侧栏菜单里渲染任何入口。聚合三件套:
+ * 不在侧栏菜单里渲染任何入口。聚合三件套:
  * ① 可拖动悬浮球(位置持久化); ② 左上角 AI 配置徽标右侧的打开入口
  * (DOM 锚定); ③ 从页面右缘滑入的非模态面板。
- * 另负责全局快捷键 ⌘K/Ctrl+K 与 Esc、按当前路由上报页面上下文。
+ * 另负责全局快捷键 ⌘K/Ctrl+K 与 Esc、按当前路由上报页面上下文,
+ * 以及 v4 侧栏「AI研究助手」导航入口的事件桥 (navConfig 动作型条目
+ * 派发 ASSISTANT_OPEN_EVENT → 此处监听后 openAssistant)。
  */
 import { useEffect } from 'react'
 import type { FrontendSlotContextMap } from '@/extensions/types'
-import { closeAssistant, setPageContext, toggleAssistant, useAssistantStore } from './store'
+import { ASSISTANT_OPEN_EVENT } from '@/lib/navConfig'
+import { closeAssistant, openAssistant, setPageContext, toggleAssistant, useAssistantStore } from './store'
 import { AssistantFloatingButton } from './ui/AssistantFloatingButton'
 import { AssistantDrawer } from './ui/AssistantDrawer'
 
@@ -59,6 +62,15 @@ export function AssistantLauncher(props: AnySlotContext) {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [open])
+
+  // v4: 侧栏「AI研究助手」入口点击 → navConfig 派发全局事件 → 打开抽屉。
+  // 走事件桥而非直接 import: 核心导航不依赖 assistant 内部实现, 删
+  // custom/assistant 目录即整体卸载, 导航侧无需回改。
+  useEffect(() => {
+    const onOpenFromNav = () => openAssistant()
+    window.addEventListener(ASSISTANT_OPEN_EVENT, onOpenFromNav)
+    return () => window.removeEventListener(ASSISTANT_OPEN_EVENT, onOpenFromNav)
+  }, [])
 
   return (
     <>
