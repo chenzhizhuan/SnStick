@@ -5,13 +5,14 @@
  * navConfig.test 结构断言 / navOrder 默认基准 (非 pinned 序列) 共用,
  * 菜单结构与权限点不再散落 Layout。
  *
- * 结构:
- *   - 顶部固定入口 (top, 无组标题): 市场看板 + AI研究助手 (动作型)
+ * 结构 (r46d 调整, 2026-10-28 用户反馈):
+ *   - 总览 (top): 市场看板 + AI研究助手 (动作型) — 恢复分组标题
  *   - 五大研究组: 市场研究 / 标的研究 / 量化研究 / 监控预警 / 复盘中心
- *   - 底部账户与系统 (system): 数据管理 + 3 个设置入口 (pinned)
+ *   - 底部账户与系统 (system): 仅数据管理 (3 个设置入口已移除 —
+ *     设置仍可从右上角用户菜单与侧栏底部实时行情区块进入)
  *
  * pinned 语义: 不参与用户自定义排序与隐藏 (菜单设置不可控),
- * 恒按组声明顺序渲染 — 顶部入口与设置入口是「骨架」而非「内容页」。
+ * 恒按组声明顺序渲染 — 当前仅 AI研究助手 (动作型骨架入口)。
  *
  * 权限点: stick:menu:<slug> 仅控制菜单可见性 (与 role_map.yaml 同步);
  * stick:settings:read 控制设置类入口; 数据管理 (stick:menu:data +
@@ -24,7 +25,7 @@ import {
   IconMonitor, IconRegime, IconAlert, IconLots, IconPaper, IconSignals,
   IconReview, IconIndices, IconData,
 } from '@/components/BrandIcons'
-import { Sparkles, Radio, Database, SlidersHorizontal } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 
 /** AI 研究助手导航入口点击时派发的全局事件 — assistant 扩展监听后开抽屉。
  *  走事件桥而非直接 import: assistant 是完全解耦模块 (删目录即卸载),
@@ -44,12 +45,12 @@ export interface NavConfigItem {
   perm?: string
   /** 动作型条目: 点击派发事件而非路由跳转 (当前仅 AI 研究助手) */
   action?: 'assistant'
-  /** 固定项: 不参与用户自定义排序/隐藏 (顶部入口 + 账户与系统设置入口) */
+  /** 固定项: 不参与用户自定义排序/隐藏 (当前仅 AI 研究助手动作型入口) */
   pinned?: boolean
 }
 
 export const NAV_GROUPS = [
-  { key: 'top', label: '' },
+  { key: 'top', label: '总览' },
   { key: 'market', label: '市场研究' },
   { key: 'subject', label: '标的研究' },
   { key: 'quant', label: '量化研究' },
@@ -59,7 +60,7 @@ export const NAV_GROUPS = [
 ] as const
 
 export const NAV_ITEMS: readonly NavConfigItem[] = [
-  // ── 顶部固定入口 ──
+  // ── 总览 ──
   { to: '/', label: '市场看板', icon: IconDashboard, group: 'top' },
   { to: 'assistant://open', label: 'AI研究助手', icon: Sparkles, group: 'top', action: 'assistant', pinned: true },
   // ── 一、市场研究 ──
@@ -85,9 +86,7 @@ export const NAV_ITEMS: readonly NavConfigItem[] = [
   { to: '/lots', label: '持仓提醒', icon: IconLots, group: 'monitor', perm: 'stick:menu:lots' },
   // ── 五、复盘中心 ──
   { to: '/review', label: 'AI市场复盘', icon: IconReview, group: 'review', perm: 'stick:menu:review' },
-  // ── 底部 · 账户与系统 (面向管理员/技术人员) ──
+  // ── 底部 · 账户与系统 (面向管理员; r46d 起仅数据管理,
+  //    设置入口归右上角用户菜单 + 侧栏底部实时行情区块) ──
   { to: '/data', label: '数据管理', icon: IconData, group: 'system', perm: 'stick:menu:data' },
-  { to: '/settings?tab=monitoring', label: '实时行情设置', icon: Radio, group: 'system', perm: 'stick:settings:read', pinned: true },
-  { to: '/settings?tab=data-sources', label: '数据源设置', icon: Database, group: 'system', perm: 'stick:settings:read', pinned: true },
-  { to: '/settings?tab=menus', label: '页面设置', icon: SlidersHorizontal, group: 'system', perm: 'stick:settings:read', pinned: true },
 ]
