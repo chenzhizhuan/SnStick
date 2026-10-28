@@ -96,6 +96,9 @@ COPY tiers.yaml /app/tiers.yaml
 # 权限矩阵 (M3-4): lazy 加载, 未启互通不触发, 但镜像必须携带,
 # 否则互通一启用即 RoleMapError (permissions._role_map_path 指向 /app)
 COPY role_map.yaml /app/role_map.yaml
+# 版本号运行时兜底 (issue #513, r47 融合): 非冻结路径 _load_version() 读
+# /app/frontend/package.json, 缺文件会静默回退 _FALLBACK_VERSION 显示旧版本。
+COPY frontend/package.json /app/frontend/package.json
 ENV STATIC_DIR=/app/static \
     TIERS_YAML=/app/tiers.yaml \
     DATA_DIR=/app/data \

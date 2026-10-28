@@ -3,17 +3,17 @@
  *
  * 通过 URL query param ?tab=xxx 同步 Tab 状态。
  */
-import { Suspense, lazy, useState, type ComponentType } from 'react'
+import { Suspense, lazy, useEffect, useState, type ComponentType } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BarChart3, Database, KeyRound, Package, Radio, SlidersHorizontal, Sparkles, Settings2, PanelLeftClose, PanelLeftOpen, Clock3, ShieldCheck, Info } from 'lucide-react'
-// 面板按 tab 懒加载: 12 个面板源码体积大, 同步打包会让设置页 chunk 膨胀
+import { Database, KeyRound, LayoutGrid, Library, Radio, Sparkles, Settings2, ShieldCheck, PanelLeftClose, PanelLeftOpen, Clock3, Info, HardDriveDownload } from 'lucide-react'
+// 面板按 tab 按需加载 (r47: main 归拢为 9 tab + 品牌线 platform/roles 权限管理)
 const SettingsAIPanel = lazy(() => import('./settings/AI').then(m => ({ default: m.SettingsAIPanel })))
 const SettingsApiTokensPanel = lazy(() => import('./settings/ApiTokens').then(m => ({ default: m.SettingsApiTokensPanel })))
+const SettingsBackupPanel = lazy(() => import('./settings/Backup').then(m => ({ default: m.SettingsBackupPanel })))
+const SettingsDefinitionsPanel = lazy(() => import('./settings/Definitions').then(m => ({ default: m.SettingsDefinitionsPanel })))
 const SettingsMonitoringPanel = lazy(() => import('./settings/Monitoring').then(m => ({ default: m.SettingsMonitoringPanel })))
-const SettingsExtPagesPanel = lazy(() => import('./settings/ExtPages').then(m => ({ default: m.SettingsExtPagesPanel })))
-const SettingsPagePacksPanel = lazy(() => import('./settings/PagePacks').then(m => ({ default: m.SettingsPagePacksPanel })))
-const SettingsMenuSettingsPanel = lazy(() => import('./settings/MenuSettings').then(m => ({ default: m.SettingsMenuSettingsPanel })))
+const SettingsPageAdminPanel = lazy(() => import('./settings/PageAdmin').then(m => ({ default: m.SettingsPageAdminPanel })))
 const SettingsTimeoutPanel = lazy(() => import('./settings/Timeout').then(m => ({ default: m.SettingsTimeoutPanel })))
 const SettingsSystemPanel = lazy(() => import('./settings/System').then(m => ({ default: m.SettingsSystemPanel })))
 const SettingsAboutPanel = lazy(() => import('./settings/About').then(m => ({ default: m.SettingsAboutPanel })))
@@ -23,6 +23,7 @@ const SettingsRolesPanel = lazy(() => import('./settings/Roles').then(m => ({ de
 import { PageHeader } from '@/components/PageHeader'
 import { cn } from '@/lib/cn'
 import { usePerm } from '@/lib/useAuth'
+import { setUiPref } from '@/lib/uiPrefs'
 
 // ===== Tab 定义 =====
 
@@ -39,17 +40,25 @@ type TabDef = {
 const TABS: readonly TabDef[] = [
   { key: 'data-sources', label: '数据源',     icon: Database,  panel: SettingsDataSourcesPanel },
   { key: 'ai',         label: 'AI 设置',    icon: Sparkles,  panel: SettingsAIPanel },
-  { key: 'monitoring', label: '实时监控',   icon: Radio,     panel: SettingsMonitoringPanel },
-  { key: 'ext-pages',  label: '扩展页面',   icon: BarChart3, panel: SettingsExtPagesPanel },
-  { key: 'page-packs',  label: '页面插件',     icon: Package,   panel: SettingsPagePacksPanel },
-  { key: 'timeout',    label: '网络设置',   icon: Clock3,    panel: SettingsTimeoutPanel },
-  { key: 'menus',      label: '菜单设置',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
-  { key: 'api-tokens', label: '开放接口',   icon: KeyRound, panel: SettingsApiTokensPanel },
-  { key: 'system',     label: '系统设置',   icon: Settings2, panel: SettingsSystemPanel },
+  { key: 'monitoring', label: '实时监控',   icon: Radio,      panel: SettingsMonitoringPanel },
+  { key: 'pages',      label: '页面管理',   icon: LayoutGrid, panel: SettingsPageAdminPanel },
+  { key: 'timeout',    label: '网络设置',   icon: Clock3,     panel: SettingsTimeoutPanel },
+  { key: 'api-tokens', label: '开放接口',   icon: KeyRound,   panel: SettingsApiTokensPanel },
+  { key: 'definitions', label: '定义目录',   icon: Library,    panel: SettingsDefinitionsPanel },
+  { key: 'backup',     label: '配置备份',   icon: HardDriveDownload, panel: SettingsBackupPanel },
+  { key: 'system',     label: '系统设置',   icon: Settings2,  panel: SettingsSystemPanel },
+  // 品牌线权限体系 (r47 保留): 平台管理与角色权限 — 仅超管可见
   { key: 'platform',   label: '平台管理',   icon: ShieldCheck, panel: SettingsPlatformPanel, perm: 'stick:admin:view' },
   { key: 'roles',      label: '权限管理',   icon: KeyRound,    panel: SettingsRolesPanel,    perm: 'stick:admin:view' },
-  { key: 'about',      label: '关于',       icon: Info,      panel: SettingsAboutPanel },
+  { key: 'about',      label: '关于',       icon: Info,       panel: SettingsAboutPanel },
 ]
+
+// 「页面管理」归拢前的三个 tab key → 深链子区块, 历史链接零失效
+const LEGACY_PAGE_TAB_SECTIONS: Record<string, string> = {
+  menus: 'menus',
+  'ext-pages': 'ext-pages',
+  'page-packs': 'page-packs',
+}
 
 type TabKey = (typeof TABS)[number]['key']
 
@@ -60,8 +69,20 @@ export function Settings() {
   // 探测完成前 (ready=false) 仅显示无权限门槛的 Tab, 防登录后竞态误挂 admin 面板。
   const visibleTabs = TABS.filter((t) => !t.perm || (ready && hasPerm(t.perm)))
   const tabParam = searchParams.get('tab') as TabKey | null
-  const activeTab = visibleTabs.find((t) => t.key === tabParam) ?? visibleTabs[0]
+  // 旧 tab (menus/ext-pages/page-packs) 已并入「页面管理」(r47 main): 渲染按 pages
+  // 处理, 再用 replace 把 URL 归一化并透传 section, 保持深链与历史记录干净;
+  // 权限过滤 (品牌线) 叠加在归一化之后 — 无权限的 Tab 仍隐藏。
+  const legacySection = tabParam ? LEGACY_PAGE_TAB_SECTIONS[tabParam] : undefined
+  const activeTab = visibleTabs.find((t) => t.key === (legacySection ? 'pages' : tabParam)) ?? visibleTabs[0]
   const highlight = searchParams.get('highlight') ?? ''
+
+  useEffect(() => {
+    if (!legacySection) return
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', 'pages')
+    next.set('section', legacySection)
+    setSearchParams(next, { replace: true })
+  }, [legacySection, searchParams, setSearchParams])
 
   // 设置菜单收起状态 — 持久化到 localStorage
   const [collapsed, setCollapsed] = useState(() => {
@@ -70,7 +91,7 @@ export function Settings() {
   const toggleCollapsed = () => {
     setCollapsed(prev => {
       const next = !prev
-      try { localStorage.setItem('tf-settings-nav-collapsed', next ? '1' : '0') } catch {}
+      try { setUiPref('tf-settings-nav-collapsed', next ? '1' : '0') } catch {}
       return next
     })
   }
