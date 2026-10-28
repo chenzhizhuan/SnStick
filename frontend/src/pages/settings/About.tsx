@@ -126,7 +126,7 @@ export function SettingsAboutPanel() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <a
-              href="https://tsp.shy313.com/"
+              href="https://tick.sns.app/"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-xs

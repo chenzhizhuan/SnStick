@@ -16,7 +16,7 @@
 
 **自托管 · 零运维 · 核心能力全部开放成接口的 A 股量化工作台**
 
-[![官网](https://img.shields.io/badge/%E5%AE%98%E7%BD%91-tsp.shy313.com-8B5CF6?style=for-the-badge&labelColor=181717&logo=googlechrome&logoColor=white)](https://tsp.shy313.com/)
+[![官网](https://img.shields.io/badge/%E5%AE%98%E7%BD%91-tick.sns.app-8B5CF6?style=for-the-badge&labelColor=181717&logo=googlechrome&logoColor=white)](https://tick.sns.app/)
 
 `策略` · `回测` · `监控` · `因子挖掘` · `AI 助手` · `Polars` · `React`
 
@@ -324,7 +324,7 @@
 
 面板的核心能力不只长在页面上 —— **全部开放成受控接口**,外部程序与 AI 客户端平等消费:
 
-> 🌐 **开放平台门户已上线 → [tsp.shy313.com](https://tsp.shy313.com/)**
+> 🌐 **开放平台门户已上线 → [tick.sns.app](https://tick.sns.app/)**
 > 浏览 TSP 全部功能 · 注册账户 · 邀请好友 · 创建 API Key · 在线调用开放接口,一个入口直达。
 
 <table>
@@ -410,7 +410,7 @@ docker run -d --name tsp -p 3018:3018 -v ${PWD}/data:/app/data ghcr.io/shy3130/t
 
 **打开 <http://localhost:3018> 即可使用** · 多架构镜像(linux/amd64 · arm64)由 CI 自动发布,本地无需 Python / Node
 
-**还没决定要不要部署?** 先逛逛 **[官网 tsp.shy313.com](https://tsp.shy313.com/)** —— 功能总览 · 账户注册 · API Key 管理
+**还没决定要不要部署?** 先逛逛 **[官网 tick.sns.app](https://tick.sns.app/)** —— 功能总览 · 账户注册 · API Key 管理
 
 </div>
 
