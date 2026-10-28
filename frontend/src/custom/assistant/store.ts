@@ -1,5 +1,5 @@
 /**
- * AI 助手前端状态 — 会话/消息/发送编排, useSyncExternalStore 单例 store。
+ * AI 投研助手前端状态 — 会话/消息/发送编排, useSyncExternalStore 单例 store。
  *
  * 会话历史双写: localStorage 即时缓存 (启动秒开/离线兜底) + 服务端同步
  * (/api/custom/assistant/sessions, 防抖 1.5s fire-and-forget) — 换设备可见。

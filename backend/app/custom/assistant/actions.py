@@ -1,4 +1,4 @@
-"""AI 助手动作工具确认闸门 — 写操作/重计算先经用户点按确认再执行。
+"""AI 投研助手动作工具确认闸门 — 写操作/重计算先经用户点按确认再执行。
 
 动作工具(chat_service.execute 检测 ACTION_TOOLS 时挂闸门):
 - create_signal_strategy: 写 user_data/custom_signals/*.json 并失效多层缓存

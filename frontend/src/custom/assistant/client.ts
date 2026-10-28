@@ -1,5 +1,5 @@
 /**
- * AI 助手自包含 HTTP 客户端 — NDJSON 流式解析 + 状态/快捷指令查询。
+ * AI 投研助手自包含 HTTP 客户端 — NDJSON 流式解析 + 状态/快捷指令查询。
  *
  * 解耦取舍: 项目约定核心页面统一走 `lib/api.ts`, 但扩展模块以"不修改核心
  * 文件"为更高优先级, 故在此内建同款约定的最小客户端(同源 fetch + 统一
@@ -64,7 +64,7 @@ export interface AssistantContext {
 
 async function requestJson<T>(path: string): Promise<T> {
   const res = await fetch(path)
-  if (!res.ok) throw new Error(`AI 助手接口请求失败: ${res.status}`)
+  if (!res.ok) throw new Error(`AI 投研助手接口请求失败: ${res.status}`)
   return res.json() as Promise<T>
 }
 
@@ -104,7 +104,7 @@ export async function* assistantChatStream(
       const parsed = JSON.parse(await res.text()) as { detail?: string; message?: string }
       detail = parsed.detail ?? parsed.message ?? ''
     } catch { /* 忽略解析失败, 走状态码文案 */ }
-    throw new Error(detail || `AI 助手请求失败: ${res.status}`)
+    throw new Error(detail || `AI 投研助手请求失败: ${res.status}`)
   }
   if (!res.body) throw new Error('响应无 body')
 

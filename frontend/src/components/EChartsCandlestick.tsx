@@ -950,6 +950,12 @@ export const OVERLAY_INDICATORS: { key: string; label: string }[] = [
 /** 融易主图五层 key (信息栏/叠加段共用; 与 useChartLayout.RY_MAIN_KEYS 同源)。 */
 const RY_INFO_KEYS: readonly string[] = ['ry_channel', 'ry_mid', 'ry_k', 'ry_k2', 'ry_k3']
 
+/** R5 私有指标 key (七种: MACD+/RSI+ + 融易主图五层) — 算法在服务端
+ *  (indicators/plus.py + rymain.py), 是「专业图表」工作台的刚需开关
+ *  (ChartTopbar 渲染); 其他页面的指标开关行 (StockDailyKChart) 应过滤掉,
+ *  不暴露私有指标入口 (r46e: 用户需求)。 */
+export const R5_PRIVATE_KEYS: readonly string[] = ['macd_plus', 'rsi_plus', ...RY_INFO_KEYS]
+
 interface Props {
   data: OHLC[]
   markers?: ChartMarker[]

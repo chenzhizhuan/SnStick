@@ -1,4 +1,4 @@
-"""AI 助手 system prompt 构建 — 角色定位、合规约束与上下文注入。
+"""AI 投研助手 system prompt 构建 — 角色定位、合规约束与上下文注入。
 
 交易建议类表达不做静默丢弃, 由提示词转换为客观的价位 / 风险 / 情景分析,
 口径与 services.ai_provider.build_focus_instruction 一致(该函数面向单报告

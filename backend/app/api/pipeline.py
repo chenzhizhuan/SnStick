@@ -36,7 +36,7 @@ async def run_now(request: Request) -> dict:
 
 
 async def trigger_pipeline_job(repo, capset, quote_service=None) -> dict:
-    """触发盘后管道后台任务(HTTP 端点与 AI 助手共用同一条触发路径)。
+    """触发盘后管道后台任务(HTTP 端点与 AI 投研助手共用同一条触发路径)。
 
     若已有任务在跑,**返回该任务 id 而不是开新任务**(防止并发拉数据撞限流)。
     卡死判定按「进度停滞」而非总时长(慢带宽下长任务不会被误杀), 见 reap_stale。

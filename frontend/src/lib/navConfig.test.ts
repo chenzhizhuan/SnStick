@@ -20,8 +20,8 @@ describe('NAV_GROUPS — v4 导航分组', () => {
 })
 
 describe('NAV_ITEMS — 总览组', () => {
-  it('恰好 2 项: 市场看板 (恒可见) + AI研究助手 (动作型, pinned)', () => {
-    expect(byGroup('top').map(n => n.label)).toEqual(['市场看板', 'AI研究助手'])
+  it('恰好 2 项: 市场看板 (恒可见) + AI 投研助手 (动作型, pinned)', () => {
+    expect(byGroup('top').map(n => n.label)).toEqual(['市场看板', 'AI 投研助手'])
     const [dashboard, assistant] = byGroup('top')
     expect(dashboard.to).toBe('/')
     expect(dashboard.perm).toBeUndefined()
@@ -82,9 +82,9 @@ describe('NAV_ITEMS — 底部账户与系统', () => {
 })
 
 describe('NAV_ITEMS — 不变量', () => {
-  it('r46d: pinned 仅 AI研究助手 (设置入口已移除); 市场看板与数据管理可自定义', () => {
+  it('r46d: pinned 仅 AI 投研助手 (设置入口已移除); 市场看板与数据管理可自定义', () => {
     const pinned = NAV_ITEMS.filter(n => n.pinned)
-    expect(pinned.map(n => n.label)).toEqual(['AI研究助手'])
+    expect(pinned.map(n => n.label)).toEqual(['AI 投研助手'])
   })
   it('所有条目 group 均在 NAV_GROUPS; to 全局唯一', () => {
     const groupKeys = new Set(NAV_GROUPS.map(g => g.key))
@@ -99,7 +99,7 @@ describe('NAV_ITEMS — 不变量', () => {
       expect(n.perm).toMatch(/^stick:[a-z-]+:[a-z-]+$/)
     }
   })
-  it('动作型条目仅 AI研究助手, 事件名常量导出', () => {
+  it('动作型条目仅 AI 投研助手, 事件名常量导出', () => {
     const actions = NAV_ITEMS.filter(n => n.action)
     expect(actions).toHaveLength(1)
     expect(typeof ASSISTANT_OPEN_EVENT).toBe('string')

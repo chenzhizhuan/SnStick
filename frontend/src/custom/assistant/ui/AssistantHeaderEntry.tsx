@@ -1,5 +1,5 @@
 /**
- * 侧栏头部「AI 助手」快捷行 — 经 layout.header.quick 插槽渲染。
+ * 侧栏头部「AI 投研助手」快捷行 — 经 layout.header.quick 插槽渲染。
  *
  * 与核心的数据源/AI 配置/数据行同几何 (icon+label+右侧元信息), 点击
  * toggleAssistant 展开抽屉; 右侧 ⌘K 提示全局快捷键。行内自带顶部发丝线,
@@ -15,8 +15,8 @@ export function AssistantHeaderEntry() {
     <button
       type="button"
       onClick={toggleAssistant}
-      title="AI 助手 (⌘K)"
-      aria-label="打开 AI 助手"
+      title="AI 投研助手 (⌘K)"
+      aria-label="打开 AI 投研助手"
       className={cn(
         'group flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border transition-colors duration-150',
         open
@@ -30,7 +30,7 @@ export function AssistantHeaderEntry() {
           open ? 'text-accent' : 'text-muted group-hover:text-foreground',
         )}
       />
-      <span className="text-[11px] leading-none">AI 助手</span>
+      <span className="text-[11px] leading-none">AI 投研助手</span>
     </button>
   )
 }

@@ -13,14 +13,14 @@ export function FabVisibilitySetting() {
   return (
     <div className="flex items-center justify-between gap-4 py-2">
       <div className="min-w-0">
-        <div className="text-sm text-foreground">AI 助手悬浮球</div>
-        <div className="text-[11px] text-muted truncate">侧栏「AI 助手」行与 ⌘K 快捷键不受影响</div>
+        <div className="text-sm text-foreground">AI 投研助手悬浮球</div>
+        <div className="text-[11px] text-muted truncate">侧栏「AI 投研助手」行与 ⌘K 快捷键不受影响</div>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={fabVisible}
-        aria-label="显示 AI 助手悬浮球"
+        aria-label="显示 AI 投研助手悬浮球"
         onClick={() => setFabVisible(!fabVisible)}
         className={cn(
           'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors duration-200',
