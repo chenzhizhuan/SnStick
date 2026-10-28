@@ -76,7 +76,7 @@ type CoreIndex = (typeof CORE_INDEXES)[number]
 
 // v4 IA 重构 (第 46 轮): 导航分组与条目配置外置 lib/navConfig (单一事实来源,
 // 结构由 navConfig.test 锁定); 本文件只负责渲染与合并 (分析菜单/扩展导航)。
-// pinned 项 (顶部入口 + 账户与系统设置入口) 不参与用户自定义排序/隐藏。
+// pinned 项 (当前仅 AI 研究助手动作型入口) 不参与用户自定义排序/隐藏。
 /** 亮/暗主题切换 — 状态存 localStorage, 生效见 lib/theme.ts */
 function ThemeToggle() {
   const theme = useTheme()
@@ -726,7 +726,8 @@ export function Layout() {
     if (!mergedByTo.has(item.to)) mergedByTo.set(item.to, item)
   }
   const allNav: NavItem[] = [...mergedByTo.values()]
-  // v4: pinned 项 (AI 助手 + 账户与系统设置入口) 是导航骨架, 不参与
+  // v4: pinned 项 (AI 助手动作型入口, r46d 起设置入口已移除) 是导航骨架,
+  // 不参与
   // 用户自定义排序/隐藏 — 排序与 hidden 过滤只作用于内容页条目。
   const pinnedNav = allNav.filter(n => n.pinned)
   const sortableNav = allNav.filter(n => !n.pinned)
@@ -962,8 +963,8 @@ export function Layout() {
             if (items.length === 0) return null
             return (
               <div key={key} className={cn('space-y-0.5', gi > 0 && (railMode ? 'mt-2' : 'mt-3'))}>
-                {/* v4: 组标题 — rail 态隐藏; 顶部固定入口组无标题 */}
-                {!railMode && groupLabel !== '' && (
+                {/* v4: 组标题 — rail 态隐藏 (r46d: 总览组恢复标题, 七组全有标题) */}
+                {!railMode && (
                   <div className={cn('px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted/70 select-none', gi === 0 ? 'pt-1' : 'pt-4')}>
                     {groupLabel}
                   </div>

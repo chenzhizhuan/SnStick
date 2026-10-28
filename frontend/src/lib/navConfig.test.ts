@@ -1,7 +1,7 @@
 // @vitest-environment node
 // navConfig 结构断言 — 第 46 轮 IA 重构 (v4 导航树) 的形状契约。
-// 业务来源: 用户 2026-10-28 导航重构需求 (顶部固定入口 + 五大研究组 +
-// 底部账户与系统)。
+// 业务来源: 用户 2026-10-28 导航重构需求 + r46d 反馈调整 (总览分组标题
+// 恢复 + 账户与系统仅数据管理)。
 import { describe, expect, it } from 'vitest'
 import { NAV_GROUPS, NAV_ITEMS, ASSISTANT_OPEN_EVENT, type NavConfigItem } from './navConfig'
 import { DEFAULT_NAV_PATHS } from './navOrder'
@@ -9,17 +9,17 @@ import { DEFAULT_NAV_PATHS } from './navOrder'
 const byGroup = (key: string) => NAV_ITEMS.filter(n => n.group === key)
 
 describe('NAV_GROUPS — v4 导航分组', () => {
-  it('7 组顺序: 顶部(无标题) / 市场研究 / 标的研究 / 量化研究 / 监控预警 / 复盘中心 / 账户与系统', () => {
+  it('7 组顺序: 总览 / 市场研究 / 标的研究 / 量化研究 / 监控预警 / 复盘中心 / 账户与系统', () => {
     expect(NAV_GROUPS.map(g => g.key)).toEqual([
       'top', 'market', 'subject', 'quant', 'monitor', 'review', 'system',
     ])
     expect(NAV_GROUPS.map(g => g.label)).toEqual([
-      '', '市场研究', '标的研究', '量化研究', '监控预警', '复盘中心', '账户与系统',
+      '总览', '市场研究', '标的研究', '量化研究', '监控预警', '复盘中心', '账户与系统',
     ])
   })
 })
 
-describe('NAV_ITEMS — 顶部固定入口', () => {
+describe('NAV_ITEMS — 总览组', () => {
   it('恰好 2 项: 市场看板 (恒可见) + AI研究助手 (动作型, pinned)', () => {
     expect(byGroup('top').map(n => n.label)).toEqual(['市场看板', 'AI研究助手'])
     const [dashboard, assistant] = byGroup('top')
@@ -70,29 +70,21 @@ describe('NAV_ITEMS — 五大研究组内容与顺序', () => {
 })
 
 describe('NAV_ITEMS — 底部账户与系统', () => {
-  it('数据管理 + 3 个 pinned 设置入口 (实时行情/数据源/页面)', () => {
-    expect(byGroup('system').map(n => n.label)).toEqual([
-      '数据管理', '实时行情设置', '数据源设置', '页面设置',
-    ])
-    expect(byGroup('system').map(n => n.to)).toEqual([
-      '/data', '/settings?tab=monitoring', '/settings?tab=data-sources', '/settings?tab=menus',
-    ])
-    const [data, realtime, ds, pages] = byGroup('system')
+  it('r46d 起仅数据管理 (3 个设置入口已移除, 设置归用户菜单/实时行情区块)', () => {
+    expect(byGroup('system').map(n => n.label)).toEqual(['数据管理'])
+    expect(byGroup('system').map(n => n.to)).toEqual(['/data'])
+    const [data] = byGroup('system')
     expect(data.perm).toBe('stick:menu:data')
     expect(data.pinned).toBeUndefined()
-    expect(realtime.pinned).toBe(true)
-    expect(ds.pinned).toBe(true)
-    expect(pages.pinned).toBe(true)
-    expect(new Set([realtime.perm, ds.perm, pages.perm])).toEqual(new Set(['stick:settings:read']))
+    // 设置入口不再作为导航条目存在
+    expect(NAV_ITEMS.some(n => n.to.startsWith('/settings'))).toBe(false)
   })
 })
 
 describe('NAV_ITEMS — 不变量', () => {
-  it('pinned 恰好 4 项 (AI助手 + 3 设置入口); 市场看板与数据管理可自定义', () => {
+  it('r46d: pinned 仅 AI研究助手 (设置入口已移除); 市场看板与数据管理可自定义', () => {
     const pinned = NAV_ITEMS.filter(n => n.pinned)
-    expect(pinned.map(n => n.label)).toEqual([
-      'AI研究助手', '实时行情设置', '数据源设置', '页面设置',
-    ])
+    expect(pinned.map(n => n.label)).toEqual(['AI研究助手'])
   })
   it('所有条目 group 均在 NAV_GROUPS; to 全局唯一', () => {
     const groupKeys = new Set(NAV_GROUPS.map(g => g.key))
