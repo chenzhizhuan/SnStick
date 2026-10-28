@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { useQuoteStream, useQuoteStreamStatus } from '@/lib/useQuoteStream'
-import { ToastContainer } from '@/components/Toast'
+import { ToastContainer, toast } from '@/components/Toast'
 import { AlertToastContainer } from '@/components/AlertToast'
 import { AiAnalysisHost } from '@/components/financials/AiAnalysisHost'
 import { AiReportBubble } from '@/components/financials/AiReportBubble'
@@ -17,6 +17,9 @@ import {
   useVersion,
 } from '@/lib/useSharedQueries'
 import { useUpdateCheck } from '@/lib/updateCheck'
+import {
+  useToggleRealtimeQuotes,
+} from '@/lib/useSharedMutations'
 import { QK } from '@/lib/queryKeys'
 import { compareByDefaultNav, defaultNavIndex, seedHiddenForNewUser } from '@/lib/navOrder'
 import {
@@ -45,12 +48,14 @@ import {
 } from './BrandIcons'
 import { NAV_GROUPS, NAV_ITEMS, ASSISTANT_OPEN_EVENT, type NavConfigItem, type NavGroupKey } from '@/lib/navConfig'
 import logoUrl from '@/assets/logo.png'
-import { api, type CapabilityMatrix } from '@/lib/api'
+import { api, type CapabilityMatrix, type IndexQuote } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { useIsDesktop } from '@/lib/useMediaQuery'
+import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 import { resolveWatchlistGroupColor } from '@/lib/watchlist-group-colors'
 import { computeGroupPcts, groupPctColor, groupPctTitle } from '@/lib/watchlistGroupStats'
 import { fmtPct } from '@/lib/format'
+import { findDataSource } from '@/lib/dataSources'
 import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { usePerm, useAuth, clearAuthMeSnapshot } from '@/lib/useAuth'
@@ -59,13 +64,15 @@ import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
 
 // 核心四只指数 — 与后端 index_const.py 单一权威对齐 (前端展示层固定清单;
-// SectorRotationCard 等组件引用)。v4: 侧栏指数条已下线, 此清单保留供页面用。
+// SectorRotationCard 等组件引用 + 侧栏底部指数条)。
 export const CORE_INDEXES = [
   { symbol: '000001.SH', name: '上证指数' },
   { symbol: '399001.SZ', name: '深证成指' },
   { symbol: '399006.SZ', name: '创业板指' },
   { symbol: '000680.SH', name: '科创综指' },
 ] as const
+
+type CoreIndex = (typeof CORE_INDEXES)[number]
 
 // v4 IA 重构 (第 46 轮): 导航分组与条目配置外置 lib/navConfig (单一事实来源,
 // 结构由 navConfig.test 锁定); 本文件只负责渲染与合并 (分析菜单/扩展导航)。
@@ -379,6 +386,23 @@ navigate('/settings?tab=system&autoupdate=1')
   )
 }
 
+function fmtIndexValue(v: number | null | undefined) {
+  if (v == null || Number.isNaN(Number(v))) return '--'
+  return Number(v).toFixed(2)
+}
+
+function fmtIndexPct(v: number | null | undefined) {
+  if (v == null || Number.isNaN(Number(v))) return '--'
+  return `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)}%`
+}
+
+function indexPctClass(v: number | null | undefined) {
+  if (v == null || Number.isNaN(Number(v))) return 'text-muted'
+  const n = Number(v)
+  if (n === 0) return 'text-foreground'
+  return n > 0 ? 'text-bull' : 'text-bear'
+}
+
 /** 监控中心未读徽标 — 仅在非监控页且有未读时显示。 */
 function MonitorBadge({ active }: { active: boolean }) {
   const unread = useUnreadAlerts()
@@ -391,6 +415,39 @@ function MonitorBadge({ active }: { active: boolean }) {
     <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white animate-pulse">
       {unread > 99 ? '99+' : unread}
     </span>
+  )
+}
+
+function SidebarIndexQuotes({ rows, items }: { rows: IndexQuote[] | undefined; items: readonly CoreIndex[] }) {
+  if (items.length === 0) return null
+  const quoteBySymbol = new Map((rows ?? []).map(q => [q.symbol, q]))
+  return (
+    <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-border/60 pt-2">
+      {items.map(item => {
+        const q = quoteBySymbol.get(item.symbol)
+        const value = q?.last_price ?? q?.close
+        const pct = q?.change_pct
+        return (
+          <NavLink
+            key={item.symbol}
+            to={`/indices?symbol=${encodeURIComponent(item.symbol)}`}
+            className="block rounded bg-elevated/60 px-1.5 py-1.5 transition-colors hover:bg-elevated"
+            title={`${item.name} ${item.symbol}`}
+          >
+            {/* 名称不换行 + 涨跌幅不压缩: 两列布局下单卡内容区仅 85px,
+                「上证指数」41px + 涨跌幅 36px 已接近占满, 任其收缩或换行会把
+                指数名折成两行 (曾出现「上证指/数」)。px-1.5 是为此留出的余量。 */}
+            <div className="flex items-center justify-between gap-1">
+              <span className="min-w-0 truncate text-[10px] text-secondary">{item.name}</span>
+              <span className={`shrink-0 text-[10px] font-mono ${indexPctClass(pct)}`}>{fmtIndexPct(pct)}</span>
+            </div>
+            <div className={`mt-0.5 truncate font-mono text-[10px] text-muted`}>
+              {fmtIndexValue(value)}
+            </div>
+          </NavLink>
+        )
+      })}
+    </div>
   )
 }
 
@@ -416,6 +473,12 @@ export function Layout() {
   const update = useUpdateCheck()
   const hasUpdate = update.status === 'found'
   const { data: prefs } = usePreferences()
+  // 数据源列表 (用于实时行情状态显示当前数据源名称)
+  const { data: dataSources } = useQuery({
+    queryKey: QK.dataSources,
+    queryFn: api.dataSources,
+    staleTime: 60_000,
+  })
   // poll=true: 全局唯一开启条件轮询 (非交易时段 60s 兜底, 交易时段靠 SSE)
   const { data: quoteStatus } = useQuoteStatus({ poll: true })
   const { data: analysisMenus } = useQuery({
@@ -536,19 +599,79 @@ export function Layout() {
     qc.clear()
     window.location.href = '/login'
   }
+  // 自选实时模式限制提示: 可手动关闭, 不持久化 (刷新后恢复显示)
+  const [dismissFreeHint, setDismissFreeHint] = useState(false)
+  // 开启实时行情时若存在排队中的挖掘任务 → 确认弹窗 (实时落盘会让排队任务开跑即失败)
+  const [miningQueuedWarning, setMiningQueuedWarning] = useState<number | null>(null)
+  const miningWarnBackdrop = useDialogBackdrop(() => setMiningQueuedWarning(null))
   // 两态切换 (仅桌面): 展开 <-> 图标条
   const toggleNavCollapsed = () => {
     setNavStatePersist(navState === 'expanded' ? 'rail' : 'expanded')
   }
+
+  // 指数条: 固定核心四只 (产品契约, 不再可配置), 常驻显示
+  const sidebarIndexes = CORE_INDEXES
+  const { data: sidebarIndexQuotes } = useQuery({
+    queryKey: [...QK.indexQuotes, 'sidebar', 'core'] as const,
+    queryFn: () => api.indexQuotes(sidebarIndexes.map(p => p.symbol)),
+    enabled: sidebarIndexes.length > 0,
+    placeholderData: (prev) => prev,
+  })
 
   // SSE: 行情更新时自动刷新相关 queries + 告警通知
   useQuoteStream(realtimeEnabled, prefs?.sse_refresh_pages)
   // 实时 SSE 连接状态 — 断开时底部显示提示, 提示可能漏策略告警
   const streamStatus = useQuoteStreamStatus()
 
-  // v4: 实时行情开关 UI 已移除 (入口归侧栏「实时行情设置」); 仅保留
-  // 交易时段判定供告警轮询降频
+  const toggleQuote = useToggleRealtimeQuotes()
+  const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
+  // 管道/数据修正运行期间实时行情被临时暂停 — 此时禁止开启
+  const isPaused = quoteStatus?.paused ?? false
+  // 实时模式以 quote_status 为准 (数据源无关): none=不可用 / watchlist=自选实时 / full_market=全市场
+  const quoteMode = quoteStatus?.mode ?? 'none'
+  const realtimeUnavailable = quoteMode === 'none'
+  const isWatchlistMode = quoteMode === 'watchlist'
+  const realtimeModeLabel = isWatchlistMode ? '自选' : '全市场'
+  // 当前实时行情数据源名称 (插件/自定义源显示源名, tickflow 不显示)
+  const realtimeProvider = prefs?.realtime_data_provider
+  const realtimeProviderName = realtimeProvider && realtimeProvider !== 'tickflow'
+    ? (findDataSource(dataSources, realtimeProvider)?.display_name || realtimeProvider)
+    : null
+  const realtimeToggleDisabled = toggleQuote.isPending || isPaused
+  const realtimeActive = realtimeEnabled && isRunning && isTrading
+  const realtimeStatusLabel = toggleQuote.isPending
+    ? '正在更新'
+    : isPaused
+      ? '同步期间暂停'
+      : realtimeActive
+        ? '运行中'
+        : realtimeEnabled
+          ? (isTrading ? '正在连接' : '等待交易时段')
+          : '已关闭'
+  // v3.2.2 状态语义四态: 运行=品牌蓝脉冲 / 待机(已启用未交易)=半亮蓝 / 同步暂停=琥珀(真异常) / 已关闭=灰
+  // (修正: 旧版把「等待交易时段」常态误用警示琥珀, 违反警示色语义)
+  const realtimeStatusClass = realtimeActive
+    ? 'text-accent'
+    : isPaused
+      ? 'text-warning/80'
+      : realtimeEnabled
+        ? 'text-accent/70'
+        : 'text-muted'
+  const realtimeIndicatorClass = realtimeActive
+    ? 'bg-accent animate-pulse'
+    : isPaused
+      ? 'bg-warning/70'
+      : realtimeEnabled
+        ? 'bg-accent/40'
+        : 'bg-muted'
+  const realtimeToggleTitle = isPaused
+    ? '数据同步运行中，实时行情已临时暂停'
+    : toggleQuote.isPending
+      ? '正在更新实时行情设置'
+      : realtimeEnabled
+        ? '关闭实时行情'
+        : '开启实时行情'
 
   // 轮询触发记录总数 → 更新监控中心徽标 (每 15 秒; 后台标签页由 SSE 事件驱动, 不轮询)。
   // 非交易时段无新告警, 降为 2 分钟兜底
@@ -680,6 +803,47 @@ export function Layout() {
 
   // v3.2.2: 自选二级菜单选中态用 URLSearchParams 解析 (中文分组 id 经 URL 编码后字符串比较会失效)
   const watchlistUrlGroup = new URLSearchParams(location.search).get('group')
+
+  const doEnableRealtime = async () => {
+    await toggleQuote.mutateAsync(true)
+    // 仅在交易时段立即获取一次行情
+    if (isTrading) {
+      api.intradayRefresh().catch(() => {})
+    }
+  }
+
+  const handleToggle = async (enabled: boolean) => {
+    // 开启时重新校验实时权限 (以 quote_status 的数据源无关判定为准)
+    if (!enabled) {
+      await toggleQuote.mutateAsync(false)
+      return
+    }
+    const fresh = await qc.fetchQuery({
+      queryKey: QK.quoteStatus,
+      queryFn: api.quoteStatus,
+    })
+    if (!fresh.realtime_allowed) {
+      toast('当前数据源无实时行情能力, 请先配置数据源', 'error')
+      return
+    }
+    // 有排队中的挖掘任务时确认: 实时落盘会让排队任务开跑即失败
+    // (data generation changed); 运行中的任务会自动跟随新数据, 不受影响。
+    try {
+      const runs = await qc.fetchQuery({
+        queryKey: QK.miningRuns,
+        queryFn: api.miningRuns,
+        staleTime: 5_000,
+      })
+      const queued = (runs?.items ?? []).filter(r => r.status === 'queued').length
+      if (queued > 0) {
+        setMiningQueuedWarning(queued)
+        return
+      }
+    } catch {
+      // 挖掘运行历史查询失败不阻塞开关实时行情
+    }
+    await doEnableRealtime()
+  }
 
   return (
     <div
@@ -973,9 +1137,126 @@ export function Layout() {
           />
         </nav>
 
-        {/* v4 IA 重构: 原侧栏底部「实时行情」开关区已移除 — 开关与状态入口
-            归入侧栏「账户与系统」组的实时行情设置项 (跳 /settings?tab=monitoring,
-            其内含完整开关与监控配置); 指数条随区块一并下线 (Dashboard 顶部仍有)。 */}
+        {/* 全局行情开关 — 收起时只显示状态指示点 */}
+        {railMode ? (
+          <div className="border-t border-border px-2 py-2.5 shrink-0 flex justify-center">
+            <button
+              onClick={() => handleToggle(!realtimeEnabled)}
+              disabled={realtimeToggleDisabled}
+              aria-label={realtimeToggleTitle}
+              aria-busy={toggleQuote.isPending}
+              title={realtimeToggleTitle}
+              className="flex items-center justify-center rounded-btn p-1.5 transition-colors hover:bg-elevated/70 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span className={`inline-block h-2 w-2 rounded-full ${realtimeIndicatorClass}`} />
+            </button>
+          </div>
+        ) : (
+        <div className="border-t border-border px-3 py-2.5 shrink-0">
+          {realtimeUnavailable && !realtimeProviderName ? (
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-secondary truncate">实时行情</span>
+                <span className="text-[10px] text-muted/80 bg-elevated px-1.5 py-0.5 rounded">
+                  不可用
+                </span>
+              </div>
+              <div className="mt-1.5 text-[10px] leading-snug text-muted">
+                {canViewSettings ? (
+                  <>
+                    当前数据源无实时行情权限,
+                    <button
+                      type="button"
+                      onClick={() => navigate('/settings?tab=data-sources&highlight=data-sources')}
+                      className="mx-0.5 text-accent/80 hover:text-accent hover:underline"
+                    >
+                      去配置数据源
+                    </button>
+                  </>
+                ) : (
+                  '当前数据源无实时行情权限'
+                )}
+              </div>
+            </div>
+          ) : (
+            /* 实时可用 — 开关 + 跳转设置 */
+            <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${realtimeIndicatorClass}`} />
+                <div className="min-w-0">
+                  <div className="text-xs font-medium leading-none text-foreground">实时行情</div>
+                  <div className="mt-1 flex min-w-0 items-center gap-1 text-[10px] leading-none">
+                    <span className="truncate text-muted">{realtimeProviderName || realtimeModeLabel}</span>
+                    <span className="shrink-0 text-border" aria-hidden="true">·</span>
+                    <span className={`shrink-0 ${realtimeStatusClass}`}>{realtimeStatusLabel}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {canViewSettings && (
+                  <button
+                    onClick={() => navigate('/settings?tab=monitoring&highlight=quotes')}
+                    aria-label="打开实时监控设置"
+                    className="flex h-7 w-7 items-center justify-center rounded-btn text-muted transition-colors hover:bg-elevated hover:text-foreground"
+                    title="实时监控设置"
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={realtimeEnabled}
+                  aria-label={realtimeToggleTitle}
+                  aria-busy={toggleQuote.isPending}
+                  onClick={() => handleToggle(!realtimeEnabled)}
+                  disabled={realtimeToggleDisabled}
+                  title={realtimeToggleTitle}
+                  className={cn(
+                    'relative inline-flex h-5 w-9 items-center rounded-full border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-1 focus-visible:ring-offset-surface',
+                    realtimeEnabled
+                      ? 'border-accent/50 bg-accent'
+                      : 'border-border bg-elevated hover:border-muted',
+                    realtimeToggleDisabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+                  )}
+                >
+                  <span className={cn(
+                    'inline-block h-3.5 w-3.5 rounded-full border border-black/5 bg-white shadow-sm transition-transform duration-200',
+                    realtimeEnabled ? 'translate-x-[18px]' : 'translate-x-0.5',
+                  )} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 状态提示 */}
+          {realtimeEnabled
+            && (!realtimeUnavailable || realtimeProviderName)
+            && (isPaused || (isWatchlistMode && !dismissFreeHint && !realtimeProviderName))
+            && (
+              <div className="mt-1.5 text-[10px] leading-snug space-y-0.5">
+                {isWatchlistMode && !dismissFreeHint && !realtimeProviderName && (
+                  <div className="flex items-start gap-1 text-amber-400/80">
+                    <span className="flex-1">自选实时模式监控前 5 只，全市场实时依赖数据源支持</span>
+                    <button
+                      onClick={() => setDismissFreeHint(true)}
+                      className="text-amber-400/50 hover:text-amber-400 shrink-0 transition-colors"
+                      title="关闭提示"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                )}
+                {isPaused && (
+                  <div className="text-warning/80">数据同步运行中，实时行情已临时暂停</div>
+                )}
+              </div>
+            )}
+          {!isWatchlistMode && (!realtimeUnavailable || !!realtimeProviderName) && (
+            <SidebarIndexQuotes rows={sidebarIndexQuotes?.rows} items={sidebarIndexes} />
+          )}
+        </div>
+        )}
 
         {/* v3.2.5: 数据源能力 / AI 模型 / 设置 / 退出登录 全部融合进右上角用户菜单
             (无权限角色下拉仅账号+退出登录, 侧栏左下角不再放配置入口, 更简洁) */}
@@ -1013,6 +1294,25 @@ export function Layout() {
       <AiReportBubble />
       <StockAnalysisHost />
       <StockAnalysisBubble />
+
+      {/* 开启实时行情 + 排队中的挖掘任务 → 冲突确认 */}
+      {miningQueuedWarning != null && (
+        <div {...miningWarnBackdrop} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-2xl">
+            <div className="text-sm font-semibold text-foreground">
+              有挖掘任务正在排队
+            </div>
+            <p className="mt-2 text-xs leading-5 text-secondary">
+              当前有 {miningQueuedWarning} 个挖掘任务排队等待执行。开启实时行情后盘中数据会持续落盘，
+              排队中的任务启动时可能因数据更新校验而失败（需重新开始挖掘）；已开始运行的任务不受影响。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setMiningQueuedWarning(null)} className="h-8 rounded-btn border border-border px-3 text-xs text-secondary hover:bg-elevated">取消</button>
+              <button type="button" onClick={() => { setMiningQueuedWarning(null); void doEnableRealtime() }} className="h-8 rounded-btn bg-accent px-3 text-xs font-semibold text-white hover:opacity-90">仍要开启</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
