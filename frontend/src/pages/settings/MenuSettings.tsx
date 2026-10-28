@@ -17,9 +17,11 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Eye, EyeOff, ExternalLink, GripVertical, Settings, Bell } from 'lucide-react'
+import { Eye, EyeOff, ExternalLink, GripVertical, Settings, Bell, Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { setUiPref } from '@/lib/uiPrefs'
+import { toast } from '@/components/Toast'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { usePerm } from '@/lib/useAuth'
@@ -34,6 +36,8 @@ interface NavEntry {
   visible: boolean
   /** 互通形态下该菜单的权限点 (与 role_map.yaml 一致); 无权限点=恒显示 */
   perm?: string
+  /** 源码扩展命名空间 (frontend/src/custom/<ns>/), 仅 type=extension 有值; 物理删除的凭据 */
+  extensionId?: string
 }
 
 // v4: 内置页清单直接派生自 navConfig.NAV_ITEMS (单一事实来源) — 非 pinned、
@@ -70,7 +74,7 @@ const ARCH_CLASS: Record<string, { kind: ArchKind; reason: string }> = {
   '/limit-ladder':   { kind: 'ext', reason: '连板梯队视图 — 消费核心数据, 可由扩展页面替换' },
   '/concept-analysis': { kind: 'ext', reason: '概念分析视图 — 消费核心数据, 可由扩展页面替换' },
   '/industry-analysis': { kind: 'ext', reason: '行业分析视图 — 消费核心数据, 可由扩展页面替换' },
-  '/financials':     { kind: 'ext', reason: '财务分析视图 — 消费核心数据, 可由扩展页面替换' },
+  '/financials':     { kind: 'ext', reason: '财务概况视图 — 消费核心数据, 可由扩展页面替换' },
   '/monitor':        { kind: 'ext', reason: '监控消费页 (规则引擎与推送管道属核心), 页面可替换' },
   '/abnormal':       { kind: 'ext', reason: '异动监控视图 — 消费核心数据, 可由扩展页面替换' },
   '/lots':           { kind: 'ext', reason: '持仓提醒视图 — 消费核心数据, 可由扩展页面替换' },
@@ -84,12 +88,14 @@ const archOf = (entry: NavEntry): { kind: ArchKind; reason: string } =>
 
 // ── Sortable row ──
 
-function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBadge }: {
+function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBadge, onRemove }: {
   entry: NavEntry
   hidden: boolean
   onToggleHidden: (id: string) => void
   badgeEnabled?: boolean
   onToggleBadge?: (id: string) => void
+  /** 删除源码扩展页 (物理删除 frontend/src/custom/<extensionId>/, 先备份) */
+  onRemove?: (entry: NavEntry) => void
 }) {
   const {
     attributes,
@@ -111,7 +117,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
     <div
       ref={setNodeRef}
       style={style}
-      className={`group grid grid-cols-[2.5rem_1fr_4.5rem_3rem_3rem_3rem] items-center border-b border-border/60 px-4 py-2.5 transition-colors last:border-b-0 hover:bg-elevated/40 ${
+      className={`group grid grid-cols-[2.5rem_1fr_4.5rem_3rem_4.5rem_3rem] items-center border-b border-border/60 px-4 py-2.5 transition-colors last:border-b-0 hover:bg-elevated/40 ${
         isDragging ? 'bg-elevated rounded-lg shadow-lg' : ''
       } ${hidden ? 'opacity-50' : ''}`}
     >
@@ -164,10 +170,10 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </button>
       </div>
-      <div className="flex justify-center">
+      <div className="flex justify-center gap-1">
         {entry.type === 'analysis' ? (
           <Link
-            to={`/settings?tab=ext-pages`}
+            to={`/settings?tab=pages&section=ext-pages`}
             className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
             title="编辑扩展页面"
           >
@@ -181,6 +187,16 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           >
             <ExternalLink className="h-3.5 w-3.5" />
           </Link>
+        )}
+        {onRemove && entry.extensionId && (
+          <button
+            type="button"
+            onClick={() => onRemove(entry)}
+            className="rounded p-1 text-muted hover:bg-danger/10 hover:text-danger transition-colors"
+            title={`删除源码扩展页 (物理删除 frontend/src/custom/${entry.extensionId}/, 自动备份)`}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         )}
       </div>
       {/* 第 6 列: 徽标开关 (仅监控中心) */}
@@ -225,15 +241,19 @@ export function SettingsMenuSettingsPanel() {
 
   // 扩展导航 (frontend/src/custom/*/extension.tsx 注册): id 取路由 path,
   // 与 Layout 侧边栏 nav_order / nav_hidden 按 to 匹配的口径一致。
-  // v4: 内置清单已含与扩展同路径的官方页面 (paper 等) — 先出现者胜, 扩展条目
-  // 仅补内置没有的 (与 Layout 合并去重同语义), 避免同一菜单双行。
+  // r47 融合: ① v4 内置清单已含与扩展同路径的官方页面 (paper 等) — 先出现者胜,
+  // 扩展条目仅补内置没有的 (与 Layout 合并去重同语义); ② removedNs 本次会话已
+  // 物理删除的命名空间 — 注册表是启动期冻结快照, 刷新页面前需本地过滤。
+  const [removedNs, setRemovedNs] = useState<Set<string>>(new Set())
   const extensionEntries: NavEntry[] = getFrontendExtensionNavigation()
+    .filter(item => !removedNs.has(item.extensionId))
     .filter(item => !BUILTIN_PAGES.some(b => b.id === item.route.path))
     .map(item => ({
     id: item.route.path,
     label: item.label,
     type: 'extension' as const,
     visible: true,
+    extensionId: item.extensionId,
   }))
 
   const allEntries = useMemo(() => {
@@ -319,6 +339,25 @@ export function SettingsMenuSettingsPanel() {
     onSuccess: () => qc.invalidateQueries({ queryKey: QK.preferences }),
   })
 
+  // 删除源码扩展页: 双重确认 → 后端先备份 zip 再删目录 → 本地移行 + 提示刷新
+  const [deletedBackup, setDeletedBackup] = useState<{ ns: string; backup: string } | null>(null)
+  const deleteExtension = useMutation({
+    mutationFn: (ns: string) => api.pageAdminDeleteSourceExtension(ns),
+    onSuccess: (r) => {
+      setRemovedNs(prev => new Set(prev).add(r.deleted))
+      setDeletedBackup({ ns: r.deleted, backup: r.backup })
+      toast(`已删除 ${r.deleted} (已备份), 刷新页面后从菜单与路由消失`, 'success')
+    },
+    onError: (e: Error) => toast(e.message || '删除失败', 'error'),
+  })
+  const handleRemoveExtension = (entry: NavEntry) => {
+    const ns = entry.extensionId
+    if (!ns) return
+    if (!confirm(`删除源码扩展页「${entry.label}」?\n\n将物理删除 frontend/src/custom/${ns}/ 目录, 刷新后该页面从菜单和路由中消失。`)) return
+    if (!confirm(`二次确认: 删除前会自动备份为 zip (可下载恢复)。确定删除 ${ns}?`)) return
+    deleteExtension.mutate(ns)
+  }
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -351,7 +390,7 @@ export function SettingsMenuSettingsPanel() {
     if (id !== '/monitor') return
     const next = !badgeEnabled
     setBadgeEnabled(next)
-    try { localStorage.setItem('monitor_badge_enabled', next ? '1' : '0') } catch { /* ignore */ }
+    try { setUiPref('monitor_badge_enabled', next ? '1' : '0') } catch { /* ignore */ }
   }
 
   return (
@@ -377,7 +416,7 @@ export function SettingsMenuSettingsPanel() {
       </section>
 
       <section className="rounded-card border border-border bg-surface overflow-hidden">
-        <div className="grid grid-cols-[2.5rem_1fr_4.5rem_3rem_3rem_3rem] items-center border-b border-border bg-elevated/40 px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.06em] text-muted">
+        <div className="grid grid-cols-[2.5rem_1fr_4.5rem_3rem_4.5rem_3rem] items-center border-b border-border bg-elevated/40 px-4 py-1.5 text-[10px] font-medium uppercase tracking-[0.06em] text-muted">
           <div />
           <div>菜单 · 归属</div>
           <div>类型</div>
@@ -403,6 +442,7 @@ export function SettingsMenuSettingsPanel() {
                 onToggleHidden={toggleHidden}
                 badgeEnabled={entry.id === '/monitor' ? badgeEnabled : undefined}
                 onToggleBadge={entry.id === '/monitor' ? toggleBadge : undefined}
+                onRemove={handleRemoveExtension}
               />
             ))}
           </SortableContext>
@@ -412,6 +452,22 @@ export function SettingsMenuSettingsPanel() {
           <div className="px-5 py-10 text-center text-sm text-muted">正在加载菜单...</div>
         )}
       </section>
+
+      {deletedBackup && (
+        <div className="rounded-card border border-border bg-elevated/40 p-4 text-sm text-secondary flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span>
+            已删除源码扩展页 <span className="font-mono text-foreground">{deletedBackup.ns}</span>，刷新页面后生效。
+          </span>
+          <a
+            href={api.pageAdminBackupUrl(deletedBackup.backup)}
+            download
+            className="rounded border border-border px-2 py-1 text-xs text-accent hover:bg-accent/10 transition-colors"
+          >
+            下载备份 {deletedBackup.backup}
+          </a>
+          <span className="text-xs text-muted">备份同时保存在服务端 data/backups/pages/，误删可解压恢复或 git checkout</span>
+        </div>
+      )}
     </div>
   )
 }

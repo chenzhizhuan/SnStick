@@ -21,6 +21,9 @@ import {
   useToggleRealtimeQuotes,
 } from '@/lib/useSharedMutations'
 import { QK } from '@/lib/queryKeys'
+import { setUiPref } from '@/lib/uiPrefs'
+import { getPageScale } from '@/lib/pageZoom'
+import { setKlineBatchLimits } from '@/lib/klineBatchLimits'
 import { compareByDefaultNav, defaultNavIndex, seedHiddenForNewUser } from '@/lib/navOrder'
 import {
   Settings,
@@ -116,7 +119,11 @@ function DataSourceCapabilityRow({ matrix, onNavigate }: { matrix: CapabilityMat
   const openPop = () => {
     window.clearTimeout(closeTimer.current)
     const rect = rowRef.current?.getBoundingClientRect()
-    if (rect) setPopPos({ right: window.innerWidth - rect.left + 8, top: rect.top + rect.height / 2 })
+    // rect 是视觉坐标, fixed 定位值是布局坐标 — 页面缩放层 (main 修复) 下需 /scale 换算
+    if (rect) {
+      const z = getPageScale()
+      setPopPos({ right: (window.innerWidth - rect.left) / z + 8, top: (rect.top + rect.height / 2) / z })
+    }
   }
   const closePop = () => {
     closeTimer.current = window.setTimeout(() => setPopPos(null), 80)
@@ -127,9 +134,9 @@ function DataSourceCapabilityRow({ matrix, onNavigate }: { matrix: CapabilityMat
     const h = popRef.current.offsetHeight
     const margin = 8
     const minCenter = margin + h / 2
-    const maxCenter = window.innerHeight - margin - h / 2
+    const maxCenter = window.innerHeight / getPageScale() - margin - h / 2
     const clampedTop = Math.min(maxCenter, Math.max(minCenter, popPos.top))
-    const maxRight = window.innerWidth - margin
+    const maxRight = window.innerWidth / getPageScale() - margin
     const clampedRight = Math.min(maxRight, popPos.right)
     if (clampedTop !== popPos.top || clampedRight !== popPos.right) {
       setPopPos({ ...popPos, top: clampedTop, right: clampedRight })
@@ -473,6 +480,13 @@ export function Layout() {
   const update = useUpdateCheck()
   const hasUpdate = update.status === 'found'
   const { data: prefs } = usePreferences()
+  // 批量端点单请求上限 = 前端分块大小 (与后端校验同源, 见 lib/klineBatchLimits)。
+  // 在渲染期写入而非 effect: 分块助手在子组件 queryFn 内调用, 而 queryFn 早于
+  // 父组件 effect 触发 —— 用 effect 会让首轮请求仍按默认值分块。幂等, 无状态更新。
+  setKlineBatchLimits({
+    daily: prefs?.daily_batch_symbols,
+    minute: prefs?.minute_batch_symbols,
+  })
   // 数据源列表 (用于实时行情状态显示当前数据源名称)
   const { data: dataSources } = useQuery({
     queryKey: QK.dataSources,
@@ -517,7 +531,7 @@ export function Layout() {
   const overlayTimer = useRef<number | undefined>(undefined)
   const setNavStatePersist = (s: NavState) => {
     setNavState(s)
-    try { localStorage.setItem('tf-nav-state', s) } catch {}
+    try { setUiPref('tf-nav-state', s) } catch {}
   }
   // 图标条形态仅桌面 rail 态成立 (移动端抽屉与 overlay 预览恒为完整形态)
   const railMode = isDesktop && navState === 'rail'
@@ -542,7 +556,9 @@ export function Layout() {
     staleTime: 60_000,
   })
   const { data: navEnriched } = useQuery({
-    queryKey: QK.watchlistEnriched(undefined),
+    // 无参 → key 归一为 ['watchlist-enriched', ''], 与自选页 (无 ext 列时) 共享缓存,
+    // 消除侧栏与自选页各拉一份整表的双份内存
+    queryKey: QK.watchlistEnriched(),
     queryFn: () => api.watchlistEnriched(),
     enabled: navGroupPctVisible,
     staleTime: 60_000,

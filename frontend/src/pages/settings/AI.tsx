@@ -6,10 +6,25 @@ import {
   Terminal, ChevronDown, Sparkles, Atom, Waves, Cloud, Gem, Moon,
 } from 'lucide-react'
 import { useSettings } from '@/lib/useSharedQueries'
-import { api, type SettingsState } from '@/lib/api'
+import { api, type SettingsState, type SponsorModelItem } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { AnchorWrap } from '@/lib/useCardFlash'
 import { copyText } from '@/lib/clipboard'
+import { DEEPSEEK_FALLBACK_RANGE, MAX_DISCOUNT_FALLBACK_PCT, bandDiscountLabel, discountRangeLabel, loadSponsorModelItems, maxDiscountPct, useSponsorModelItems } from '@/lib/sponsor-discount'
+
+// 折扣率 → 中文折数: 0.6→"6折", 0.35→"3.5折", 0.2→"2折"
+const fmtDiscount = (rate: number) => {
+  const fold = Math.round(rate * 100) / 10
+  return `${Number.isInteger(fold) ? fold : fold.toFixed(1)}折`
+}
+
+// 上下文长度 → 紧凑显示: 1050000→"1M", 262144→"256K"
+const fmtContext = (n?: number | null) => {
+  if (!n || n <= 0) return ''
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`
+  return String(n)
+}
 
 // 统一的输入框样式(与项目其他设置页一致)
 const INPUT_CLS =
@@ -69,6 +84,7 @@ type AiPreset = {
   websiteLabel: string
   description: ReactNode
   custom?: boolean
+  sponsor?: boolean
   icon: React.ComponentType<{ className?: string }>
 }
 
@@ -83,8 +99,24 @@ const presetMeta = (p: AiPreset) => {
   }
 }
 
+/** RunningHub 预设描述: 折扣区间取自实时模型定价; 取不到时回退到集中的兜底文案。 */
+function SponsorIntro() {
+  const items = useSponsorModelItems()
+  const range = (items && discountRangeLabel(items)) ?? DEEPSEEK_FALLBACK_RANGE
+  const maxPct = (items && maxDiscountPct(items)) ?? MAX_DISCOUNT_FALLBACK_PCT
+  return (
+    <>
+      本项目赞助商 · OpenAI 兼容中转，单一接口直连 400+ 主流大模型，<span className="font-medium text-amber-600 dark:text-amber-400">Claude、ChatGPT、Gemini</span> 等国际模型直连稳定不掉线。
+      <span className="font-medium text-amber-600 dark:text-amber-400">DeepSeek v4.1 Flash {range}</span>，
+      <span className="text-muted">全场最高优惠 {maxPct}%</span>，
+      <span className="font-medium text-amber-600 dark:text-amber-400">邀请链接注册赠送 1000 RH 积分</span><span className="text-muted">(积分可用于视频生成)</span>。
+    </>
+  )
+}
+
 const PRESETS: AiPreset[] = [
   { label: '自定义', url: '', model: '', website: '', websiteLabel: '', description: '不自动填充任何配置，完全手动填写 API 地址、模型和密钥。', custom: true, icon: SlidersHorizontal },
+  { label: 'RunningHub', url: 'https://llm.runninghub.ai/v1', model: 'openai/gpt-6-astra-saver', website: 'https://www.runninghub.ai/zh-cn/call-api/llm/models?source=github&inviteCode=edt5wh7c', websiteLabel: 'www.runninghub.ai · 赞助', sponsor: true, icon: Sparkles, description: <SponsorIntro /> },
   { label: 'OpenAI', provider: OPENAI_PROVIDER, url: 'https://api.openai.com/v1', model: DEFAULT_OPENAI_MODEL, website: 'https://platform.openai.com/', websiteLabel: 'platform.openai.com', description: 'OpenAI 官方接口，可单独配置模型支持的推理强度。', icon: Atom },
   { label: 'DeepSeek', url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', website: 'https://www.deepseek.com/', websiteLabel: 'deepseek.com', description: 'DeepSeek 官方 OpenAI 兼容接口。', icon: Waves },
   { label: '通义千问', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-3.6plus', website: 'https://tongyi.aliyun.com/', websiteLabel: 'tongyi.aliyun.com', description: '阿里云 DashScope 兼容模式接口。', icon: Cloud },
@@ -124,6 +156,12 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [pathCopied, setPathCopied] = useState(false)
   const [reloaded, setReloaded] = useState(false)
+  // 赞助商预设的模型列表下拉（/models 接口 + 关键词过滤）
+  const [modelsOpen, setModelsOpen] = useState(false)
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState('')
+  const [modelItems, setModelItems] = useState<SponsorModelItem[]>([])
+  const [modelFilter, setModelFilter] = useState('')
   const modelBoxRef = useRef<HTMLDivElement | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
@@ -378,10 +416,44 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
     if (isOpenAIProvider) directDrafts.current.openai.model = value
   }
 
+  // 赞助商预设: 经后端代理拉取 /models 全量模型列表供下拉选择
+  // (浏览器直连会被 RunningHub 网关按 Origin 过滤, 只返回国产模型)
+  const fetchModelOptions = async () => {
+    setModelsError('')
+    setModelFilter('')
+    setModelsOpen(true)
+    setModelsLoading(true)
+    try {
+      // 共享加载器自带 60s TTL 与并发合并, 与赞助商介绍条共用同一份数据
+      const items = await loadSponsorModelItems()
+      setModelItems(items)
+    } catch (error) {
+      setModelItems([])
+      setModelsError(error instanceof Error ? error.message : '获取模型列表失败')
+    } finally {
+      setModelsLoading(false)
+    }
+  }
+
+  const filteredModelItems = modelFilter.trim()
+    ? modelItems.filter(m => m.id.toLowerCase().includes(modelFilter.trim().toLowerCase()))
+    : modelItems
+  // 有折扣的排前面(同组按名称), 优惠一目了然; 无定价数据时退化为纯 id 列表
+  const sortedModelItems = [...filteredModelItems].sort((a, b) => {
+    const da = a.discount_rate != null && a.discount_rate < 1 ? 0 : 1
+    const db = b.discount_rate != null && b.discount_rate < 1 ? 0 : 1
+    return da - db || a.id.localeCompare(b.id)
+  })
+
   // 下拉打开时点击外部关闭
   useEffect(() => {
-    // no-op: sponsor model picker removed
-  }, [])
+    if (!modelsOpen) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (modelBoxRef.current && !modelBoxRef.current.contains(e.target as Node)) setModelsOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [modelsOpen])
 
   const handleTest = async () => {
     setTesting(true)
@@ -482,6 +554,7 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
                       <Icon className="h-3.5 w-3.5" />
                     </span>
                     <span className={`truncate text-xs font-medium ${active ? 'text-foreground' : 'text-secondary'}`}>{p.label}</span>
+                    {p.sponsor && <span className="ml-auto shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9px] font-semibold leading-none text-amber-600 dark:text-amber-400">优惠</span>}
                   </span>
                   <span className="truncate font-mono text-[10px] text-muted">{presetMeta(p)}</span>
                 </button>
@@ -493,7 +566,7 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
               <p className="text-[11px] leading-relaxed text-secondary">{selectedPreset.description}</p>
               {selectedPreset.website && (
                 <a href={selectedPreset.website} target="_blank" rel="noreferrer"
-                  className="mt-1.5 inline-flex items-center gap-1 text-[11px] transition-colors text-muted hover:text-accent">
+                  className={`mt-1.5 inline-flex items-center gap-1 text-[11px] transition-colors ${selectedPreset.sponsor ? 'font-medium text-orange-500 hover:text-orange-600 dark:text-orange-400 dark:hover:text-orange-300' : 'text-muted hover:text-accent'}`}>
                   {selectedPreset.websiteLabel}
                   <ExternalLink className="h-3 w-3" />
                 </a>
@@ -565,7 +638,71 @@ export function SettingsAIPanel({ highlight }: { highlight?: string } = {}) {
                 </Field>
                 <Field label="模型">
                   <div ref={modelBoxRef} className="relative">
-                    <input type="text" value={model} onChange={e => handleModelChange(e.target.value)} placeholder="gpt-5.6-sol" className={INPUT_CLS} />
+                    <input type="text" value={model} onChange={e => handleModelChange(e.target.value)} placeholder="gpt-5.6-sol" className={`${INPUT_CLS} ${selectedPreset?.sponsor ? 'pr-9' : ''}`} />
+                    {selectedPreset?.sponsor && (
+                      <button type="button" onClick={fetchModelOptions} aria-label="获取模型列表"
+                        className="absolute right-1.5 top-1/2 flex h-6 w-7 -translate-y-1/2 items-center justify-center rounded-md border border-border/40 bg-base text-muted transition-colors hover:border-accent/40 hover:text-accent">
+                        {modelsLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      </button>
+                    )}
+                    {selectedPreset?.sponsor && modelsOpen && (
+                      <div className="absolute z-20 mt-1 w-full rounded-lg border border-border/40 bg-base shadow-lg">
+                        <div className="border-b border-border/30 p-2">
+                          <input type="text" value={modelFilter} onChange={e => setModelFilter(e.target.value)}
+                            placeholder="搜索模型..." autoFocus
+                            className="h-7 w-full rounded-md bg-base px-2 text-xs ring-1 ring-border/30 focus:outline-none focus:ring-accent/40" />
+                        </div>
+                        <div className="max-h-56 overflow-y-auto py-1">
+                          {modelsLoading ? (
+                            <div className="flex items-center justify-center gap-1.5 py-6 text-xs text-muted">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />加载中...
+                            </div>
+                          ) : modelsError ? (
+                            <div className="px-3 py-4 text-center text-xs text-muted">获取失败: {modelsError}</div>
+                          ) : sortedModelItems.length === 0 ? (
+                            <div className="px-3 py-4 text-center text-xs text-muted">{modelItems.length ? '无匹配模型' : '未获取到模型'}</div>
+                          ) : sortedModelItems.map(m => {
+                            const discounted = m.discount_rate != null && m.discount_rate < 1
+                            const bands = bandDiscountLabel(m)
+                            const priceHint = [
+                              bands ?? undefined,
+                              m.offpeak_label ? `闲时时段: ${m.offpeak_label}` : undefined,
+                              [m.input_price, m.output_price].some(v => v != null)
+                                ? `输入 $${m.input_price ?? '-'}/1K tokens · 输出 $${m.output_price ?? '-'}/1K tokens`
+                                : undefined,
+                            ].filter(Boolean).join('\n') || undefined
+                            const isOffPeak = m.current_band === 'OFF_PEAK'
+                            return (
+                              <button key={m.id} type="button" onClick={() => { handleModelChange(m.id); setModelsOpen(false) }} title={priceHint}
+                                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-accent/10 ${model === m.id ? 'text-accent' : 'text-secondary'}`}>
+                                <span className="truncate font-mono text-xs">{m.id}</span>
+                                <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                                  {fmtContext(m.context_length) && (
+                                    <span className="text-[10px] text-muted">{fmtContext(m.context_length)}</span>
+                                  )}
+                                  {bands ? (
+                                    <span
+                                      className={`rounded-full px-1.5 py-px text-[10px] font-medium ${
+                                        isOffPeak
+                                          ? 'bg-emerald-400/15 text-emerald-600 dark:text-emerald-400'
+                                          : 'bg-amber-400/15 text-amber-600 dark:text-amber-400'
+                                      }`}
+                                      title={m.offpeak_label ? `闲时时段: ${m.offpeak_label}` : undefined}
+                                    >
+                                      {bands}{isOffPeak ? ' · 当前闲时' : ' · 当前忙时'}
+                                    </span>
+                                  ) : discounted && (
+                                    <span className="rounded-full bg-amber-400/15 px-1.5 py-px text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                                      {fmtDiscount(m.discount_rate!)}
+                                    </span>
+                                  )}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </Field>
               </div>

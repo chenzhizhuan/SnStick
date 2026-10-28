@@ -65,6 +65,18 @@ const CORE_ROUTE_PATHS = new Set([
   '/settings/keys',
   '/settings/ai',
   '/settings/queries',
+  // r47: HEAD 内置化 children 的全部页面路径 — 防御 custom/ 扩展误注册同路径
+  // (reservedPaths 命中即整个扩展被移除, 见 registry.finalizeFrontendExtensions)
+  '/monitor',
+  '/lots',
+  '/signals',
+  '/review',
+  '/abnormal',
+  '/stock-analysis',
+  '/limit-ladder',
+  '/financials',
+  '/concept-analysis',
+  '/industry-analysis',
 ])
 
 finalizeFrontendExtensions(CORE_ROUTE_PATHS)
@@ -145,7 +157,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'overview', element: <Navigate to="/" replace /> },
-      { path: 'analysis', element: <Navigate to="/settings?tab=ext-pages" replace /> },
+      { path: 'analysis', element: <Navigate to="/settings?tab=pages&section=ext-pages" replace /> },
       { path: 'analysis/:menuId', element: <RequirePerm perm="stick:analysis:read"><AnalysisDetail /></RequirePerm> },
       { path: 'concept-analysis', element: <RequirePerm perm="stick:analysis:read"><ConceptAnalysis /></RequirePerm> },
       { path: 'industry-analysis', element: <RequirePerm perm="stick:analysis:read"><IndustryAnalysis /></RequirePerm> },

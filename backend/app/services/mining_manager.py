@@ -40,9 +40,13 @@ class MiningJobManager:
         data_dir: Path | str,
         worker_runner: WorkerRunner = run_worker_task,
         task_factory: TaskFactory = make_worker_task,
+        *,
+        kind: str = "mining",
+        store: MiningRunStore | None = None,
     ) -> None:
         self._data_dir = Path(data_dir).resolve()
-        self._store = MiningRunStore(self._data_dir)
+        self._kind = kind
+        self._store = store if store is not None else MiningRunStore(self._data_dir)
         self._worker_runner = worker_runner
         self._task_factory = task_factory
         self._lock = threading.RLock()
@@ -161,7 +165,7 @@ class MiningJobManager:
         thread = threading.Thread(
             target=self._run_job,
             args=(run_id, source, cancel_event, task_user_root),
-            name=f"mining-{run_id}",
+            name=f"{self._kind}-{run_id}",
             daemon=True,
         )
         self._cancel_events[run_id] = cancel_event
@@ -176,6 +180,8 @@ class MiningJobManager:
         task_user_root: Path | None = None,
     ) -> None:
         try:
+            # 守护复验与挖掘共用 "mining" heavy 槽: 两者都是全市场级内存任务,
+            # 串行化避免双份大矩阵并发 (设计见 docs/auto-strategy-lab-plan.md §3.4)。
             with shared_heavy_job_limiter.slot("mining", cancel_event=cancel_event):
                 if not self._mark_running(run_id, cancel_event):
                     return
@@ -188,7 +194,7 @@ class MiningJobManager:
                     "data_fingerprint": manifest["data_fingerprint"],
                     "source": source,
                 }
-                task = self._task_factory("mining", self._data_dir, payload)
+                task = self._task_factory(self._kind, self._data_dir, payload)
                 if task_user_root is not None:
                     task["user_root"] = str(task_user_root)
                 result = self._worker_runner(

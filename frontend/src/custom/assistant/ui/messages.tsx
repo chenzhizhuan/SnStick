@@ -322,21 +322,19 @@ export const NoticeMessage = memo(function NoticeMessage({
   content: string
   onRetry?: () => void
 }) {
-  // 仅“已中断”类提示提供重试入口 (与文案承诺一致); 其余提示纯文本。
-  const canRetry = Boolean(onRetry) && content.includes('重试')
+  // 无 onRetry 的 notice (服务端通知等) 保持纯文本; 中断提示传 onRetry 时
+  // 渲染为可点按钮 —— 文案承诺"可点击重试", 渲染层必须兑现
+  if (!onRetry) {
+    return <div className="text-center text-xs text-muted">{content}</div>
+  }
   return (
-    <div className="flex items-center justify-center gap-1.5 text-center text-xs text-muted">
-      <span>{content}</span>
-      {canRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="cursor-pointer rounded-btn px-1.5 py-0.5 text-accent transition-colors duration-150 ease-smooth hover:bg-accent/10"
-        >
-          重试
-        </button>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={onRetry}
+      className="mx-auto block text-center text-xs text-muted hover:text-accent cursor-pointer transition-colors"
+    >
+      {content}
+    </button>
   )
 })
 
