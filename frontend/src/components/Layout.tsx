@@ -77,7 +77,7 @@ import { fmtPct } from '@/lib/format'
 import { findDataSource } from '@/lib/dataSources'
 import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
-import { usePerm, useAuth } from '@/lib/useAuth'
+import { usePerm, useAuth, clearAuthMeSnapshot } from '@/lib/useAuth'
 import type { AuthIdentity } from '@/lib/api'
 import { ExtensionSlot } from '@/extensions/ExtensionSlot'
 import { getFrontendExtensionNavigation } from '@/extensions/registry'
@@ -642,6 +642,9 @@ export function Layout() {
         await api.authLogout()
       }
     } catch { /* 后端不可达也继续本地退出 */ }
+    // 清身份快照: qc.clear 只清 query 缓存, localStorage 快照不清理的话
+    // 登出后刷新会闪一个「假登录态」(initialData) 再被 401 重定向
+    clearAuthMeSnapshot()
     qc.clear()
     window.location.href = '/login'
   }

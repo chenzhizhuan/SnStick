@@ -39,12 +39,16 @@ export function Forbidden() {
 /**
  * 路由守卫: 无权限 → 渲染 403 页 (而非空白/报错)。
  * 单密码形态 → 直接放行。
- * 互通形态身份探测中 (ready=false) → 渲染加载态而非 403, 防止登录后
- * auth-me 未返回瞬间闪现「无权限访问」再切换回页面的抖动。
+ * 形态探测中 (ready=false) → 渲染加载态而非 403, 防止刷新/直达 URL 时
+ * auth-me 网络往返 + lazy chunk 加载期间闪现「无权限访问」再切回页面的
+ * 抖动 (第 45 轮修复: 旧条件 `enabled && !ready` 在 pending 期间
+ * data 未落 → enabled 恒 false, spinner 分支不可达, 实测 Forbidden
+ * 闪现 ~750ms; ready=false 必须无条件走加载态)。
  */
 export function RequirePerm({ perm, children }: { perm: string; children: ReactNode }) {
   const { hasPerm, enabled, ready } = usePerm()
-  if (enabled && !ready) {
+  void enabled
+  if (!ready) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center text-muted">
         <Loader2 className="h-5 w-5 animate-spin" />

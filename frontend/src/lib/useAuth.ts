@@ -25,6 +25,51 @@ export interface AuthState {
   ready: boolean
 }
 
+// ===== 身份快照本地缓存 (第 45 轮: 消灭刷新闪现) =====
+// 现象: 硬刷新/直达守卫路由时 auth-me 需网络 RTT + lazy chunk 加载
+// (~750ms 实测), 期间 ready=false → RequirePerm 闪「无权限访问」+
+// 导航只剩无门槛项 → 用户观感「清空初始化」。
+// 方案: 成功身份写入 localStorage, useQuery initialData 命中新鲜快照
+// (≤10 分钟) 时零网络立即就绪; 401 清快照; 登出显式清。
+// 安全性: 快照仅驱动 UI 渲染 (菜单/路由守卫 UX 层), 所有数据请求仍由
+// 后端按 cookie 会话鉴权, 陈旧快照无提权面; 超窗自动失效。
+const SNAPSHOT_KEY = 'tf-auth-me-snapshot'
+const SNAPSHOT_FRESH_MS = 10 * 60_000
+
+interface AuthMeSnapshot {
+  v: { ok: boolean; identity: AuthIdentity }
+  ts: number
+}
+
+function readSnapshot(): AuthMeSnapshot | null {
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY)
+    if (!raw) return null
+    const s = JSON.parse(raw) as AuthMeSnapshot
+    if (typeof s?.ts !== 'number' || !s?.v?.identity) return null
+    return s
+  } catch {
+    return null
+  }
+}
+
+function writeSnapshot(v: { ok: boolean; identity: AuthIdentity }): void {
+  try {
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ v, ts: Date.now() }))
+  } catch {
+    // 隐私模式/存储满 → 静默降级 (无快照 = 走网络, 行为同旧版)
+  }
+}
+
+/** 清除身份快照 (登出/会话过期时调用, 防陈旧身份渲染)。 */
+export function clearAuthMeSnapshot(): void {
+  try {
+    localStorage.removeItem(SNAPSHOT_KEY)
+  } catch {
+    // 同上, 静默
+  }
+}
+
 /**
  * 形态判定: /api/auth/me 返回 404 = 互通未启用 (单密码/桌面版) → enabled=false, 权限恒放行。
  * 401 (互通启用但未登录) / 200 → enabled=true, 按后端身份/权限集处理。
@@ -39,10 +84,24 @@ const NOT_ENABLED = { notEnabled: true } as const
 type AuthMeResult = { ok: boolean; identity: AuthIdentity } | typeof NOT_ENABLED
 
 function authMeQueryFn(): Promise<AuthMeResult> {
-  return api.authMe().catch((err: unknown) => {
+  return api.authMe().then((me) => {
+    writeSnapshot(me)
+    return { ok: true, identity: me.identity }
+  }).catch((err: unknown) => {
     if (err instanceof ApiError && err.status === 404) return NOT_ENABLED
+    // 401 (未登录/会话过期): 清快照 — 否则下次刷新 initialData 又把
+    // 过期身份渲染出来, 闪一个「假登录态」再被重定向到登录页
+    if (err instanceof ApiError && err.status === 401) clearAuthMeSnapshot()
     throw err
   })
+}
+
+/** 取新鲜快照作 useQuery initialData (超窗返回 null 走网络)。 */
+function freshSnapshotInitialData():
+  { initialData: { ok: boolean; identity: AuthIdentity }; initialDataUpdatedAt: number } | undefined {
+  const s = readSnapshot()
+  if (!s || Date.now() - s.ts > SNAPSHOT_FRESH_MS) return undefined
+  return { initialData: { ok: true, identity: s.v.identity }, initialDataUpdatedAt: s.ts }
 }
 
 export function useAuth(): AuthState {
@@ -51,6 +110,10 @@ export function useAuth(): AuthState {
     queryFn: authMeQueryFn,      // 404 → 哨兵成功值, 不进 error 状态 (防轮询风暴)
     staleTime: 60_000,           // 快照 60s 内复用, 与后端 SNAPSHOT_TTL 对齐 (轻量)
     retry: false,                // 互通启用但后端异常时不重试, 失败由兜底逻辑处理
+    // 身份快照 initialData (≤10 分钟新鲜窗): 刷新零网络立即就绪,
+    // 消灭守卫路由 Forbidden 闪现; initialDataUpdatedAt 如实回填时间戳,
+    // 超 staleTime 时后台 refetch 校正 (角色变更等)
+    ...freshSnapshotInitialData(),
   })
   return {
     enabled: data != null && !('notEnabled' in data),
@@ -67,7 +130,8 @@ export function useRefreshIdentity() {
     // invalidate 后的 refetch 默认不带 refresh; 再显式带 refresh 拉一次最新角色
     try {
       const me = await api.authMe(true)
-      qc.setQueryData(AUTH_ME_KEY, me)
+      writeSnapshot(me)
+      qc.setQueryData(AUTH_ME_KEY, { ok: true, identity: me.identity })
     } catch {
       // 静默: 刷新失败保留缓存快照 (陈旧快照可继续服务)
     }
