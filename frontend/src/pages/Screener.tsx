@@ -818,7 +818,7 @@ export function Screener() {
   return (
     <div className="sn-screener">
       <PageHeader
-        title="策略"
+        title="策略中心"
         subtitle="基于本地 enriched 表 · 毫秒级 SQL"
         right={
           /* 工具栏 10 组控件总宽会超过标题栏 (窄屏实测溢出 148px)。

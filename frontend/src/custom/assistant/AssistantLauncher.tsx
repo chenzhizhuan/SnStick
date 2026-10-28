@@ -20,12 +20,13 @@ type NavigationContext = FrontendSlotContextMap['layout.navigation.extra']
 type AnySlotContext = FrontendSlotContextMap[keyof FrontendSlotContextMap]
 
 // 与核心侧栏导航文案保持一致的轻量映射(仅用于上下文提示, 展示不走这里)。
+// r46c: 标签与 lib/navConfig 菜单名同源 — 各页面标题已同步改名。
 const PAGE_LABELS: Record<string, string> = {
-  '/': '看板',
-  '/watchlist': '自选',
-  '/screener': '策略',
-  '/factors': '因子',
-  '/backtest': '回测',
+  '/': '市场看板',
+  '/watchlist': '自选股',
+  '/screener': '策略中心',
+  '/factors': '因子研究',
+  '/backtest': '策略回测',
   '/stock-analysis': '个股分析',
   '/limit-ladder': '连板梯队',
   '/concept-analysis': '概念分析',
@@ -36,9 +37,10 @@ const PAGE_LABELS: Record<string, string> = {
   '/abnormal': '异动监控',
   '/lots': '持仓提醒',
   '/signals': '信号库',
-  '/review': '复盘',
-  '/indices': '指数',
-  '/data': '数据',
+  '/review': 'AI市场复盘',
+  '/indices': '指数分析',
+  '/chart': '专业图表',
+  '/data': '数据管理',
   '/settings': '设置',
 }
 

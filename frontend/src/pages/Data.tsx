@@ -599,7 +599,7 @@ export function Data() {
     <>
       <div ref={topRef} />
       <PageHeader
-        title="数据"
+        title="数据管理"
         subtitle="本地数据画像 · 同步状态 · 历史记录"
         right={
           <div className="flex items-center gap-3">
