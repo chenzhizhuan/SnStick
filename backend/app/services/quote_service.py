@@ -112,9 +112,13 @@ class QuoteSubscriber:
     多客户端 (多标签页/多设备) 时告警只会被先醒来的连接消费, 其余永远
     收不到; 共享 Event 的 clear/wait 也存在互相吞信号的竞态。
     改为每连接独立订阅者后, 事件对所有客户端广播。
+
+    v2.3 用户隔离: 订阅者绑定所属用户 id —— 互通形态下告警只推给该用户
+    的连接 (user_id=None 时不过滤, 兼容桌面单机/未登录调试场景)。
     """
 
-    def __init__(self, max_alerts: int = 1000, max_reviews: int = 200) -> None:
+    def __init__(self, user_id: str | None = None, max_alerts: int = 1000, max_reviews: int = 200) -> None:
+        self.user_id = user_id
         self._event = threading.Event()
         self._lock = threading.Lock()
         self._max_alerts = max_alerts
@@ -204,6 +208,10 @@ class QuoteSubscriber:
 # 每 30s 持久化一次足够, 避免 expert 档每秒一轮的全量 preferences 重写磁盘。
 _LAST_FETCH_WRITE_INTERVAL_MS = 30_000.0
 _last_fetch_written_at_ms: float = 0.0
+
+# push_alerts/_broadcast_alerts 的 user_id 参数哨兵: 区分「未传参(按当前上下文
+# 用户过滤)」与「显式 None(不过滤, 广播全部)」两种调用语义。
+_ALERTS_FILTER_SENTINEL = object()
 
 
 def _persist_last_fetch(fetched_at_ms: float) -> None:
@@ -457,9 +465,20 @@ class QuoteService:
     # SSE 订阅管理 — 每个 /stream 连接一个订阅者, 事件广播
     # ================================================================
 
-    def subscribe(self) -> QuoteSubscriber:
-        """注册一个 SSE 订阅者 (连接建立时调用)。"""
-        sub = QuoteSubscriber()
+    def subscribe(self, user_id: str | None = None) -> QuoteSubscriber:
+        """注册一个 SSE 订阅者 (连接建立时调用)。
+
+        user_id: 订阅者所属用户 (互通形态告警按用户过滤)。缺省 None 时
+        尝试从当前请求上下文取 (SSE 端点有登录态); 桌面单机/未互通
+        形态下取不到 → 不过滤, 保持原广播行为。
+        """
+        if user_id is None:
+            try:
+                from app.identity.user_context import current_user_id
+                user_id = current_user_id()
+            except Exception:  # noqa: BLE001
+                user_id = None
+        sub = QuoteSubscriber(user_id=user_id)
         with self._lock:
             self._subscribers.add(sub)
         return sub
@@ -514,12 +533,29 @@ class QuoteService:
         for sub in self._snapshot_subscribers():
             sub.notify_depth()
 
-    def _broadcast_alerts(self, alerts: list[dict]) -> None:
+    def _broadcast_alerts(self, alerts: list[dict], user_id: str | None = _ALERTS_FILTER_SENTINEL) -> None:
+        """广播告警到订阅者。
+
+        user_id 语义 (v2.3 用户隔离):
+          - 未传参 (默认哨兵): 用当前上下文用户 (user_scope 内调用) 过滤;
+            无上下文用户时不过滤 (桌面/全局面向所有连接的告警, 如盘口修正)。
+          - 显式 None: 不过滤 (广播全部订阅者)。
+          - 显式用户 id: 只推给该用户的订阅者。
+        """
+        if user_id is _ALERTS_FILTER_SENTINEL:
+            from app.identity.user_context import current_user_id
+            user_id = current_user_id()
         for sub in self._snapshot_subscribers():
+            if user_id is not None and sub.user_id is not None and sub.user_id != user_id:
+                continue
             sub.push_alerts(alerts)
 
-    def push_alerts(self, alerts: list[dict]) -> None:
-        self._broadcast_alerts(alerts)
+    def push_alerts(self, alerts: list[dict], user_id: str | None = _ALERTS_FILTER_SENTINEL) -> None:
+        """面向所有/指定用户的告警广播 (API 层主动推, 如 alerts.py seed)。
+
+        语义同 _broadcast_alerts 的 user_id 参数。
+        """
+        self._broadcast_alerts(alerts, user_id)
 
     def clear_pending_alerts(self) -> None:
         for sub in self._snapshot_subscribers():
@@ -1023,15 +1059,29 @@ class QuoteService:
     # 工具
     # ================================================================
 
+    def _all_monitor_engines(self) -> list:
+        """全部监控引擎集合 (互通形态 = 所有用户引擎; 桌面 = 单引擎)。
+
+        供全局性判断使用 (指数写盘/拉取标的等数据层决策, 不涉及用户作用域)。
+        """
+        if not self._app_state:
+            return []
+        multi = getattr(self._app_state, "monitor_engines", None)
+        if isinstance(multi, dict) and multi:
+            return list(multi.values())
+        single = getattr(self._app_state, "monitor_engine", None)
+        return [single] if single is not None else []
+
     def _collect_monitor_index_symbols(self) -> set[str]:
-        """启用中的指数监控规则标的 (asset_type=index & scope=symbols)。"""
-        engine = getattr(self._app_state, "monitor_engine", None) if self._app_state else None
-        if not engine:
-            return set()
+        """启用中的指数监控规则标的 (asset_type=index & scope=symbols)。
+
+        v2.3 用户隔离: 聚合所有用户引擎的指数标的 (拉取是全局数据层行为)。
+        """
         out: set[str] = set()
-        for _r in list(engine.rules.values()):
-            if _r.get("enabled", True) and _r.get("asset_type") == "index" and _r.get("scope") == "symbols":
-                out.update(s for s in _r.get("symbols", []) if s)
+        for engine in self._all_monitor_engines():
+            for _r in list(engine.rules.values()):
+                if _r.get("enabled", True) and _r.get("asset_type") == "index" and _r.get("scope") == "symbols":
+                    out.update(s for s in _r.get("symbols", []) if s)
         return out
 
     @staticmethod
@@ -1261,13 +1311,49 @@ class QuoteService:
     # ================================================================
 
     def _evaluate_monitors(self, daily_df: pl.DataFrame, quote_extra: pl.DataFrame | None) -> None:
-        """行情更新后评估统一监控规则引擎,并刷新策略结果缓存。"""
+        """行情更新后评估统一监控规则引擎,并刷新策略结果缓存。
+
+        v2.3 用户隔离: 互通形态下 main.py 为每用户建独立引擎 (monitor_engines),
+        此处逐用户在 user_scope 内评估 — 告警落盘/广播按用户隔离; 桌面/单引擎
+        形态退化为直接调用, 行为与上游一致。单引擎失败不阻塞其他用户。
+        """
+        # 仅在「交易日 + 连续竞价时段」评估监控 —— 避开集合竞价指示价、盘前/收盘后
+        # 缓冲。轮询窗口(_is_trading_hours)更宽是为盘前预热/收盘捕捉, 但告警不应
+        # 基于这些非连续竞价价格。(守卫放壳层, 逐引擎不重复判断)
+        if not self._is_continuous_trading():
+            return
+        engines: dict[str | None, object] = {}
+        if self._app_state:
+            multi = getattr(self._app_state, "monitor_engines", None)
+            if isinstance(multi, dict) and multi:
+                engines = multi
+            else:
+                single = getattr(self._app_state, "monitor_engine", None)
+                if single is not None:
+                    engines = {None: single}
+        if not engines:
+            return
+        # 逐用户 (或单用户) 评估
+        for uid, engine in list(engines.items()):
+            try:
+                if uid is None:
+                    self._evaluate_monitors_for_engine(engine, daily_df, quote_extra)
+                else:
+                    from app.identity.user_context import user_scope
+                    with user_scope(uid):
+                        self._evaluate_monitors_for_engine(engine, daily_df, quote_extra)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("监控评估失败 (user=%s): %s", uid, e)
+
+    def _evaluate_monitors_for_engine(
+        self, engine, daily_df: pl.DataFrame, quote_extra: pl.DataFrame | None
+    ) -> None:
+        """对单个引擎执行完整评估 (v0.3.26 评估主体): 股票/板块/异动/日期/ETF/指数轮
+        → 落盘 + SSE + 通知。由 _evaluate_monitors 在用户作用域内逐引擎调用。
+        """
+        if not engine or engine.rule_count <= 0:
+            return
         try:
-            # 仅在「交易日 + 连续竞价时段」评估监控 —— 避开集合竞价指示价、盘前/收盘后
-            # 缓冲。轮询窗口(_is_trading_hours)更宽是为盘前预热/收盘捕捉, 但告警不应
-            # 基于这些非连续竞价价格。
-            if not self._is_continuous_trading():
-                return
             # 获取 enriched 数据 (刚算好的)
             enriched_today, enriched_date = self.get_enriched_today()
             # 股票快照就绪 = 非空 + 日期为当日。未就绪时仅跳过股票轮,
@@ -1280,11 +1366,9 @@ class QuoteService:
             all_alerts: list[dict] = []
             rule_events: list[dict] = []
             paper_watch_events: list[dict] = []  # 模拟盘合成规则的沙盒信号 (只喂模拟盘)
-            engine = None
 
             # 通用监控规则评估 (统一引擎: signal/price/market/strategy)
             if self._app_state:
-                engine = getattr(self._app_state, "monitor_engine", None)
                 if engine and engine.rule_count > 0:
                     # 预构建 symbol → name 映射 (enriched 已 drop name 列, 引擎触发时回填用)。
                     # 股票 + ETF + 指数三表合并走 _monitor_name_map -> repo.get_name_map()
