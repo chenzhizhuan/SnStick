@@ -1000,7 +1000,7 @@ export function Layout() {
                   onClick={() => window.dispatchEvent(new CustomEvent(ASSISTANT_OPEN_EVENT))}
                   title={railMode ? label : 'AI 投研助手 (Ctrl+K)'}
                   className={cn(
-                    'group relative flex items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
+                    'group relative flex w-full items-center rounded-btn text-sm transition-all duration-150 ease-smooth',
                     railMode ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2',
                     'text-foreground/75 hover:bg-elevated/70 hover:text-foreground cursor-pointer',
                   )}
