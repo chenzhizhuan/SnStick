@@ -195,7 +195,9 @@ function SignalsBody({ highlight }: { highlight: string }) {
                       <span className="font-mono text-foreground/80">{fieldWithDays(c.left, c.leftDays, fields)}</span>
                       <span className="font-mono text-muted">{c.op}</span>
                       <span className="font-mono text-foreground/80">
-                        {c.right.startsWith('field:')
+                        {/* v0.3.26 上游同步: 条件右值可能为数字 (迁移的残月信号 right=0.6),
+                            先判型再调用字符串方法, 否则整页渲染崩 (上游 d7a5e 同类修复) */}
+                        {typeof c.right === 'string' && c.right.startsWith('field:')
                           ? fieldWithDays(c.right.slice(6), c.rightDays, fields)
                           : c.right}
                       </span>
