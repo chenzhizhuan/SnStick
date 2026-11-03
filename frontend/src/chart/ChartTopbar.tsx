@@ -403,13 +403,14 @@ export function ChartTopbar({ symbol, name, period, chartStyle, activeIndicators
 
         <span className="h-4 w-px shrink-0 bg-border" aria-hidden="true" />
 
-        {/* 信号开关 (R5 梯形菱形 + 背离方块; 默认全开, Pine 无独立开关 — 工作台 UI 层控制)。
+        {/* 信号开关 (R5 菱形 + 背离方块; 默认全开, Pine 无独立开关 — 工作台 UI 层控制)。
+         *  显示名 (2026-11-02): 按钮旧名「梯形」→「菱形」; 算法 key 仍为 ryDiamond (梯形菱形信号)。
          *  RSI 零轴震荡形态为固定形态 (无开关), 由 ChartPane 固定传 rsiZeroAxis=true */}
         <div className="flex shrink-0 items-center gap-1">
           <Pill
             active={signals?.ryDiamond !== false}
-            label="梯形"
-            title="R5 梯形菱形信号 (顶部红/底部青)"
+            label="菱形"
+            title="R5 菱形信号 (顶部红/底部青)"
             activeClass="bg-amber-400/15 text-amber-400"
             onClick={() => onChange({ toggleSignal: 'ryDiamond' })}
           />

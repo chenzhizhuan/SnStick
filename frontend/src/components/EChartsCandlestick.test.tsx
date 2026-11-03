@@ -325,7 +325,7 @@ it('MACD+ 能量柱五色配色矩阵 (A 股红涨绿跌: 正柱红系/负柱绿
       activeIndicators={['macd_plus']} showMA={false} />,
   ))
   const option = chart.setOption.mock.calls.at(-1)?.[0] as any
-  const macdBar = (option?.series ?? []).find((s: any) => s.name === 'MACD+')
+  const macdBar = (option?.series ?? []).find((s: any) => s.name === '能量场')
   expect(macdBar).toBeTruthy()
   // 首根无 hist → '-' 占位 (不参与配色)
   expect(macdBar.data[0]).toBe('-')
@@ -646,22 +646,22 @@ it('主图信息栏文案「牛熊:」(第 31 轮 ②, 不残留旧「牛:」前
   expect(text).not.toMatch(/牛:\d/)
 })
 
-it('RSI+ 值显示精简: 仅 RSI+ 数值, 高位/低位/S/B 提示全部去除 (第 31 轮 ③ + 第 34 轮复测)', async () => {
+it('资金流 (RSI+) 值显示精简: 仅数值, 高位/低位/S/B 提示全部去除 (第 31 轮 ③ + 第 34 轮复测; 2026-11-02 显示名变更 RSI+→资金流)', async () => {
   // 第 34 轮用户复测: 「检索低位: 关键词, 明显还在」— 第 31 轮只去了高位与 S/B,
-  // 低位:超卖残留; 本轮状态提示全部去除, 值显示只剩 RSI+ 数值。
+  // 低位:超卖残留; 本轮状态提示全部去除, 值显示只剩资金流数值。
   const subValText = () => {
     const option = chart.setOption.mock.calls.at(-1)?.[0] as any
     const g = (option?.graphic ?? []).find((x: any) => x?.id === 'sub-val-rsi_plus')
     return String(g?.style?.text ?? '')
   }
-  // fund_bg_color=2 (超买高位) → 仅 RSI+ 数值
+  // fund_bg_color=2 (超买高位) → 仅资金流数值
   const dataHigh: OHLC[] = rows(20).map(r => ({ ...r, rsi_plus: 0.25, fund_bg_color: 2 }))
   await act(async () => root.render(
     <EChartsCandlestick data={dataHigh} symbol="600519.SH" height={400} visibleBars="all"
       activeIndicators={['rsi_plus']} showMA={false} />,
   ))
   const t1 = subValText()
-  expect(t1).toContain('RSI+:0.25')
+  expect(t1).toContain('资金流:0.25')
   expect(t1).not.toContain('高位')
   expect(t1).not.toMatch(/[SB]:/)
 
@@ -672,7 +672,7 @@ it('RSI+ 值显示精简: 仅 RSI+ 数值, 高位/低位/S/B 提示全部去除 
       activeIndicators={['rsi_plus']} showMA={false} />,
   ))
   const t2 = subValText()
-  expect(t2).toContain('RSI+:-0.30')
+  expect(t2).toContain('资金流:-0.30')
   expect(t2).not.toContain('低位')
   expect(t2).not.toContain('超卖')
 })

@@ -58,20 +58,20 @@ function renderTopbar(onChange: (patch: ChartTopbarPatch) => void) {
   })
 }
 
-it('指标按钮只有 MACD+ 与 RSI+ (图表模块特例: 原版 MACD/RSI 及其余指标已移除)', async () => {
+it('指标按钮只有 能量场 与 资金流 (图表模块特例: 原版 MACD/RSI 及其余指标已移除; 2026-11-02 显示名变更)', async () => {
   const patches: ChartTopbarPatch[] = []
   renderTopbar(p => patches.push(p))
 
   const labels = [...document.querySelectorAll('button')].map(b => b.textContent?.trim())
-  expect(labels).toContain('MACD+')
-  expect(labels).toContain('RSI+')
-  for (const gone of ['MACD', 'RSI', '成交量', 'KDJ', 'OBV', 'CCI', 'BOLL', 'RSI零轴']) {
-    // 严格相等判定 (MACD+ 不应误伤匹配 MACD)
+  expect(labels).toContain('能量场')
+  expect(labels).toContain('资金流')
+  for (const gone of ['MACD', 'RSI', 'MACD+', 'RSI+', '成交量', 'KDJ', 'OBV', 'CCI', 'BOLL', 'RSI零轴', '梯形']) {
+    // 严格相等判定 (旧显示名 MACD+/RSI+/梯形 已改, 不应残留; 能量场不含 MACD 前缀也不误伤)
     expect(labels.some(l => l === gone)).toBe(false)
   }
 
-  // 点击 RSI+ 关闭 → toggleIndicator patch
-  const rsiBtn = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'RSI+')
+  // 点击 资金流 关闭 → toggleIndicator patch
+  const rsiBtn = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === '资金流')
   await act(async () => { rsiBtn!.click() })
   expect(patches.some(p => p.toggleIndicator === 'rsi_plus')).toBe(true)
 })
