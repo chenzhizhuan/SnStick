@@ -301,7 +301,7 @@ function buildRsiPlusSeries(data: OHLC[]): Record<string, any> {
   }
 
   return {
-    name: 'RSI+',
+    name: '资金流',
     type: 'custom',
     coordinateSystem: 'cartesian2d',
     data: vals.map((v, i) => [i, v]),
@@ -737,10 +737,12 @@ export const SUB_CHARTS: SubChartDef[] = [
   },
   // ── 私有化指标 (MACD+ / RSI+) — 算法为 R5 经典版附图口径 (服务端 plus.py),
   //    视觉样式遵从平台规范配色 (黄/紫双线 + 正红负绿柱; 资金流 ±1 量程):
-  //    数据口径与源指标一致, 仅渲染风格与全站统一。 ──
+  //    数据口径与源指标一致, 仅渲染风格与全站统一。
+  //    显示名 (2026-11-02 用户需求): MACD+ → 能量场, RSI+ → 资金流 —
+  //    仅改 UI label/series name, 后端字段 (macd_plus*/rsi_plus) 与算法口径不变。 ──
   {
     key: 'macd_plus',
-    label: 'MACD+',
+    label: '能量场',
     height: 72,
     buildSeries: (data) => [
       {
@@ -760,7 +762,7 @@ export const SUB_CHARTS: SubChartDef[] = [
         itemStyle: { color: 'rgba(255,235,59,0.8)' },
       },
       {
-        name: 'MACD+',
+        name: '能量场',
         type: 'bar',
         data: data.map((d, i) => {
           const v = d.macd_plus_hist
@@ -810,7 +812,7 @@ export const SUB_CHARTS: SubChartDef[] = [
   },
   {
     key: 'rsi_plus',
-    label: 'RSI+',
+    label: '资金流',
     height: 72,
     // 资金流 ±1 量程 (RSI14 归一化) — Y 轴自适应 (TV 实测左日线 -0.60~0.40 /
     // 右周线 -0.40~0.40, 随数据范围自动定界, 不固定 ±1)
@@ -840,7 +842,7 @@ export const SUB_CHARTS: SubChartDef[] = [
       // 2026-10-26 用户复测指定: 高位/低位/S/B 状态提示全部去除 (第 31 轮只去了
       // 高位与 S/B, 低位:超卖残留 — 用户「检索低位: 明显还在」), 只留 RSI+ 数值
       return [
-        { label: 'RSI+', color: c, value: v != null ? v.toFixed(2) : '—' },
+        { label: '资金流', color: c, value: v != null ? v.toFixed(2) : '—' },
       ]
     },
   },
