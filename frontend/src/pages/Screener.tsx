@@ -207,7 +207,7 @@ export function Screener() {
   const inTradingSession = quoteStatus.data?.is_trading_hours !== false
   const summaryQuery = useQuery({
     queryKey: QK.screenerCachedSummary,
-    queryFn: api.screenerCachedSummary,
+    queryFn: () => api.screenerCachedSummary(),
     enabled: assetType === 'stock',
     refetchInterval: pendingRun ? 2000 : false,
   })
