@@ -16,7 +16,6 @@ import {
   Bot,
   Database,
   FlaskConical,
-  Gift,
   History,
   MousePointerClick,
   Plus,
@@ -36,7 +35,6 @@ import { cn } from '@/lib/cn'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
-import { DEEPSEEK_FALLBACK_RANGE, discountRangeLabel, useSponsorModelItems } from '@/lib/sponsor-discount'
 import {
   fetchAssistantStatus,
   fetchAssistantSuggests,
@@ -62,11 +60,6 @@ const EASE_SMOOTH: [number, number, number, number] = [0.16, 1, 0.3, 1]
 const WIDTH_STORAGE_KEY = 'assistant.width.v1'
 const DEFAULT_WIDTH = 720
 const MIN_WIDTH = 480
-
-// RunningHub 推广条常量 (main 主线): 跳马灯邀请链接 + 关闭时间戳持久化键 + 一周内不再显示
-const RH_PROMO_URL = 'https://www.runninghub.ai/zh-cn/call-api/llm/models?source=github&inviteCode=edt5wh7c'
-const RH_PROMO_DISMISS_KEY = 'assistant.rh_promo.dismissed_at.v1'
-const RH_PROMO_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000
 
 function loadWidth(): number {
   try {
@@ -209,64 +202,6 @@ function DrawerPanel({
         <span className="absolute left-1/2 top-1/2 h-10 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/50 opacity-0 transition-opacity duration-150 ease-smooth group-hover/handle:opacity-100" />
       </div>
     </motion.aside>
-  )
-}
-
-/** RunningHub 推广条 — 嵌在抽屉标题行中间 (单行跳马灯横向滚动, 悬停暂停),
- * 琥珀色高于/低于主题各取一档, 可点击跳转邀请链接接。
- * 点 X 后一周内不再显示 — 时间戳持久化到 localStorage; DrawerPanel 随抽屉
- * 开合挂载/卸载, 每次点开对话框重新检查是否已到期, 到期后自动恢复。 */
-function RhPromoBanner() {
-  const [dismissed, setDismissed] = useState(() => {
-    try {
-      const ts = Number(localStorage.getItem(RH_PROMO_DISMISS_KEY))
-      return Number.isFinite(ts) && Date.now() - ts < RH_PROMO_SNOOZE_MS
-    } catch { return false }
-  })
-  // 折扣区间来自实时模型定价 (与设置页共用 60s 缓存); 取不到时回退到集中的兜底文案
-  const items = useSponsorModelItems()
-  const range = (items && discountRangeLabel(items)) ?? DEEPSEEK_FALLBACK_RANGE
-  if (dismissed) return null
-  const snooze = () => {
-    setDismissed(true)
-    try { localStorage.setItem(RH_PROMO_DISMISS_KEY, String(Date.now())) } catch { /* 存储不可用时仅本次关闭 */ }
-  }
-  const copy = (key: string) => (
-    <a
-      key={key}
-      href={RH_PROMO_URL}
-      target="_blank"
-      rel="noreferrer"
-      className="flex shrink-0 items-center gap-1 pr-8 text-[10px] leading-relaxed text-secondary transition-colors hover:text-foreground"
-    >
-      <span className="font-medium text-amber-600 dark:text-amber-400">Claude、ChatGPT、Gemini</span>
-      <span>等国际模型直连稳定不掉线，</span>
-      <span className="font-medium text-amber-600 dark:text-amber-400">DeepSeek v4.1 Flash {range}</span>
-      <span>，</span>
-      <span className="font-medium text-amber-600 dark:text-amber-400">注册赠送 1000 RH 积分</span>
-      <span>🎁</span>
-    </a>
-  )
-  // 窗口(overflow-hidden)裁剪滚动内容, 礼包图标与 X 按钮在窗口外, 永不被文字盖住;
-  // 轨道 w-max 按内容撑宽, 份数为偶数时 translateX(-50%) 恰好位移整份文案宽度,
-  // 循环回跳视觉无缝。4 份保证极宽抽屉下窗口内也始终有内容。
-  return (
-    <div className="group flex min-w-0 flex-1 items-center gap-1.5 rounded-btn border border-amber-400/30 bg-amber-400/15 py-1 pl-2 pr-1 dark:border-amber-400/25 dark:bg-amber-400/10">
-      <Gift className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="flex w-max animate-[rh-marquee_26s_linear_infinite] whitespace-nowrap motion-reduce:animate-none group-hover:[animation-play-state:paused]">
-          {['a', 'b', 'c', 'd'].map(copy)}
-        </div>
-      </div>
-      <button
-        onClick={snooze}
-        title="关闭推广 (一周内不再显示)"
-        aria-label="关闭推广 (一周内不再显示)"
-        className="shrink-0 rounded-btn p-0.5 text-muted transition-colors hover:bg-elevated hover:text-foreground"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
   )
 }
 
