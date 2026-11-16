@@ -15,10 +15,12 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import logging
 import re
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from app.services.fs_utils import atomic_write_text
@@ -164,6 +166,23 @@ def _load_layer(path: Path) -> dict:
     return copy.deepcopy(data)
 
 
+def data_source_stamp() -> tuple:
+    """Opaque config version; routine last-fetch persistence must not invalidate pulls."""
+    from app.config import settings
+
+    data = load()
+    data.pop("last_fetch_ms", None)
+    result = [hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()]
+    for name in ("secrets.json",):
+        path = settings.data_dir / "user_data" / name
+        try:
+            stat = path.stat()
+            result.append((stat.st_mtime_ns, stat.st_size))
+        except FileNotFoundError:
+            result.append(None)
+    return (str(settings.data_dir.resolve()), *result)
+
+
 def _layers() -> list[Path]:
     """当前上下文的层列表: 互通形态 = [全局层, 用户层]; 桌面版 = 单层 (同路径去重)。"""
     u = _user_path()
@@ -189,7 +208,14 @@ def load() -> dict:
     return merged
 
 
-_SAVE_LOCK = threading.Lock()
+_SAVE_LOCK = threading.RLock()
+
+
+@contextmanager
+def mutation():
+    """Serialize multi-step preference changes with ordinary merge-writes."""
+    with _SAVE_LOCK:
+        yield
 
 
 def save(updates: dict) -> dict:
@@ -465,6 +491,33 @@ def set_minute_batch_symbols(size: int) -> int:
     size = max(50, min(2000, int(size)))
     save({"minute_batch_symbols": size})
     return size
+
+
+# ===== 回测/优化 worker RSS 上限 (GiB) =====
+# 环境变量 TICK_WORKER_RSS_LIMIT_BYTES 仍是更高优先级的部署级覆盖 (见
+# app/backtest/worker.py 的解析顺序); 这里只承接设置页的界面化配置。
+_BACKTEST_RSS_LIMIT_GIB_DEFAULT = 6
+_BACKTEST_RSS_LIMIT_GIB_MAX = 64
+
+
+def get_backtest_worker_rss_limit_gib() -> int:
+    """回测/优化独立 worker 的 RSS 上限 (GiB)。默认 6, 范围 [0, 64], 0 = 不限制。
+
+    单位是 GiB 而非字节: 界面与报错文案均以 GiB 呈现, 换算只发生在
+    worker.py 的字节级解析处, 避免两套单位并存。
+    """
+    raw = load().get("backtest_worker_rss_limit_gib", _BACKTEST_RSS_LIMIT_GIB_DEFAULT)
+    try:
+        gib = int(raw)
+    except (TypeError, ValueError):
+        gib = _BACKTEST_RSS_LIMIT_GIB_DEFAULT
+    return max(0, min(_BACKTEST_RSS_LIMIT_GIB_MAX, gib))
+
+
+def set_backtest_worker_rss_limit_gib(gib: int) -> int:
+    gib = max(0, min(_BACKTEST_RSS_LIMIT_GIB_MAX, int(gib)))
+    save({"backtest_worker_rss_limit_gib": gib})
+    return gib
 
 
 def _allowed_data_providers() -> set[str]:
@@ -1425,6 +1478,36 @@ def get_nav_order() -> list[str]:
     return load().get("nav_order", [])
 
 
+def get_nav_layout() -> dict | None:
+    from app.services.nav_layout import validate_nav_layout
+
+    raw = load().get("nav_layout")
+    if raw is None:
+        return None
+    try:
+        return validate_nav_layout(raw)
+    except ValueError:
+        return None
+
+
+def set_nav_layout(value: dict | None, hidden: list[str] | None = None) -> dict | None:
+    from app.services.nav_layout import flat_nav_order, validate_nav_layout
+
+    cleaned = validate_nav_layout(value) if value is not None else None
+    with mutation():
+        raw = load().get("nav_layout")
+        if isinstance(raw, dict) and raw.get("v", 1) != 1:
+            raise ValueError("导航布局由更高版本创建，请升级后再修改")
+        updates: dict = {"nav_layout": cleaned}
+        if cleaned is not None:
+            # 平铺副本供旧版本回退，归属和顺序始终在同一次原子写入中更新。
+            updates["nav_order"] = flat_nav_order(cleaned)
+        if hidden is not None:
+            updates["nav_hidden"] = list(dict.fromkeys(x for x in hidden if x != "/"))
+        save(updates)
+    return cleaned
+
+
 def set_nav_order(order: list[str]) -> list[str]:
     """保存左侧菜单排序。"""
     save({"nav_order": order})
@@ -1582,8 +1665,12 @@ _UI_PREFS_KEYS = (
     "settings_nav_collapsed",
     "bt_strategy_list_maxh",
     "nav_state",
+    "nav_groups",
     # AI 助手悬浮球显隐 (assistant.fab.enabled 的后端副本) — 同样受端口漂移影响
     "assistant_fab_enabled",
+    # JSON 文本沿用标量契约，保存统一策略池的 ID 顺序与显式空选择。
+    "strategy_pool",
+    "theme",
 )
 _UI_PREFS_MAX_JSON = 16 * 1024
 
@@ -1604,17 +1691,28 @@ def set_ui_prefs(updates: dict) -> dict:
     """
     if not isinstance(updates, dict):
         raise ValueError("ui_prefs 需为对象")
-    current = get_ui_prefs()
-    for key, value in updates.items():
-        if key not in _UI_PREFS_KEYS:
-            continue
-        if value is None:
-            current.pop(key, None)
-        elif isinstance(value, (bool, int, float, str)):
-            current[key] = value
-        else:
-            raise ValueError(f"ui_prefs.{key} 只接受标量")
-    if len(json.dumps(current, ensure_ascii=False)) > _UI_PREFS_MAX_JSON:
-        raise ValueError("ui_prefs 数据过大 (>16KB)")
-    save({"ui_prefs": current})
+    # 多项界面设置可同时写入，整个 blob 的读改写须与普通偏好保存共用锁。
+    with mutation():
+        current = get_ui_prefs()
+        for key, value in updates.items():
+            if key not in _UI_PREFS_KEYS:
+                continue
+            if key == "theme" and value not in ("light", "dark", None):
+                raise ValueError("ui_prefs.theme 仅接受 light / dark")
+            if key == "strategy_pool" and value is not None:
+                try:
+                    pool = json.loads(value)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("ui_prefs.strategy_pool 须为策略 ID 列表的 JSON 文本") from exc
+                if not isinstance(pool, list) or any(not isinstance(item, str) for item in pool):
+                    raise ValueError("ui_prefs.strategy_pool 须为策略 ID 列表的 JSON 文本")
+            if value is None:
+                current.pop(key, None)
+            elif isinstance(value, (bool, int, float, str)):
+                current[key] = value
+            else:
+                raise ValueError(f"ui_prefs.{key} 只接受标量")
+        if len(json.dumps(current, ensure_ascii=False)) > _UI_PREFS_MAX_JSON:
+            raise ValueError("ui_prefs 数据过大 (>16KB)")
+        save({"ui_prefs": current})
     return current
