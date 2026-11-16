@@ -10,6 +10,12 @@ const backendTarget = `http://221.237.179.2:13483`
 
 export default defineConfig({
   plugins: [react()],
+  experimental: {
+    // 后端将资源挂到带版本的路径；分块预加载和 CSS 字体也须跟随该路径。
+    renderBuiltUrl(_filename, { hostType }) {
+      if (hostType !== 'html') return { relative: true }
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
