@@ -1,3 +1,5 @@
+import type { EntryFilters, MarketFilterSource } from './entryFilterTypes'
+import type { BacktestPriceBasis } from './api'
 import type { DailyMarkerStyle } from './chart-types'
 
 /**
@@ -239,6 +241,7 @@ export const storage = {
     selectedStrategy: string | null
     symbols: string
     assetType?: 'stock' | 'etf'
+    priceBasis?: BacktestPriceBasis
     start: string
     end: string
     matching: 'close_t' | 'open_t+1'
@@ -258,6 +261,8 @@ export const storage = {
     minuteFill?: boolean
     regimeStates?: string[]
     regimeMinScore?: number | ''
+    marketFilterSource?: MarketFilterSource
+    entryFilters?: EntryFilters
     params?: Record<string, any>
     overrides?: Record<string, any>
     strategyConfigSignature?: string

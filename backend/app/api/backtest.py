@@ -8,24 +8,24 @@ import threading
 import weakref
 from dataclasses import asdict
 from datetime import date, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+from tivelo_contracts.base import Digest
 
 from app.api.auth import COOKIE_NAME
+from app.backtest.entry_inputs import EntryFilters
+from app.backtest.price_basis import BacktestPriceBasis
 from app.config import settings
 from app.enriched_generation import EnrichedGenerationUnavailableError
 from app.identity.permissions import P_BACKTEST_RUN, require_perm
 from app.identity.user_context import user_root
 from app.market_time import cn_today
-from app.services.backtest import (
-    BacktestConfig,
-    BacktestService,
-    VectorbtUnavailable,
-)
+from app.services.backtest import BacktestConfig, BacktestService
 from app.services.daily_health import DailyIntegrityError
+from app.services.engine_jobs.daily_snapshot import DailySnapshotRef
 from app.services.workload import admit_request, workload
 
 logger = logging.getLogger(__name__)
@@ -119,12 +119,8 @@ def run(req: BacktestRequest, request: Request, _: None = Depends(require_perm(P
         matching=req.matching,
         asset_type=req.asset_type,
     )
-    try:
-        admit_request(request, COOKIE_NAME)
-        result = svc.run(cfg)
-    except VectorbtUnavailable as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
-    return _stamp_daily_data(result)
+    admit_request(request, COOKIE_NAME)
+    return _stamp_daily_data(svc.run(cfg))
 
 
 # ================================================================
@@ -381,6 +377,10 @@ class StrategyBacktestRequest(BaseModel):
     asset_type: str = "stock"
     minute_fill: bool = False
     regime_filter: dict | None = None
+    price_basis: BacktestPriceBasis = "qfq"
+    snapshot: DailySnapshotRef | None = None
+    entry_filters: EntryFilters | None = None
+    filter_data_version: Digest | None = None
 
 
 def _guard_minute_strategy_backtest(
@@ -406,16 +406,31 @@ def _guard_minute_strategy_backtest(
         raise HTTPException(400, detail=str(exc)) from exc
 
 
+def _guard_snapshot_request(snapshot, start, end, asset_type, price_basis, minute_fill, exit_fill):
+    if snapshot is None:
+        return
+    if not start or not end:
+        raise HTTPException(400, "快照回测需要明确的开始和结束日期")
+    if asset_type != "stock" or price_basis != "qfq":
+        raise HTTPException(400, "此快照支持 A 股前复权日线回测")
+    if minute_fill or exit_fill == "signal_next_minute":
+        raise HTTPException(400, "日线快照缺少分钟K，请选择日线成交方式")
+
+
 @router.post("/strategy/run")
 def strategy_run(req: StrategyBacktestRequest, request: Request, _: None = Depends(require_perm(P_BACKTEST_RUN))):
     """策略回测 — 复用 StrategyDef 体系做全周期回测。"""
     from app.backtest.strategy import StrategyBacktestConfig
-    from app.backtest.worker import make_worker_task, run_worker_task
+    from app.backtest.worker import BacktestWorkerError, make_worker_task, run_worker_task
 
+    _guard_snapshot_request(
+        req.snapshot, req.start, req.end, req.asset_type, req.price_basis, req.minute_fill, req.exit_fill,
+    )
     end = req.end or cn_today()
     start = _resolve_start(req, end, FACTOR_DEFAULT_DAYS)
     _guard_server_backtest_range(start, end)
-    _guard_minute_strategy_backtest(request, req.strategy_id, start, req.asset_type)
+    if req.snapshot is None:
+        _guard_minute_strategy_backtest(request, req.strategy_id, start, req.asset_type)
 
     if req.position_sizing == "policy":
         from app.backtest import position_policies
@@ -452,6 +467,10 @@ def strategy_run(req: StrategyBacktestRequest, request: Request, _: None = Depen
         asset_type=req.asset_type,
         minute_fill=req.minute_fill,
         regime_filter=req.regime_filter,
+        price_basis=req.price_basis,
+        snapshot=req.snapshot,
+        entry_filters=req.entry_filters,
+        filter_data_version=req.filter_data_version,
     )
     task = make_worker_task("backtest", settings.data_dir, cfg, user_root_path=user_root())
     from app.services.heavy_job_limiter import shared_heavy_job_limiter
@@ -459,7 +478,13 @@ def strategy_run(req: StrategyBacktestRequest, request: Request, _: None = Depen
     admit_request(request, COOKIE_NAME)
     with shared_heavy_job_limiter.slot("normal"):
         workload.record("backtest.task", "executed")
-        return _stamp_daily_data(run_worker_task(task))
+        try:
+            result = run_worker_task(task)
+        except BacktestWorkerError as exc:
+            if exc.code == "SNAPSHOT_UNAVAILABLE":
+                raise HTTPException(409, str(exc)) from exc
+            raise
+        return _stamp_daily_data(result, {} if req.snapshot else None)
 
 
 # ── SSE 流式回测 (实时进度 + 可取消 + 支持重连) ───────────────────
@@ -498,7 +523,7 @@ class _BacktestJob:
     __slots__ = ("key", "cancel_event", "progress", "result", "error", "done", "finish_ts",
                  "daily_data_revisions", "started", "expiry_timer", "__weakref__")
 
-    def __init__(self, key: str):
+    def __init__(self, key: str, *, pinned_daily: bool = False):
         self.key = key
         self.cancel_event = threading.Event()
         self.progress: list[dict] = []   # 进度历史 (新连接可回放)
@@ -508,7 +533,7 @@ class _BacktestJob:
         self.started = False
         self.expiry_timer = None
         self.finish_ts: float = 0.0
-        self.daily_data_revisions = _daily_data_revisions()
+        self.daily_data_revisions = {} if pinned_daily else _daily_data_revisions()
 
 
 # 模块级任务表: key -> _BacktestJob
@@ -532,7 +557,8 @@ def _cleanup_stale_jobs():
     revisions = _daily_data_revisions()
     with _jobs_lock:
         stale = [k for k, j in _running_jobs.items() if j.done and (
-            now - j.finish_ts > _JOB_TTL or j.daily_data_revisions != revisions
+            now - j.finish_ts > _JOB_TTL
+            or (j.daily_data_revisions and j.daily_data_revisions != revisions)
         )]
         for k in stale:
             _drop_job(k)
@@ -541,7 +567,9 @@ def _cleanup_stale_jobs():
             _drop_job(key)
 
 
-def _acquire_or_evict_job(job_key: str, *, force: bool, on_submit=None) -> tuple[_BacktestJob, bool]:
+def _acquire_or_evict_job(
+    job_key: str, *, force: bool, on_submit=None, pinned_daily: bool = False,
+) -> tuple[_BacktestJob, bool]:
     """获取或创建任务, 返回 (job, is_new)。
 
     force 强制重跑: 同 key 已完成任务 (5 分钟 TTL 内) 直接丢弃重建, 不回放旧
@@ -562,7 +590,7 @@ def _acquire_or_evict_job(job_key: str, *, force: bool, on_submit=None) -> tuple
             if on_submit is not None:
                 on_submit()
             _drop_job(job_key)
-            job = _BacktestJob(job_key)
+            job = _BacktestJob(job_key, pinned_daily=pinned_daily)
             _running_jobs[job_key] = job
             return job, True
         workload.record("backtest.task", "cache_hit" if job.done else "shared")
@@ -594,7 +622,7 @@ def _start_job_thread(job: _BacktestJob, target) -> None:
 def _finish_job(job: _BacktestJob, *, result=None, error: str | None = None) -> None:
     """Publish the terminal state and proactively drop the reconnect entry after TTL."""
     finished_at = time.time()
-    if result is not None and job.daily_data_revisions != _daily_data_revisions():
+    if result is not None and job.daily_data_revisions and job.daily_data_revisions != _daily_data_revisions():
         result = None
         error = "日K数据已修正, 请重新运行计算"
     with _jobs_lock:
@@ -638,8 +666,19 @@ def _make_job_key(
     position_policy: str | None = None,
     position_policy_params: str | None = None,
     force: bool = False,
+    price_basis: BacktestPriceBasis = "qfq",
+    snapshot: str | None = None,
+    entry_filters: str | None = None,
+    filter_data_version: str | None = None,
+    request_id: str | None = None,
 ) -> str:
     raw = f"{strategy_id}|{symbols}|{start}|{end}|{matching}|{entry_fill}|{exit_fill}|{fees_pct}|{slippage_bps}|{max_positions}|{max_exposure_pct}|{initial_capital}|{position_sizing}|{params}|{overrides}|{mode}|{holding_days}|{commission_pct}|{stamp_tax_pct}|{asset_type}|{minute_fill}|{regime_filter}|{position_policy}|{position_policy_params}|force={force}"
+    if price_basis != "qfq":
+        raw += f"|price_basis={price_basis}"
+    if snapshot:
+        raw += f"|snapshot={snapshot}"
+    if entry_filters or filter_data_version or request_id:
+        raw += "|" + json.dumps([entry_filters, filter_data_version, request_id])
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
 
@@ -671,6 +710,11 @@ async def strategy_stream(
     minute_fill: bool = False,
     regime_filter: str | None = None,
     force: bool = False,
+    price_basis: BacktestPriceBasis = "qfq",
+    snapshot: str | None = None,
+    entry_filters: str | None = None,
+    filter_data_version: Digest | None = None,
+    request_id: Annotated[str | None, Query(pattern=r"^[a-zA-Z0-9_-]{1,80}$")] = None,
     _: None = Depends(require_perm(P_BACKTEST_RUN)),
 ):
     """SSE 流式策略回测: 实时推送进度, 完成后推送结果, 支持重连 (刷新/切页后恢复)。
@@ -691,6 +735,15 @@ async def strategy_stream(
     from app.backtest.worker import make_worker_task, run_worker_task
 
     try:
+        snapshot_ref = DailySnapshotRef.model_validate_json(snapshot) if snapshot else None
+    except ValidationError as exc:
+        raise HTTPException(400, "回测快照标识无效") from exc
+    try:
+        extension_filters = EntryFilters.model_validate_json(entry_filters) if entry_filters else None
+    except ValidationError as exc:
+        raise HTTPException(400, "扩展回测过滤条件无效") from exc
+    _guard_snapshot_request(snapshot_ref, start, end, asset_type, price_basis, minute_fill, exit_fill)
+    try:
         end_date = date.fromisoformat(end) if end else cn_today()
         start_date = date.fromisoformat(start) if start else None
     except ValueError as e:
@@ -699,7 +752,8 @@ async def strategy_stream(
         # 空 start = 全部历史: 用本地最早日K日期, 查不到再回退到默认窗口
         earliest = request.app.state.repo.earliest_daily_date()
         start_date = earliest or (end_date - timedelta(days=FACTOR_DEFAULT_DAYS))
-    _guard_minute_strategy_backtest(request, strategy_id, start_date, asset_type)
+    if snapshot_ref is None:
+        _guard_minute_strategy_backtest(request, strategy_id, start_date, asset_type)
 
     # 服务端范围保护
     guard_violated = False
@@ -721,6 +775,11 @@ async def strategy_stream(
         position_policy=position_policy,
         position_policy_params=position_policy_params,
         force=force,
+        price_basis=price_basis,
+        snapshot=snapshot,
+        entry_filters=entry_filters,
+        filter_data_version=filter_data_version,
+        request_id=request_id,
     )
 
     _cleanup_stale_jobs()
@@ -732,7 +791,8 @@ async def strategy_stream(
             except json.JSONDecodeError as exc:
                 raise HTTPException(400, "回测参数必须是有效 JSON") from exc
     job, _ = (_BacktestJob(job_key), False) if guard_violated else _acquire_or_evict_job(
-        job_key, force=force, on_submit=lambda: admit_request(request, COOKIE_NAME),
+        job_key, force=force and request_id is None, on_submit=lambda: admit_request(request, COOKIE_NAME),
+        pinned_daily=snapshot_ref is not None,
     )
 
     async def event_generator():
@@ -788,6 +848,10 @@ async def strategy_stream(
                 asset_type=asset_type,
                 minute_fill=minute_fill,
                 regime_filter=json.loads(regime_filter) if regime_filter else None,
+                price_basis=price_basis,
+                snapshot=snapshot_ref,
+                entry_filters=extension_filters,
+                filter_data_version=filter_data_version,
             )
 
             def _run_backtest():
@@ -903,6 +967,11 @@ async def strategy_cancel(request: Request, _: None = Depends(require_perm(P_BAC
         position_policy=_get("position_policy") or None,
         position_policy_params=_get("position_policy_params") or None,
         force=_get_opt_bool("force"),
+        price_basis=_get("price_basis", "qfq"),
+        snapshot=_get("snapshot") or None,
+        entry_filters=_get("entry_filters") or None,
+        filter_data_version=_get("filter_data_version") or None,
+        request_id=_get("request_id") or None,
     )
     # 持锁读任务表: 与 _cleanup_stale_jobs 的 pop、stream 的写入互斥
     with _jobs_lock:
