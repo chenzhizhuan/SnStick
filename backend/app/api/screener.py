@@ -975,6 +975,7 @@ def _run_all_progressive(
                 engine=engine,
                 svc=svc,
                 as_of=as_of,
+                asset_type=asset_type,
                 ordered_ids=ordered_ids,
                 timeframe=timeframe,
                 params_map=params_map,
