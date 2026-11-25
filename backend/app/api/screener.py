@@ -840,6 +840,8 @@ def _run_all_progressive_job(
     params_map: dict,
     overrides_map: dict,
     identity: tuple,
+    version: str,
+    data_dir,
     ensure: bool = False,
 ) -> None:
     """单飞 worker 线程里逐策略执行 + 增量落缓存 (由 _run_all_progressive 在
@@ -981,6 +983,8 @@ def _run_all_progressive(
                 params_map=params_map,
                 overrides_map=overrides_map,
                 identity=identity,
+                version=version,
+                data_dir=data_dir,
                 ensure=ensure,
             )
 
