@@ -65,6 +65,12 @@ export function saveInfoFields(columns: ColumnConfig[]): void {
   storage.stockInfoBarFields.set(serializeFields(columns))
 }
 
+/** 服务端信息条布局（同步自上游 v0.4.1；本分支实际读取仍走 localStorage，仅为 API 客户端提供类型）。 */
+export interface StockInfoBarLayout {
+  fields: ColumnConfig[]
+  baseline: ColumnConfig[] | null
+}
+
 /** 序列化（此处无 pinned/action 列，直接用底座默认实现）。 */
 function serializeFields(columns: ColumnConfig[]): ColumnConfig[] {
   return serializeColumnsBase(columns)

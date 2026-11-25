@@ -1,5 +1,5 @@
 /**
- * 关于面板 — 版权、更新、打赏三个区块。
+ * 关于面板 — 版权与许可、更新和打赏。
  */
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -7,7 +7,7 @@ import { ExternalLink, CheckCircle2, Download, RefreshCw, Sparkles, Rocket, X } 
 import { useVersion } from '@/lib/useSharedQueries'
 import { useUpdateCheck } from '@/lib/updateCheck'
 import { Modal } from '@/components/Modal'
-import { OssLicenseDialog } from '@/components/OssLicenseDialog'
+import { OssLicenseDialog, TiveloLicenseNotice } from '@/components/OssLicenseDialog'
 
 export function SettingsAboutPanel() {
   const { data: versionData } = useVersion()
@@ -85,6 +85,8 @@ export function SettingsAboutPanel() {
       {/*  /!* 许可合规声明 — 醒目警示 *!/*/}
       {/*  <LicenseComplianceNotice compact />*/}
       {/*</section>*/}
+
+      <TiveloLicenseNotice />
 
       {/* ===== 更新 ===== */}
       <section className="rounded-card border border-border bg-surface p-5">

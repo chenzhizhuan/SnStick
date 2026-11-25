@@ -232,6 +232,7 @@ function DrawerHeader({
           {status.model}
         </span>
       )}
+
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <div className="relative">
           <IconButton title="助手设置" onClick={() => { setSettingsOpen(v => !v); setMenuOpen(false) }} disabled={sending}>
