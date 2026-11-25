@@ -8,8 +8,13 @@
 supervisor / Docker restart / dev 脚本拉起, 把恢复时间从"人工发现"缩短到
 约一分钟。
 
-误伤防护: 探测本身是毫秒级微型 collect + 1s 写锁试探, 阈值要求连续失败
+误伤防护: 探测本身是毫秒级微型 collect + 3s 写锁试探, 阈值要求连续失败
 (默认 2 次 × 15s 超时), 高负载下"慢而未死"不会触发。
+
+写锁试探超时 1s→3s (2026-11-25): 分钟行情全量增量轮落盘 ~600 万行需
+~2.3s 持仓库写锁, 1s 试探在落盘窗口内必然失败, 连续两次撞上即误判
+"backend wedged" 自杀重启 (当日已触发 4 次)。3s 覆盖落盘窗口; 真死锁
+(永久持锁) 仍被 3s 试探捕获, 恢复能力不变。
 """
 from __future__ import annotations
 
@@ -35,7 +40,8 @@ def default_probe(write_lock: threading.Lock | None = None) -> None:
     """
     guarded_collect(pl.LazyFrame({"probe": [1]}).sum())
     if write_lock is not None:
-        acquired = write_lock.acquire(timeout=1.0)
+        # 3s: 覆盖分钟全量落盘的 ~2.3s 持锁窗口 (见模块 docstring); 真死锁仍会超时。
+        acquired = write_lock.acquire(timeout=3.0)
         if not acquired:
             raise TimeoutError("repository write lock unavailable")
         write_lock.release()
