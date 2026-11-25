@@ -837,6 +837,7 @@ def _run_all_progressive_job(
     ordered_ids: list[str],
     timeframe: str,
     params_map: dict,
+    overrides_map: dict,
     identity: tuple,
 ) -> None:
     """单飞 worker 线程里逐策略执行 + 增量落缓存 (由 _run_all_progressive 在
