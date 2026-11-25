@@ -834,11 +834,13 @@ def _run_all_progressive_job(
     engine,
     svc: ScreenerService,
     as_of,
+    asset_type: str,
     ordered_ids: list[str],
     timeframe: str,
     params_map: dict,
     overrides_map: dict,
     identity: tuple,
+    ensure: bool = False,
 ) -> None:
     """单飞 worker 线程里逐策略执行 + 增量落缓存 (由 _run_all_progressive 在
     user_scope(uid) 内调用, 确保缓存写入正确的用户目录)。"""
@@ -978,6 +980,7 @@ def _run_all_progressive(
                 params_map=params_map,
                 overrides_map=overrides_map,
                 identity=identity,
+                ensure=ensure,
             )
 
     handle = strategy_run_queue.MANAGER.get_or_submit(
